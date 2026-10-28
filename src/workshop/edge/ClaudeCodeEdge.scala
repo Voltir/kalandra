@@ -134,7 +134,7 @@ object ClaudeCodeEdge {
         val body = new String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
         val reply = routes.answer(exchange.getRequestMethod, exchange.getRequestURI.getPath, body)
         val bytes = reply.text.getBytes(StandardCharsets.UTF_8)
-        exchange.getResponseHeaders.set("Content-Type", "text/plain; charset=utf-8")
+        exchange.getResponseHeaders.set("Content-Type", reply.contentType)
         exchange.sendResponseHeaders(reply.status, if (bytes.isEmpty) -1 else bytes.length.toLong)
         if (bytes.nonEmpty) exchange.getResponseBody.write(bytes)
       } finally exchange.close()

@@ -39,6 +39,13 @@ Every source carries `session_id`, `cwd`, `transcript_path`, `hook_event_name` a
 
 - `prompt` is the user's text (the docs did not say; seen here).
 
+## The hook and the MCP server together
+
+A sixth run, against a serve of a throwaway database on another port, with `hooks/brief-hook.sh`
+as both hooks and the edge's `/mcp` given by `--mcp-config`: the session named the artifact of the
+brief claimed for its directory's slot, called `mcp__workshop__project_show` on it and quoted it,
+and a subagent named the one claimed for `probe/<sha1>`.
+
 ## Cost of the spike
 
 | Run | What | Cost |
@@ -48,5 +55,6 @@ Every source carries `session_id`, `cwd`, `transcript_path`, `hook_event_name` a
 | 3 | resume, ask what survived | 0.360¢ |
 | 4 | fork | 0.400¢ |
 | 5 | resume, `/clear` | 0¢ |
+| 6 | the hook and `/mcp` end to end | 0.240¢ |
 
-1.17¢ in all, from each run's `total_cost_usd`.
+1.41¢ in all, from each run's `total_cost_usd`.

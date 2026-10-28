@@ -22,7 +22,10 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   `name` with the body, a JSON object, as its arguments, as the account in the room, believed at
   member (the integrity the deployment declares for its room, which grit meets with the room's
   cap). It answers the command's text with 200, a refusal with 409, and an error with its own
-  status. The edge also vouches for the account, the one member of its realm `workshop:local`,
+  status. `POST /mcp` serves the same commands as MCP tools (streamable HTTP, one JSON reply per
+  message, no session): `initialize`, `ping`, `tools/list` (`project_release` taking `for` there
+  too) and `tools/call`, run as `/command` runs it; a command that did not answer 200 is a tool
+  error carrying its text. The edge also vouches for the account, the one member of its realm `workshop:local`,
   so a person is linked to it before the first command. It holds no transaction.
 - **Brief files.** A `project_claim` that is done through the edge also writes its brief
   (`project_brief` for the claim's key and role) to a file a session hook reads:
@@ -90,6 +93,17 @@ after `/compact` (each resume injects it again). What a test hook saw of these e
   }
 }
 ```
+
+## The MCP server
+
+Claude Code reaches the commands as tools (`mcp__workshop__project_show`, …) through serve's
+`/mcp`. To add it for grit's checkout alone, run there:
+
+```bash
+claude mcp add --scope local --transport http workshop http://127.0.0.1:7317/mcp
+```
+
+With serve down, a session starts without the tools.
 
 ## Importing grit's planning tree
 

@@ -8,12 +8,25 @@ import grit.core.plugin.Answered
 import grit.core.tool.ToolName
 import grit.core.visibility.Integrity
 
-/** What the edge answers one request: an HTTP status, and its text. */
-final case class Reply(status: Int, text: String) extends caps.Pure
+/** What the edge answers one request: an HTTP status, its text, and that text's content type. */
+final case class Reply(status: Int, text: String, contentType: String = Reply.PlainText)
+    extends caps.Pure
+
+object Reply {
+
+  /** `text/plain; charset=utf-8`. */
+  val PlainText: String = "text/plain; charset=utf-8"
+
+  /** `application/json`. */
+  val Json: String = "application/json"
+}
 
 /** The edge's routes, each request run as `owner` in `room`, believed at `believed`, dated by
   * `clock`. `POST /command/<name>` runs the command `name` with its body, a JSON object, as its
-  * arguments (an empty body: none). Nothing else runs anything.
+  * arguments (an empty body: none). `POST /mcp` takes one [[Mcp]] message: `initialize`, `ping`,
+  * `tools/list` (the commands offered) and `tools/call`, which runs an offered command as
+  * `/command/<name>` would, its text the content, an error unless that answered 200. Nothing
+  * else runs anything.
   *
   * `project_claim`'s `for` is passed on as [[BriefFiles.slot]] maps it; once the claim is done,
   * `project_brief` for its key and role is written to that slot's file in `briefs`.
@@ -35,20 +48,47 @@ final class Routes(
     * other path; 405 for a command not posted; 400 for a body that is no JSON object, or
     * arguments the command does not read; 403 for an owner no person is linked to; 500 when the
     * command's store call failed; 503 when the database could not be reached. Only a 200 kept
-    * anything.
+    * anything. At [[Routes.McpPath]]: a POST answered as [[Mcp]] says, anything else 405.
     */
   def answer(method: String, path: String, body: String): Reply =
-    path.stripPrefix(Routes.Command) match {
-      case name if name == path || name.isEmpty || name.contains('/') =>
-        Reply(404, s"no route $path; commands are posted to ${Routes.Command}<name>")
-      case _ if method != "POST" => Reply(405, s"post a command; $method runs nothing")
-      case raw =>
-        (ToolName.of(raw), arguments(body)) match {
-          case (Left(_), _) => Reply(404, s"no command is named $raw")
-          case (_, Left(why)) => Reply(400, why)
-          case (Right(name), Right(args)) => routed(name, args)
-        }
-    }
+    if (path == Routes.McpPath) {
+      if (method == "POST") mcp(body)
+      else Reply(405, s"post a JSON-RPC message; $method runs nothing")
+    } else
+      path.stripPrefix(Routes.Command) match {
+        case name if name == path || name.isEmpty || name.contains('/') =>
+          Reply(404, s"no route $path; commands are posted to ${Routes.Command}<name>")
+        case _ if method != "POST" => Reply(405, s"post a command; $method runs nothing")
+        case raw =>
+          (ToolName.of(raw), arguments(body)) match {
+            case (Left(_), _) => Reply(404, s"no command is named $raw")
+            case (_, Left(why)) => Reply(400, why)
+            case (Right(name), Right(args)) => routed(name, args)
+          }
+      }
+
+  /** One MCP message, answered; a call to a command not offered runs nothing. */
+  private def mcp(body: String): Reply = Mcp.read(body) match {
+    case Left(error) => error
+    case Right(Mcp.Message.Notice) => Reply(202, "")
+    case Right(Mcp.Message.Request(id, method, params)) =>
+      method match {
+        case "initialize" => Mcp.initialized(id, params)
+        case "ping" => Mcp.result(id, ujson.Obj())
+        case "tools/list" => Mcp.result(id, Mcp.tools(commands.offered))
+        case "tools/call" =>
+          Mcp
+            .call(params)
+            .filterOrElse(
+              c => commands.offered.exists(_.name == ToolName.value(c._1)),
+              s"no tool is named ${params.value.get("name").flatMap(_.strOpt).getOrElse("")}"
+            ) match {
+            case Left(why) => Mcp.failed(id, Mcp.InvalidParams, why)
+            case Right((name, args)) => Mcp.called(id, routed(name, args))
+          }
+        case other => Mcp.failed(id, Mcp.MethodNotFound, s"no method is named $other")
+      }
+  }
 
   /** `name` run with `args`, keeping the brief file of a claim or release that is done. */
   private def routed(name: ToolName, args: ujson.Obj): Reply = ToolName.value(name) match {
@@ -109,8 +149,11 @@ object Routes {
   /** `/command/`: where a command is posted, its name after. */
   val Command: String = "/command/"
 
+  /** `/mcp`: where MCP messages are posted. */
+  val McpPath: String = "/mcp"
+
   private val Claim = "project_claim"
-  private val Release = "project_release"
+  private[edge] val Release = "project_release"
   private val Brief = ToolName("project_brief")
 
   private def replied(ran: Either[CommandError, Answered]): Reply = ran match {

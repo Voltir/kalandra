@@ -34,10 +34,11 @@ object RoutesTests extends TestSuite {
     */
   private final class Recording(
       answer: Either[CommandError, Answered],
-      briefs: Vector[String] = Vector.empty
+      briefs: Vector[String] = Vector.empty,
+      tools: Vector[ToolSchema] = Offered
   ) extends PluginCommands {
     val ran = scala.collection.mutable.ArrayBuffer.empty[Ran]
-    def offered: Vector[ToolSchema] = Vector.empty
+    def offered: Vector[ToolSchema] = tools
     def run(
         by: Account,
         room: Place,
@@ -54,6 +55,10 @@ object RoutesTests extends TestSuite {
   }
 
   private val Brief = ToolName("project_brief")
+
+  /** What [[Recording]] offers unless told otherwise: the commands these tests run. */
+  private def Offered: Vector[ToolSchema] =
+    Vector("project_show", "project_claim").map(n => ToolSchema(n, s"$n.", keyed()))
 
   private val at = Instant.parse("2026-10-27T12:00:00Z")
 
@@ -78,6 +83,38 @@ object RoutesTests extends TestSuite {
     val commands = new Recording(answer, briefs)
     (new Routes(commands, owner, room, Integrity.Member, Stopped, new BriefFiles(dir)), commands)
   }
+
+  /** Routes over [[Recording]] commands offering `tools`. */
+  private def offering(tools: Vector[ToolSchema]): (Routes^, Recording^) = {
+    val commands = new Recording(Right(Answered.Done("shown")), Vector.empty, tools)
+    val dir = Files.createTempDirectory("briefs")
+    (new Routes(commands, owner, room, Integrity.Member, Stopped, new BriefFiles(dir)), commands)
+  }
+
+  /** A JSON-RPC request to `method` with `params`, as `id` 7. */
+  private def request(method: String, params: ujson.Value): String =
+    ujson.write(ujson.Obj("jsonrpc" -> "2.0", "id" -> 7, "method" -> method, "params" -> params))
+
+  /** `reply`'s status, and its text read as JSON (none when it is not). */
+  private def rpc(reply: Reply): (Int, Option[ujson.Value]) =
+    (reply.status, scala.util.Try(ujson.read(reply.text)).toOption)
+
+  /** A JSON-RPC response to `id` 7 with `result`. */
+  private def result(value: ujson.Value): Option[ujson.Value] =
+    Some(ujson.Obj("jsonrpc" -> "2.0", "id" -> 7, "result" -> value))
+
+  /** A JSON-RPC error response to `id` with `code`, whatever its message. */
+  private def errorCode(reply: Reply): (Int, Option[(ujson.Value, Double)]) = {
+    val (status, json) = rpc(reply)
+    (status, json.flatMap(j => scala.util.Try((j("id"), j("error")("code").num)).toOption))
+  }
+
+  private def keyed(extra: (String, ujson.Value)*): ujson.Value =
+    ujson.Obj(
+      "type" -> "object",
+      "properties" -> ujson.Obj.from(Seq("key" -> ujson.Obj("type" -> "string")) ++ extra),
+      "required" -> ujson.Arr.from(Seq[ujson.Value]("key") ++ extra.map(e => ujson.Str(e._1)))
+    )
 
   /** The names of the files in `dir`, sorted. */
   private def listed(dir: Path): Vector[String] =
@@ -180,6 +217,171 @@ object RoutesTests extends TestSuite {
       val (routes, commands) = routed(Right(Answered.Done("kept")))
       Vector("{not json", "[1]").map(routes.answer("POST", "/command/project_keep", _).status) ==>
         Vector(400, 400)
+      commands.ran.size ==> 0
+    }
+
+    test("initialize answers the protocol version asked for, or the latest, and offers tools") {
+      val (routes, commands) = offering(Vector.empty)
+      def initialize(version: String) =
+        rpc(
+          routes.answer(
+            "POST",
+            "/mcp",
+            request(
+              "initialize",
+              ujson.Obj(
+                "protocolVersion" -> version,
+                "capabilities" -> ujson.Obj(),
+                "clientInfo" -> ujson.Obj("name" -> "claude-code", "version" -> "2.1.303")
+              )
+            )
+          )
+        )
+      def answered(version: String) = (
+        200,
+        result(
+          ujson.Obj(
+            "protocolVersion" -> version,
+            "capabilities" -> ujson.Obj("tools" -> ujson.Obj("listChanged" -> false)),
+            "serverInfo" -> ujson.Obj("name" -> "workshop", "version" -> "1")
+          )
+        )
+      )
+      Vector(initialize("2025-03-26"), initialize("1999-01-01")) ==>
+        Vector(answered("2025-03-26"), answered("2025-11-25"))
+      commands.ran.size ==> 0
+    }
+
+    test("a notification is accepted with 202 and no body, and runs nothing") {
+      val (routes, commands) = offering(Vector.empty)
+      routes.answer(
+        "POST",
+        "/mcp",
+        """{"jsonrpc":"2.0","method":"notifications/initialized"}"""
+      ) ==> Reply(202, "")
+      commands.ran.size ==> 0
+    }
+
+    test("tools/list lists each offered command, project_release taking `for` as well") {
+      val (routes, _) = offering(
+        Vector(
+          ToolSchema("project_show", "Shows an artifact.", keyed()),
+          ToolSchema("project_release", "Releases a claim.", keyed())
+        )
+      )
+      val forSlot = "for" -> ujson.Obj(
+        "type" -> "string",
+        "description" -> "The slot the claim was for, whose brief file is deleted."
+      )
+      routes.answer("POST", "/mcp", request("tools/list", ujson.Obj())).contentType ==> Reply.Json
+      rpc(routes.answer("POST", "/mcp", request("tools/list", ujson.Obj()))) ==> (
+        200,
+        result(
+          ujson.Obj(
+            "tools" -> ujson.Arr(
+              ujson.Obj(
+                "name" -> "project_show",
+                "description" -> "Shows an artifact.",
+                "inputSchema" -> keyed()
+              ),
+              ujson.Obj(
+                "name" -> "project_release",
+                "description" -> "Releases a claim.",
+                "inputSchema" -> keyed(forSlot)
+              )
+            )
+          )
+        )
+      )
+    }
+
+    test("tools/call runs the command as /command does, its text the content") {
+      val (routes, commands) = routed(Right(Answered.Done("shown")))
+      rpc(
+        routes.answer(
+          "POST",
+          "/mcp",
+          request(
+            "tools/call",
+            ujson.Obj("name" -> "project_show", "arguments" -> ujson.Obj("key" -> "m17/s6"))
+          )
+        )
+      ) ==> (
+        200,
+        result(
+          ujson.Obj(
+            "content" -> ujson.Arr(ujson.Obj("type" -> "text", "text" -> "shown")),
+            "isError" -> false
+          )
+        )
+      )
+      commands.ran.toVector ==> Vector(
+        Ran(
+          owner,
+          room,
+          Integrity.Member,
+          ToolName("project_show"),
+          ujson.Obj("key" -> "m17/s6"),
+          at
+        )
+      )
+      val dir = Files.createTempDirectory("briefs")
+      val (claiming, _) = routedBy(Right(Answered.Done("Claimed.")), Vector("# m17/s8\n"), dir)
+      val (refusing, _) = routed(Right(Answered.Refused("claimed already")))
+      Vector(claiming, refusing).map(r =>
+        rpc(
+          r.answer(
+            "POST",
+            "/mcp",
+            request(
+              "tools/call",
+              ujson.Obj("name" -> "project_claim", "arguments" -> ujson.read(claim))
+            )
+          )
+        )._2.map(_("result"))
+      ) ==> Vector(
+        Some(
+          ujson.Obj(
+            "content" -> ujson.Arr(ujson.Obj("type" -> "text", "text" -> "Claimed.")),
+            "isError" -> false
+          )
+        ),
+        Some(
+          ujson.Obj(
+            "content" -> ujson.Arr(ujson.Obj("type" -> "text", "text" -> "claimed already")),
+            "isError" -> true
+          )
+        )
+      )
+      listed(dir) ==> Vector("coder-opus__3f2a.md")
+    }
+
+    test("an unknown method, a call naming no command, or no JSON-RPC: an error, nothing run") {
+      val (routes, commands) = routed(Right(Answered.Done("kept")))
+      Vector(
+        routes.answer("POST", "/mcp", request("resources/list", ujson.Obj())),
+        routes.answer("POST", "/mcp", request("tools/call", ujson.Obj("arguments" -> ujson.Obj()))),
+        routes.answer(
+          "POST",
+          "/mcp",
+          request("tools/call", ujson.Obj("name" -> "project_move", "arguments" -> ujson.Obj()))
+        ),
+        routes.answer(
+          "POST",
+          "/mcp",
+          request("tools/call", ujson.Obj("name" -> "project_show", "arguments" -> ujson.Arr()))
+        ),
+        routes.answer("POST", "/mcp", "{not json"),
+        routes.answer("POST", "/mcp", """[{"jsonrpc":"2.0","id":1,"method":"ping"}]""")
+      ).map(errorCode) ==> Vector(
+        (200, Some((ujson.Num(7), -32601.0))),
+        (200, Some((ujson.Num(7), -32602.0))),
+        (200, Some((ujson.Num(7), -32602.0))),
+        (200, Some((ujson.Num(7), -32602.0))),
+        (400, Some((ujson.Null, -32700.0))),
+        (400, Some((ujson.Null, -32600.0)))
+      )
+      routes.answer("GET", "/mcp", "").status ==> 405
       commands.ran.size ==> 0
     }
 
