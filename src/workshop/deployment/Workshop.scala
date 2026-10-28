@@ -26,6 +26,7 @@ import grit.core.visibility.{
   Visibility
 }
 import grit.kit.deployment.{Assembly, Deployment, Offer, Offered, Placer, Rounds, Seed}
+import grit.projects.method.{Example, Method}
 import grit.projects.plugin.Projects
 
 import workshop.edge.ClaudeCodeEdge
@@ -97,7 +98,7 @@ object Workshop {
       rounds <- Rounds.of(4)
       methods <- GritMethod.all.left.map(_.mkString("; "))
       projects <- Projects
-        .of(methods, GritMethod.Name)
+        .of(methods.map((m: Method) => (m, Vector.empty[Example])), GritMethod.Name)
         .left
         .map(_.toString)
       visible <- visibility(checkout)
