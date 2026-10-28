@@ -6,7 +6,10 @@ outside grit builds. Package `workshop`, outside `grit` on purpose, so the compi
 as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 
 - **The projects plugin** (ADR 0049), under one method, `grit` (`workshop.method`): grit's own
-  process as data, milestones, stages, ideas and mechanisms.
+  process as data. Version 1 (milestones, stages, ideas, mechanisms) is kept because the project
+  `restore-check` is pinned to its digest; version 2, the latest and so what a new project holds
+  to, has the kinds grit's planning tree imports into: milestones (later, next, now, parallel,
+  done), plans with their stages and sections, mechanisms and notes.
 - **One account, one room.** Its account is `workshop:local/nick`; its room is the grit
   checkout's directory (`WORKSHOP_CHECKOUT`, default `$HOME/Projects/grit`), declared internal,
   and the account alone is cleared for internal. Every other room is unmapped, so a command
@@ -25,8 +28,9 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 
 It compiles under grit's flags (`-no-indent`, capture and separation checking, `-Werror`).
 
-Packages, in one-way order: `method` (the method's data) → `edge` → `deployment` → `main`
-(`serve`, `export`).
+Packages, in one-way order: `method` (the method's data) → `edge` (and its client) →
+`deployment` → `importer` (grit's planning tree → export-shaped files → `project_keep` over
+HTTP) → `main` (`serve`, `export`, `import`, `verify`).
 
 ## Build and run
 
@@ -44,6 +48,17 @@ bin/workshop export m17 /tmp/m17        # the project's export files, through a 
 ```
 
 A command through `bin/workshop` fails loud, exit 2, when serve is not running.
+
+## Importing grit's planning tree
+
+`bin/workshop import <grit checkout>` reads `roadmap/` (the roadmap, `done.md`, the other notes,
+`mechanisms/`), `.local/backlog/` and the open plans (those the roadmap names outside Done and
+the Update Protocol) and keeps them, through a running serve, as the project `grit`, under the
+mapping `workshop.importer.Importer` documents. It only ever adds and changes: an artifact whose
+source went away stays. A second run over an unchanged tree writes nothing; `--dry-run` writes
+no artifact, and also checks the import against its own normal form. `bin/workshop verify <grit
+checkout>` checks the stored project holds the tree whole (`Fidelity.problems`) and is at the
+round-trip law's normal form; it exits non-zero on any problem. The tree is only read.
 
 ## Backups and the restore test
 

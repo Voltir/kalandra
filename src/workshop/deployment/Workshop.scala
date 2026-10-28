@@ -95,9 +95,9 @@ object Workshop {
     for {
       catalog <- Seed.catalog
       rounds <- Rounds.of(4)
-      method <- GritMethod.of.left.map(_.mkString("; "))
+      methods <- GritMethod.all.left.map(_.mkString("; "))
       projects <- Projects
-        .of(Vector(method), GritMethod.Name)
+        .of(methods, GritMethod.Name)
         .left
         .map(_.toString)
       visible <- visibility(checkout)
