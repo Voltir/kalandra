@@ -21,19 +21,20 @@ final case class Report(
     kinds: Map[String, Int],
     keeps: Int,
     moves: Int,
+    described: Vector[String],
     refused: Vector[(String, String)],
     unmoved: Vector[(String, String)],
     failed: Vector[(String, String)],
     problems: Vector[String]
 ) extends caps.Pure {
 
-  /** The report, a line each. */
+  /** The report, a line each: the summary, then each write described, then what was refused. */
   def lines: Vector[String] =
     Vector(
       s"sources: $sources",
       s"artifacts: ${kinds.values.sum} (${kinds.toVector.sorted.map((k, n) => s"$k $n").mkString(", ")})",
       s"writes: ${keeps + moves} ($keeps keeps, $moves moves), ${refused.size} refused, ${unmoved.size} unmoved"
-    ) ++ refused.map((k, why) => s"refused: $k: $why") ++
+    ) ++ described ++ refused.map((k, why) => s"refused: $k: $why") ++
       unmoved.map((k, why) => s"unmoved: $k: $why") ++
       failed.map((p, why) => s"not imported: $p: $why") ++ problems.map(p => s"problem: $p")
 }
@@ -80,6 +81,7 @@ object Imports {
         .toMap,
       writes.count(_.command == "project_keep"),
       writes.count(_.command == "project_move"),
+      synced.described,
       refused,
       synced.unmoved,
       read.imported.failed,

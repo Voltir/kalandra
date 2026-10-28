@@ -29,10 +29,15 @@ enum Write extends caps.Pure {
   }
 }
 
-/** What the import writes ([[Sync.writes]]): the writes, and each milestone move it could not
-  * make, as `move <key> to <state>` with why.
+/** What the import writes ([[Sync.writes]]): the writes; each milestone move it could not make,
+  * as `move <key> to <state>` with why; and each write's line, what a keep changes or a move's
+  * from and to.
   */
-final case class Synced(writes: Vector[Write], unmoved: Vector[(String, String)]) extends caps.Pure
+final case class Synced(
+    writes: Vector[Write],
+    unmoved: Vector[(String, String)],
+    described: Vector[String]
+) extends caps.Pure
 
 /** What an import writes to a project already holding `existing`. */
 object Sync {
@@ -64,15 +69,25 @@ object Sync {
         .toLeft(())
       ordered = desired.artifacts.sortBy(a => depth(desired, a))
       keeps = kept(ordered, held)
+      wanted = desired.artifacts.map(a => a.head.key -> a).toMap
       moves <- ordered.reverse.foldLeft[Either[String, Synced]](
-        Right(Synced(Vector.empty, Vector.empty))
+        Right(Synced(Vector.empty, Vector.empty, Vector.empty))
       ) { (done, a) =>
         for {
           s <- done
           step <- moved(method, held.get(a.head.key), a)
-        } yield Synced(s.writes ++ step.writes, s.unmoved ++ step.unmoved)
+        } yield Synced(
+          s.writes ++ step.writes,
+          s.unmoved ++ step.unmoved,
+          s.described ++ step.described
+        )
       }
-    } yield Synced(keeps ++ moves.writes, moves.unmoved)
+      keepLines = keeps.flatMap {
+        case Write.Keep(k, _) =>
+          wanted.get(k).map(a => s"keep ${k.value}: ${changes(held.get(k), a)}").toVector
+        case Write.Move(_, _) => Vector.empty
+      }
+    } yield Synced(keeps ++ moves.writes, moves.unmoved, keepLines ++ moves.described)
 
   /** The moves `a` gets, given the artifact `existing` holds under its key, if any. A new
     * artifact is moved from its kind's first state. An existing one that is no milestone keeps
@@ -82,23 +97,47 @@ object Sync {
   private def moved(method: Method, held: Option[Artifact], a: Artifact): Either[String, Synced] =
     held match {
       case Some(_) if KindName.value(a.head.kind) != "milestone" =>
-        Right(Synced(Vector.empty, Vector.empty))
+        Right(Synced(Vector.empty, Vector.empty, Vector.empty))
       case Some(h) =>
         Right(
           way(method, a.head.kind, h.head.state, a.head.state).fold(
             why =>
               Synced(
                 Vector.empty,
-                Vector(s"move ${a.head.key.value} to ${StateName.value(a.head.state)}" -> why)
+                Vector(s"move ${a.head.key.value} to ${StateName.value(a.head.state)}" -> why),
+                Vector.empty
               ),
-            path => Synced(path.map(Write.Move(a.head.key, _)), Vector.empty)
+            path => walk(a, h.head.state, path)
           )
         )
       case None =>
         first(method, a.head.kind)
           .toRight(s"${KindName.value(a.head.kind)} is no kind of the method")
-          .flatMap(from => way(method, a.head.kind, from, a.head.state))
-          .map(path => Synced(path.map(Write.Move(a.head.key, _)), Vector.empty))
+          .flatMap(from => way(method, a.head.kind, from, a.head.state).map(walk(a, from, _)))
+    }
+
+  /** The moves of `a` along `path` from `from`, each with its line: the state it leaves and the
+    * state it takes.
+    */
+  private def walk(a: Artifact, from: StateName, path: Vector[StateName]): Synced = {
+    val steps = (from +: path.dropRight(1)).zip(path).map { (f, t) =>
+      (
+        Write.Move(a.head.key, t),
+        s"move ${a.head.key.value}: state ${StateName.value(f)} to ${StateName.value(t)}"
+      )
+    }
+    Synced(steps.map(_._1), Vector.empty, steps.map(_._2))
+  }
+
+  /** What keeping `a` changes from what `held` holds under its key, or `new` when nothing is. */
+  private def changes(held: Option[Artifact], a: Artifact): String =
+    held.fold("new") { h =>
+      Vector(
+        Option.when(h.head.title != a.head.title)("title"),
+        Option.when(h.head.parent != a.head.parent)("parent"),
+        Option.when(h.head.cites != a.head.cites)("cites"),
+        Option.when(h.body != a.body)("body")
+      ).flatten.mkString(", ")
     }
 
   private def kept(ordered: Vector[Artifact], held: Map[ArtifactKey, Artifact]): Vector[Write] = {

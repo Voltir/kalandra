@@ -1,6 +1,7 @@
 package workshop.importer
 
 import grit.projects.artifact.{Body, Project}
+import grit.projects.name.KindName
 import grit.prose.form.{Mark, Span}
 import grit.prose.markdown.Markdown
 
@@ -17,7 +18,7 @@ object Fidelity {
     * source whose lines are not each in exactly one artifact (a source with a part that failed
     * to import excepted: [[Imported.failed]] names it); an artifact's text that differs from its
     * source's lines other than in a link's target; an artifact missing from `stored`, or whose
-    * head (kind, state, title, parent, cites) differs, or whose body differs from its text
+    * head (kind, title, parent, cites, and a milestone's state) differs, or whose body differs from its text
     * under [[normalise]]; and an artifact of `stored` the import did not draft.
     */
   def problems(sources: Vector[Source], imported: Imported, stored: Project): Vector[String] = {
@@ -52,9 +53,12 @@ object Fidelity {
         case None => Vector(s"$key: not stored")
         case Some(s) =>
           val h = s.head
+          // A milestone's state is the roadmap's; any other artifact's is its store's, so not compared.
+          val stateCompared = KindName.value(a.head.kind) == "milestone"
           val head = Option.when(
-            (h.kind, h.state, h.title, h.parent, h.cites) !=
-              (a.head.kind, a.head.state, a.head.title, a.head.parent, a.head.cites)
+            (h.kind, h.title, h.parent, h.cites) !=
+              (a.head.kind, a.head.title, a.head.parent, a.head.cites) ||
+              (stateCompared && h.state != a.head.state)
           )(s"$key: its stored head differs")
           val body = provenance.collect {
             case p if normalise(p.text) != normalise(Body.markdown(s.body)) =>

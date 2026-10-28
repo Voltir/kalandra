@@ -252,5 +252,17 @@ object ImporterTests extends TestSuite {
         )
       )
     }
+
+    test("verify accepts a stage advanced in the store") {
+      val held = restated(stored(imported.project), "plan-m3-s1-documents", "building")
+      Fidelity.problems(Fixture.sources, imported, held) ==> Vector.empty
+    }
+
+    test("verify still compares a milestone's stored state") {
+      val held = restated(stored(imported.project), "slack-joins", "done")
+      Fidelity.problems(Fixture.sources, imported, held) ==> Vector(
+        s"${key("slack-joins").value}: its stored head differs"
+      )
+    }
   }
 }
