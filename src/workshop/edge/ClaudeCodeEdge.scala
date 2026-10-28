@@ -2,6 +2,7 @@ package workshop.edge
 
 import java.net.{InetAddress, InetSocketAddress}
 import java.nio.charset.StandardCharsets
+import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicBoolean
 
 import grit.core.clock.Clock
@@ -46,7 +47,7 @@ final class ClaudeCodeEdge(owner: Account, realm: Realm, room: Place, believed: 
         .before(source, owner)
         .left
         .map(why => EdgeRefusal.Failed(s"${Account.written(owner)} is not vouched: $why"))
-      routes = new Routes(stores.commands, owner, room, believed, clock)
+      routes = new Routes(stores.commands, owner, room, believed, clock, ClaudeCodeEdge.briefs(env))
       server <- scala.util
         .Try(HttpServer.create(at, 0))
         .toEither
@@ -57,7 +58,8 @@ final class ClaudeCodeEdge(owner: Account, realm: Realm, room: Place, believed: 
       // checking no longer tracks them, with no caps.unsafe asked for. Sound because only `open`
       // hands it the handler, before it starts, and `close` stops it once, through an
       // AtomicBoolean; its handler threads hold only immutable values (the `PluginCommands` and
-      // `Clock` capabilities, both shared, and the room's settings), so no tracked effect is
+      // `Clock` capabilities, both shared, the room's settings and the briefs' directory; two
+      // writes of one brief each move a whole file into place), so no tracked effect is
       // observed through it outside this edge's Open.
       server.createContext("/", new ClaudeCodeEdge.Handler(routes))
       server.start()
@@ -97,6 +99,22 @@ object ClaudeCodeEdge {
         } yield new InetSocketAddress(host, port)).toRight(malformed)
     }
   }
+
+  /** The variable naming the brief files' directory: `WORKSHOP_BRIEFS`. */
+  val BriefsVar: String = "WORKSHOP_BRIEFS"
+
+  /** The brief files in the directory `env` names, by default
+    * `$HOME/.local/state/workshop/briefs`.
+    */
+  def briefs(env: Map[String, String]): BriefFiles =
+    new BriefFiles(
+      env
+        .get(BriefsVar)
+        .filter(_.trim.nonEmpty)
+        .fold(Paths.get(env.getOrElse("HOME", ""), ".local", "state", "workshop", "briefs"))(
+          Paths.get(_)
+        )
+    )
 
   private def shown(at: InetSocketAddress): String =
     s"${at.getAddress.getHostAddress}:${at.getPort}"

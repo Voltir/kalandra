@@ -24,6 +24,12 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   cap). It answers the command's text with 200, a refusal with 409, and an error with its own
   status. The edge also vouches for the account, the one member of its realm `workshop:local`,
   so a person is linked to it before the first command. It holds no transaction.
+- **Brief files.** A `project_claim` that is done through the edge also writes its brief
+  (`project_brief` for the claim's key and role) to a file a session hook reads:
+  `${WORKSHOP_BRIEFS:-$HOME/.local/state/workshop/briefs}/<slot>.md`, the slot being the
+  claim's `for`, lower-cased with every character outside a slug part written `-`, and each `/`
+  written `__` in the file's name. It is replaced whole, through a file beside it. A
+  `project_release` through the edge takes `for` too, and once done deletes that file.
 - It names grit's kit, core, prose and the projects plugin alone.
 
 It compiles under grit's flags (`-no-indent`, capture and separation checking, `-Werror`).

@@ -14,13 +14,20 @@ final case class Reply(status: Int, text: String) extends caps.Pure
 /** The edge's routes, each request run as `owner` in `room`, believed at `believed`, dated by
   * `clock`. `POST /command/<name>` runs the command `name` with its body, a JSON object, as its
   * arguments (an empty body: none). Nothing else runs anything.
+  *
+  * `project_claim`'s `for` is passed on as [[BriefFiles.slot]] maps it; once the claim is done,
+  * `project_brief` for its key and role is written to that slot's file in `briefs`.
+  * `project_release` here also takes `for` (400 without it), which it does not pass on; once
+  * the release is done, that slot's file is deleted. A file that cannot be written or deleted,
+  * or a brief refused, is said after the command's text; the command stays done.
   */
 final class Routes(
     commands: PluginCommands,
     owner: Account,
     room: Place,
     believed: Integrity,
-    clock: Clock^
+    clock: Clock^,
+    briefs: BriefFiles
 ) {
 
   /** `method` at `path` with `body`, answered: the command's text with 200 when it did what it
@@ -39,12 +46,56 @@ final class Routes(
         (ToolName.of(raw), arguments(body)) match {
           case (Left(_), _) => Reply(404, s"no command is named $raw")
           case (_, Left(why)) => Reply(400, why)
-          case (Right(name), Right(args)) =>
-            Routes.replied(commands.run(owner, room, believed, name, args, clock.now()))
+          case (Right(name), Right(args)) => routed(name, args)
         }
     }
 
-  private def arguments(body: String): Either[String, ujson.Value] =
+  /** `name` run with `args`, keeping the brief file of a claim or release that is done. */
+  private def routed(name: ToolName, args: ujson.Obj): Reply = ToolName.value(name) match {
+    case Routes.Claim =>
+      val slot = text(args, "for").map(BriefFiles.slot)
+      val claimed = ran(name, slot.fold(args)(s => replaced(args, "for", Some(s))))
+      (claimed.status, slot, text(args, "key"), text(args, "role")) match {
+        case (200, Some(s), Some(key), Some(role)) =>
+          val brief = ran(Routes.Brief, ujson.Obj("key" -> key, "role" -> role))
+          (if (brief.status == 200) briefs.write(s, brief.text) else Left(brief.text))
+            .fold(
+              why => Reply(200, s"${claimed.text}\nNo brief file was written: $why"),
+              _ => claimed
+            )
+        case _ => claimed
+      }
+    case Routes.Release =>
+      text(args, "for").map(BriefFiles.slot) match {
+        case None =>
+          Reply(400, "project_release here takes `for`, the slot whose brief file it deletes")
+        case Some(s) =>
+          val released = ran(name, replaced(args, "for", None))
+          if (released.status != 200) released
+          else
+            briefs
+              .delete(s)
+              .fold(
+                why => Reply(200, s"${released.text}\nThe brief file stays: $why"),
+                _ => released
+              )
+      }
+    case _ => ran(name, args)
+  }
+
+  private def ran(name: ToolName, args: ujson.Obj): Reply =
+    Routes.replied(commands.run(owner, room, believed, name, args, clock.now()))
+
+  private def text(args: ujson.Obj, field: String): Option[String] =
+    args.value.get(field).flatMap(_.strOpt)
+
+  /** `args` with `field` set to `to`, or left out when `to` is none; `args` itself unchanged. */
+  private def replaced(args: ujson.Obj, field: String, to: Option[String]): ujson.Obj =
+    ujson.Obj.from(
+      args.value.toSeq.filterNot(_._1 == field) ++ to.map(t => field -> (ujson.Str(t): ujson.Value))
+    )
+
+  private def arguments(body: String): Either[String, ujson.Obj] =
     if (body.trim.isEmpty) Right(ujson.Obj())
     else
       scala.util.Try(ujson.read(body)).toOption match {
@@ -57,6 +108,10 @@ object Routes {
 
   /** `/command/`: where a command is posted, its name after. */
   val Command: String = "/command/"
+
+  private val Claim = "project_claim"
+  private val Release = "project_release"
+  private val Brief = ToolName("project_brief")
 
   private def replied(ran: Either[CommandError, Answered]): Reply = ran match {
     case Right(Answered.Done(text)) => Reply(200, text)
