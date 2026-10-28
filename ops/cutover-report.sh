@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The cutover report for grit's planning tree in the project `grit` (S7's criteria (a)-(c)):
 #
-#   (a) the round trip on real data: `workshop verify` (the stored project at the round-trip
+#   (a) the round trip on real data: `kalandra verify` (the stored project at the round-trip
 #       law's normal form, and every source line in exactly one artifact, its text in that
 #       artifact's body under normalise), after an import that must write nothing;
 #   (b) the daily reads, each timed beside its markdown equivalent (the median of 5 runs):
@@ -11,16 +11,16 @@
 #
 #   ops/cutover-report.sh [grit checkout]     default $HOME/Projects/grit
 #
-# The checkout is only read. A serve already answering WORKSHOP_LISTEN (default
-# 127.0.0.1:7317) is used; otherwise one is started on grit_workshop and stopped by its PID.
+# The checkout is only read. A serve already answering KALANDRA_LISTEN (default
+# 127.0.0.1:7317) is used; otherwise one is started on grit_kalandra and stopped by its PID.
 # Exits 0 only when the import wrote nothing, verify found no problem and the restore passed.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-workshop="$root/bin/workshop"
+kalandra="$root/bin/kalandra"
 grit="${1:-$HOME/Projects/grit}"
-listen="${WORKSHOP_LISTEN:-127.0.0.1:7317}"
-export WORKSHOP_LISTEN="$listen"
+listen="${KALANDRA_LISTEN:-127.0.0.1:7317}"
+export KALANDRA_LISTEN="$listen"
 work="$(mktemp -d)"
 started=()
 
@@ -36,25 +36,25 @@ trap cleanup EXIT
 if curl -s -o /dev/null -X POST "http://$listen/command/project_list" -d '{}'; then
   echo "using the serve at $listen"
 else
-  GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/grit_workshop" \
-    "$workshop" serve >"$work/serve.log" 2>&1 &
+  GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/grit_kalandra" \
+    "$kalandra" serve >"$work/serve.log" 2>&1 &
   started+=("$!")
   for _ in $(seq 1 120); do
     grep -q "serving commands" "$work/serve.log" && break
     kill -0 "$!" 2>/dev/null || { tail -20 "$work/serve.log" >&2; exit 1; }
     sleep 0.5
   done
-  echo "serving grit_workshop at $listen"
+  echo "serving grit_kalandra at $listen"
 fi
 
 echo
 echo "== the import, again: it must write nothing"
-"$workshop" import "$grit" | tee "$work/import.txt"
+"$kalandra" import "$grit" | tee "$work/import.txt"
 grep -q '^writes: 0 ' "$work/import.txt" || { echo "cutover-report: the import wrote" >&2; exit 1; }
 
 echo
 echo "== (a) the round trip on real data"
-"$workshop" verify "$grit"
+"$kalandra" verify "$grit"
 
 # median <label> <command ...>: runs the command 5 times, its output to $work/out, and prints
 # the median wall time in milliseconds.
@@ -89,13 +89,13 @@ read_pair() {
 
 echo
 echo "== (b) the daily reads, median of 5"
-read_pair "Now" "$workshop" list '{"project":"grit","state":"now"}' \
+read_pair "Now" "$kalandra" list '{"project":"grit","state":"now"}' \
   -- sed -n '/^## Now/,/^## Parallel/p' "$grit/roadmap/ROADMAP.md"
-read_pair "Next" "$workshop" list '{"project":"grit","state":"next"}' \
+read_pair "Next" "$kalandra" list '{"project":"grit","state":"next"}' \
   -- sed -n '/^## Next/,/^## Done/p' "$grit/roadmap/ROADMAP.md"
-read_pair "a plan's stage (S7)" "$workshop" show '{"key":"grit/plan-m17-s7-import-shadow-cutover"}' \
+read_pair "a plan's stage (S7)" "$kalandra" show '{"key":"grit/plan-m17-s7-import-shadow-cutover"}' \
   -- sed -n '/^## S7\./,/^## S8\./p' "$grit/.local/plans/m17.md"
-read_pair "backlog search" "$workshop" find '{"query":"member joined channel","project":"grit"}' \
+read_pair "backlog search" "$kalandra" find '{"query":"member joined channel","project":"grit"}' \
   -- grep -ril 'member_joined_channel' "$grit/.local/backlog"
 
 echo

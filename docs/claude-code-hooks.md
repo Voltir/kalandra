@@ -43,7 +43,7 @@ Every source carries `session_id`, `cwd`, `transcript_path`, `hook_event_name` a
 
 A sixth run, against a serve of a throwaway database on another port, with `hooks/brief-hook.sh`
 as both hooks and the edge's `/mcp` given by `--mcp-config`: the session named the artifact of the
-brief claimed for its directory's slot, called `mcp__workshop__project_show` on it and quoted it,
+brief claimed for its directory's slot, called `mcp__kalandra__project_show` on it and quoted it,
 and a subagent named the one claimed for `probe/<sha1>`.
 
 ## Cost of the spike

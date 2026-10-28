@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly dump of grit_kalandra
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+# A night the machine was off is dumped at the next start.
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

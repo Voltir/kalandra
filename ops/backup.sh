@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# A dump of grit_workshop (pg_dump -Fc), checked readable, kept as today's daily under
-# ${WORKSHOP_BACKUP_DIR:-$HOME/backups/grit_workshop}/daily, and as the month's under monthly/ when
+# A dump of grit_kalandra (pg_dump -Fc), checked readable, kept as today's daily under
+# ${KALANDRA_BACKUP_DIR:-$HOME/backups/grit_kalandra}/daily, and as the month's under monthly/ when
 # it is the month's first. The newest 14 dailies and 6 monthlies are kept; older ones are deleted.
-# Run nightly by ops/systemd/workshop-backup.timer. Prints the dump's path.
+# Run nightly by ops/systemd/kalandra-backup.timer. Prints the dump's path.
 #
 # Postgres is the grit checkout's compose service (GRIT_COMPOSE_DIR, default
 # $HOME/Projects/grit), whose pg_dump matches the server's version. A dump that fails or does
 # not list leaves nothing behind and exits non-zero; no older dump is deleted then.
 set -euo pipefail
 
-db=grit_workshop
+db=grit_kalandra
 dailies=14
 monthlies=6
-dir="${WORKSHOP_BACKUP_DIR:-$HOME/backups/grit_workshop}"
+dir="${KALANDRA_BACKUP_DIR:-$HOME/backups/grit_kalandra}"
 compose="${GRIT_COMPOSE_DIR:-$HOME/Projects/grit}"
 
 pg() { docker compose --project-directory "$compose" exec -T postgres "$@"; }

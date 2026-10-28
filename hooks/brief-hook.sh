@@ -9,14 +9,14 @@
 # The slot is the sha1 of the session's cwd for a session, `<agent_type>/<sha1 of cwd>` for a
 # subagent (a subagent's cwd is its session's), normalised as the edge's BriefFiles.slot does: per
 # character, A-Z lower-cased, a-z, 0-9, `-` and `/` kept, any other written `-`; then each part's
-# leading `-` dropped. Its brief is ${WORKSHOP_BRIEFS:-$HOME/.local/state/workshop/briefs}/<slot,
+# leading `-` dropped. Its brief is ${KALANDRA_BRIEFS:-$HOME/.local/state/kalandra/briefs}/<slot,
 # each / written __>.md, the file the edge writes when a claim for that slot is done.
 #
 # It needs bash, jq, sha1sum and timeout; never a JVM or the network. Any failure (no such file,
 # a read over a second, stdin that is no hook event, a tool missing) exits 0 and prints nothing,
 # so the session starts as it would without the hook.
 
-briefs="${WORKSHOP_BRIEFS:-${HOME:-}/.local/state/workshop/briefs}"
+briefs="${KALANDRA_BRIEFS:-${HOME:-}/.local/state/kalandra/briefs}"
 
 # The slot for the directory $1, and for the agent type $2 when one is given.
 slot() {

@@ -1,9 +1,0 @@
-[Unit]
-Description=Dump grit_workshop and prune old dumps (workshop's ops/backup.sh)
-After=docker.service
-
-[Service]
-Type=oneshot
-# WORKSHOP_BACKUP_DIR and GRIT_COMPOSE_DIR may be set here; the script's defaults are
-# $HOME/backups/grit_workshop and $HOME/Projects/grit.
-ExecStart=%h/Projects/workshop/ops/backup.sh

@@ -1,23 +1,23 @@
-# workshop
+# kalandra
 
 A deployment of grit that keeps grit's own projects: a Scala module against grit's
 `publishLocal` jars (`grit-kit` and `grit-projects`, `0.1.0-SNAPSHOT`), the way any deployment
-outside grit builds. Package `workshop`, outside `grit` on purpose, so the compiler treats it
+outside grit builds. Package `kalandra`, outside `grit` on purpose, so the compiler treats it
 as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 
-- **The projects plugin** (ADR 0049), under one method, `grit` (`workshop.method`): grit's own
+- **The projects plugin** (ADR 0049), under one method, `grit` (`kalandra.method`): grit's own
   process as data. Version 1 (milestones, stages, ideas, mechanisms) is kept because the project
   `restore-check` is pinned to its digest; version 2, the latest and so what a new project holds
   to, has the kinds grit's planning tree imports into: milestones (later, next, now, parallel,
   done), plans with their stages and sections, mechanisms and notes.
-- **One account, one room.** Its account is `workshop:local/nick`; its room is the grit
-  checkout's directory (`WORKSHOP_CHECKOUT`, default `$HOME/Projects/grit`), declared internal,
+- **One account, one room.** Its account is `workshop:local/nick` (stored; kept from the deployment's earlier name); its room is the grit
+  checkout's directory (`KALANDRA_CHECKOUT`, default `$HOME/Projects/grit`), declared internal,
   and the account alone is cleared for internal. Every other room is unmapped, so a command
   run anywhere else would read public rows alone.
 - **No model.** It passes no model's key to the kit, so nothing it serves can spend.
-- **Its database** is `grit_workshop` (`GRIT_DATABASE_URL`); it refuses to open `grit` or
+- **Its database** is `grit_kalandra` (`GRIT_DATABASE_URL`); it refuses to open `grit` or
   `grit_bort`. Unlike grit's test databases it is durable: never reset or drop it.
-- **Its edge, `claude-code`** (`workshop.edge`): HTTP on `WORKSHOP_LISTEN` (`host:port` on a
+- **Its edge, `claude-code`** (`kalandra.edge`): HTTP on `KALANDRA_LISTEN` (`host:port` on a
   loopback address, default `127.0.0.1:7317`). `POST /command/<name>` runs the projects command
   `name` with the body, a JSON object, as its arguments, as the account in the room, believed at
   member (the integrity the deployment declares for its room, which grit meets with the room's
@@ -25,11 +25,11 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   status. `POST /mcp` serves the same commands as MCP tools (streamable HTTP, one JSON reply per
   message, no session): `initialize`, `ping`, `tools/list` (`project_release` taking `for` there
   too) and `tools/call`, run as `/command` runs it; a command that did not answer 200 is a tool
-  error carrying its text. The edge also vouches for the account, the one member of its realm `workshop:local`,
+  error carrying its text. The edge also vouches for the account, the one member of its realm `workshop:local` (stored; kept from the earlier name),
   so a person is linked to it before the first command. It holds no transaction.
 - **Brief files.** A `project_claim` that is done through the edge also writes its brief
   (`project_brief` for the claim's key and role) to a file a session hook reads:
-  `${WORKSHOP_BRIEFS:-$HOME/.local/state/workshop/briefs}/<slot>.md`, the slot being the
+  `${KALANDRA_BRIEFS:-$HOME/.local/state/kalandra/briefs}/<slot>.md`, the slot being the
   claim's `for` with `A`-`Z` lower-cased and every other character outside a slug part written `-`, and each `/`
   written `__` in the file's name. It is replaced whole, through a file beside it. A
   `project_release` through the edge takes `for` too, and once done deletes that file.
@@ -49,14 +49,14 @@ HTTP) → `main` (`serve`, `export`, `import`, `verify`).
 # here
 ./mill compile
 ./mill test
-WORKSHOP_LINT=1 MILL_OUTPUT_DIR=out/lint ./mill __.compile   # the unused-warnings pass
-bin/workshop build                      # the jar serve and export run from
-bin/workshop serve                      # blocks; stop it with SIGTERM
-bin/workshop new '{"project":"m17"}'    # any command: `keep` or `project_keep`, then its JSON
-bin/workshop export m17 /tmp/m17        # the project's export files, through a running serve
+KALANDRA_LINT=1 MILL_OUTPUT_DIR=out/lint ./mill __.compile   # the unused-warnings pass
+bin/kalandra build                      # the jar serve and export run from
+bin/kalandra serve                      # blocks; stop it with SIGTERM
+bin/kalandra new '{"project":"m17"}'    # any command: `keep` or `project_keep`, then its JSON
+bin/kalandra export m17 /tmp/m17        # the project's export files, through a running serve
 ```
 
-A command through `bin/workshop` fails loud, exit 2, when serve is not running.
+A command through `bin/kalandra` fails loud, exit 2, when serve is not running.
 
 ## The brief hook
 
@@ -65,11 +65,11 @@ subagent's: as a SessionStart and a SubagentStart hook it reads the event on std
 the brief file of its slot as `additionalContext`. A session's slot is the sha1 of its working
 directory; a subagent's is `<agent type>/<sha1 of the session's working directory>`, normalised as
 `BriefFiles.slot` normalises a claim's `for` (`BriefHookTests` holds the two to one rule).
-`bin/workshop slot [agent-type]`, run in the session's directory, prints it, for a claim's `for`:
+`bin/kalandra slot [agent-type]`, run in the session's directory, prints it, for a claim's `for`:
 
 ```bash
 cd ~/Projects/grit
-w=~/Projects/workshop/bin/workshop
+w=~/Projects/kalandra/bin/kalandra
 $w claim "{\"key\":\"<key>\",\"role\":\"<role>\",\"for\":\"$($w slot coder-haiku)\"}"
 ```
 
@@ -85,10 +85,10 @@ after `/compact` (each resume injects it again). What a test hook saw of these e
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/workshop/hooks/brief-hook.sh", "timeout": 5 }] }
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/brief-hook.sh", "timeout": 5 }] }
     ],
     "SubagentStart": [
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/workshop/hooks/brief-hook.sh", "timeout": 5 }] }
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/brief-hook.sh", "timeout": 5 }] }
     ]
   }
 }
@@ -96,11 +96,11 @@ after `/compact` (each resume injects it again). What a test hook saw of these e
 
 ## The MCP server
 
-Claude Code reaches the commands as tools (`mcp__workshop__project_show`, …) through serve's
+Claude Code reaches the commands as tools (`mcp__kalandra__project_show`, …) through serve's
 `/mcp`. To add it for grit's checkout alone, run there:
 
 ```bash
-claude mcp add --scope local --transport http workshop http://127.0.0.1:7317/mcp
+claude mcp add --scope local --transport http kalandra http://127.0.0.1:7317/mcp
 ```
 
 With serve down, a session starts without the tools.
@@ -109,27 +109,27 @@ Both `/mcp` and `/command` refuse, with 403 and running nothing, a request whose
 `http://` on `127.0.0.1`, `localhost` or `[::1]`, or whose `Host` is not the listen address or
 `localhost` at its port: a web page in a browser on this machine could otherwise post to them,
 by DNS rebinding with its own name as `Host`, and keep durable records. A request with no
-`Origin`, as from `bin/workshop`, curl or Claude Code's MCP client, passes on its `Host`.
+`Origin`, as from `bin/kalandra`, curl or Claude Code's MCP client, passes on its `Host`.
 
 ## Importing grit's planning tree
 
-`bin/workshop import <grit checkout>` reads `roadmap/` (the roadmap, `done.md`, the other notes,
+`bin/kalandra import <grit checkout>` reads `roadmap/` (the roadmap, `done.md`, the other notes,
 `mechanisms/`), `.local/backlog/` and the open plans (those the roadmap names outside Done and
 the Update Protocol) and keeps them, through a running serve, as the project `grit`, under the
-mapping `workshop.importer.Importer` documents. It only ever adds and changes: an artifact whose
+mapping `kalandra.importer.Importer` documents. It only ever adds and changes: an artifact whose
 source went away stays. An existing artifact keeps the state the store holds: the source sets a new
 artifact's state, and a milestone's (from its roadmap section, moved when the method has the way;
 a milestone with no such way is reported, not a stop). A second run over an unchanged tree writes nothing; `--dry-run` writes
-no artifact, and also checks the import against its own normal form. `bin/workshop verify <grit
+no artifact, and also checks the import against its own normal form. `bin/kalandra verify <grit
 checkout>` checks the stored project holds the tree whole (`Fidelity.problems`) and is at the
 round-trip law's normal form; it exits non-zero on any problem. The tree is only read.
 
 ## Backups and the restore test
 
-`ops/backup.sh` dumps `grit_workshop` (`pg_dump -Fc`, through the grit checkout's compose
-Postgres, whose `pg_dump` matches the server) into `${WORKSHOP_BACKUP_DIR:-$HOME/backups/grit_workshop}`:
+`ops/backup.sh` dumps `grit_kalandra` (`pg_dump -Fc`, through the grit checkout's compose
+Postgres, whose `pg_dump` matches the server) into `${KALANDRA_BACKUP_DIR:-$HOME/backups/grit_kalandra}`:
 today's under `daily/`, the month's first also under `monthly/`; the newest 14 dailies and 6
-monthlies are kept. Point `WORKSHOP_BACKUP_DIR` at a second disk to keep them off the
+monthlies are kept. Point `KALANDRA_BACKUP_DIR` at a second disk to keep them off the
 database's.
 
 `ops/systemd/` holds the user units that run it nightly at 03:30 (missed nights run at the next
@@ -138,13 +138,13 @@ start). They need systemd as the machine's init; on WSL, `[boot] systemd=true` i
 
 ```bash
 mkdir -p ~/.config/systemd/user
-ln -s ~/Projects/workshop/ops/systemd/workshop-backup.{service,timer} ~/.config/systemd/user/
+ln -s ~/Projects/kalandra/ops/systemd/kalandra-backup.{service,timer} ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now workshop-backup.timer
-systemctl --user list-timers workshop-backup.timer
+systemctl --user enable --now kalandra-backup.timer
+systemctl --user list-timers kalandra-backup.timer
 ```
 
 `ops/restore-test.sh [project ...]` shows a dump restores whole: it keeps two artifacts of the
-project `restore-check` through `bin/workshop` (the same each run), dumps with `ops/backup.sh`,
-restores into `grit_workshop_restore`, serves that on `127.0.0.1:7318`, and compares each
+project `restore-check` through `bin/kalandra` (the same each run), dumps with `ops/backup.sh`,
+restores into `grit_kalandra_restore`, serves that on `127.0.0.1:7318`, and compares each
 project's export from the two databases; then stops what it started and drops the copy.

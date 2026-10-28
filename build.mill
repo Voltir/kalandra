@@ -1,16 +1,16 @@
 package build
 import mill.*, scalalib.*
 
-/* workshop, a deployment of grit that keeps grit's own projects: a Scala module against grit's
+/* kalandra, a deployment of grit that keeps grit's own projects: a Scala module against grit's
  * kit and the projects plugin, as published by `./mill __.publishLocal` in a grit checkout (the
  * local ivy repository, which Mill resolves from by default). Its one edge serves the plugin's
  * commands over localhost HTTP. Scala and the JDK are grit's. */
 object `package` extends ScalaModule {
   def scalaVersion = "3.9.0"
 
-  /* grit's flags, so workshop is held to grit's conventions: braces only (-no-indent), capture
+  /* grit's flags, so kalandra is held to grit's conventions: braces only (-no-indent), capture
    * and separation checking, and every warning an error (-Werror). Under lint
-   * (WORKSHOP_LINT=1), -Wunused:all too. */
+   * (KALANDRA_LINT=1), -Wunused:all too. */
   def scalacOptions = Task {
     Seq(
       "-no-indent",
@@ -22,9 +22,9 @@ object `package` extends ScalaModule {
     ) ++ Option.when(lint())("-Wunused:all")
   }
 
-  /* Whether this is the unused-warnings pass: `WORKSHOP_LINT=1 MILL_OUTPUT_DIR=out/lint ./mill
+  /* Whether this is the unused-warnings pass: `KALANDRA_LINT=1 MILL_OUTPUT_DIR=out/lint ./mill
    * __.compile`. An input, so every run reads the shell's value afresh. */
-  def lint = Task.Input { Task.env.get("WORKSHOP_LINT").contains("1") }
+  def lint = Task.Input { Task.env.get("KALANDRA_LINT").contains("1") }
 
   def mvnDeps = Seq(
     mvn"dev.grit::grit-kit:0.1.0-SNAPSHOT",
@@ -41,16 +41,16 @@ object `package` extends ScalaModule {
       .map(p => PathRef(os.Path(p)))
   }
 
-  def mainClass = Some("workshop.main.Main")
+  def mainClass = Some("kalandra.main.Main")
 
-  /* workshop's tests: utest, as grit's. Scala 3.9's -Wunused reports a pattern variable read
+  /* kalandra's tests: utest, as grit's. Scala 3.9's -Wunused reports a pattern variable read
    * only inside utest's `assert` macro as unused; silenced in tests, as grit does. */
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = Seq(mvn"com.lihaoyi::utest:0.9.5")
     def forkArgs = Seq("--sun-misc-unsafe-memory-access=allow")
     /* The hook's tests run `hooks/brief-hook.sh` from this checkout. */
     def forkEnv = Task {
-      super.forkEnv() ++ Map("WORKSHOP_HOOK" -> (build.moduleDir / "hooks" / "brief-hook.sh").toString)
+      super.forkEnv() ++ Map("KALANDRA_HOOK" -> (build.moduleDir / "hooks" / "brief-hook.sh").toString)
     }
     def scalacOptions = Task {
       super.scalacOptions() ++
