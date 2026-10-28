@@ -54,9 +54,7 @@ object Mcp {
     )
   }
 
-  /** `tools/list`'s result for `offered`: each command a tool, its parameters its input schema;
-    * `project_release`'s also takes `for`, which the edge reads (see [[Routes]]).
-    */
+  /** `tools/list`'s result for `offered`: each command a tool, its parameters its input schema. */
   def tools(offered: Vector[ToolSchema]): ujson.Value =
     ujson.Obj(
       "tools" -> ujson.Arr.from(
@@ -64,7 +62,7 @@ object Mcp {
           ujson.Obj(
             "name" -> t.name,
             "description" -> t.description,
-            "inputSchema" -> (if (t.name == Routes.Release) withFor(t.parameters) else t.parameters)
+            "inputSchema" -> t.parameters
           )
         )
       )
@@ -125,28 +123,4 @@ object Mcp {
   private def invalid: Reply =
     failed(ujson.Null, InvalidRequest, "the body is no one JSON-RPC 2.0 message", 400)
 
-  /** `schema`, an object schema, with a `for` property, required; a copy, `schema` unchanged. */
-  private def withFor(schema: ujson.Value): ujson.Value = schema match {
-    case o: ujson.Obj =>
-      val properties = o.value.get("properties") match {
-        case Some(p: ujson.Obj) => p.value.toSeq
-        case _ => Seq.empty
-      }
-      val required = o.value.get("required") match {
-        case Some(r: ujson.Arr) => r.value.toSeq
-        case _ => Seq.empty
-      }
-      ujson.Obj.from(
-        o.value.toSeq.filterNot(f => f._1 == "properties" || f._1 == "required") ++ Seq(
-          "properties" -> ujson.Obj.from(properties :+ ("for" -> ForSlot)),
-          "required" -> ujson.Arr.from(required :+ ujson.Str("for"))
-        )
-      )
-    case other => other
-  }
-
-  private def ForSlot: ujson.Value = ujson.Obj(
-    "type" -> "string",
-    "description" -> "The slot the claim was for, whose brief file is deleted."
-  )
 }

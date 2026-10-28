@@ -161,20 +161,28 @@ object RoutesTests extends TestSuite {
 
     test("release deletes the file") {
       val dir = Files.createTempDirectory("briefs")
-      val (routes, commands) = routedBy(Right(Answered.Done("Done.")), Vector("# brief\n"), dir)
+      val released = """{"released":"m17/s8","for":"coder-opus/3f2a"}"""
+      val (routes, commands) = routedBy(Right(Answered.Done(released)), Vector("# brief\n"), dir)
       routes.ask("POST", "/command/project_claim", claim).status ==> 200
       listed(dir) ==> Vector("coder-opus__3f2a.md")
-      routes.ask(
-        "POST",
-        "/command/project_release",
-        """{"key":"m17/s8","for":"Coder_Opus/3F2A"}"""
-      ) ==> Reply(200, "Done.")
+      routes.ask("POST", "/command/project_release", """{"key":"m17/s8"}""") ==> Reply(
+        200,
+        "Released m17/s8."
+      )
       listed(dir) ==> Vector.empty[String]
       commands.ran.lastOption.map(r => (ToolName.value(r.name), r.args)) ==>
         Some("project_release" -> ujson.Obj("key" -> "m17/s8"))
-      val before = commands.ran.size
-      routes.ask("POST", "/command/project_release", """{"key":"m17/s8"}""").status ==> 400
-      commands.ran.size ==> before
+    }
+
+    test("a release whose answer names no slot keeps the file, and says so") {
+      val dir = Files.createTempDirectory("briefs")
+      val (routes, _) = routedBy(Right(Answered.Done("Released m17/s8.")), Vector("# brief\n"), dir)
+      routes.ask("POST", "/command/project_claim", claim).status ==> 200
+      routes.ask("POST", "/command/project_release", """{"key":"m17/s8"}""") ==> Reply(
+        200,
+        "Released m17/s8.\nThe brief file stays: the release named no slot"
+      )
+      listed(dir) ==> Vector("coder-opus__3f2a.md")
     }
 
     test("the file is replaced whole, never half-written") {
@@ -279,16 +287,12 @@ object RoutesTests extends TestSuite {
       commands.ran.size ==> 0
     }
 
-    test("tools/list lists each offered command, project_release taking `for` as well") {
+    test("tools/list lists each offered command, each taking its key alone") {
       val (routes, _) = offering(
         Vector(
           ToolSchema("project_show", "Shows an artifact.", keyed()),
           ToolSchema("project_release", "Releases a claim.", keyed())
         )
-      )
-      val forSlot = "for" -> ujson.Obj(
-        "type" -> "string",
-        "description" -> "The slot the claim was for, whose brief file is deleted."
       )
       routes.ask("POST", "/mcp", request("tools/list", ujson.Obj())).contentType ==> Reply.Json
       rpc(routes.ask("POST", "/mcp", request("tools/list", ujson.Obj()))) ==> (
@@ -304,7 +308,7 @@ object RoutesTests extends TestSuite {
               ujson.Obj(
                 "name" -> "project_release",
                 "description" -> "Releases a claim.",
-                "inputSchema" -> keyed(forSlot)
+                "inputSchema" -> keyed()
               )
             )
           )

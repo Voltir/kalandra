@@ -32,9 +32,10 @@ object Reply {
   *
   * `project_claim`'s `for` is passed on as [[BriefFiles.slot]] maps it; once the claim is done,
   * `project_brief` for its key and role is written to that slot's file in `briefs`.
-  * `project_release` here also takes `for` (400 without it), which it does not pass on; once
-  * the release is done, that slot's file is deleted. A file that cannot be written or deleted,
-  * or a brief refused, is said after the command's text; the command stays done.
+  * `project_release` takes its key alone and is passed on as given; once the release is done,
+  * the slot its answer names (`{"released","for"}` JSON) has its file deleted. A file that
+  * cannot be written or deleted, a brief refused, or a release answer naming no slot, is said
+  * after the command's text; the command stays done.
   *
   * Every request is first checked as coming from this machine, since a web page can send one
   * too (through DNS rebinding, with its own name as `Host`): see [[answer]].
@@ -133,20 +134,20 @@ final class Routes(
         case _ => claimed
       }
     case Routes.Release =>
-      text(args, "for").map(BriefFiles.slot) match {
-        case None =>
-          Reply(400, "project_release here takes `for`, the slot whose brief file it deletes")
-        case Some(s) =>
-          val released = ran(name, replaced(args, "for", None))
-          if (released.status != 200) released
-          else
+      val released = ran(name, args)
+      if (released.status != 200) released
+      else
+        Routes.releasedSlot(released.text) match {
+          case None =>
+            Reply(200, s"${released.text}\nThe brief file stays: the release named no slot")
+          case Some((key, slot)) =>
             briefs
-              .delete(s)
+              .delete(slot)
               .fold(
-                why => Reply(200, s"${released.text}\nThe brief file stays: $why"),
-                _ => released
+                why => Reply(200, s"Released $key.\nThe brief file stays: $why"),
+                _ => Reply(200, s"Released $key.")
               )
-      }
+        }
     case _ => ran(name, args)
   }
 
@@ -188,6 +189,19 @@ object Routes {
   private val Claim = "project_claim"
   private[edge] val Release = "project_release"
   private val Brief = ToolName("project_brief")
+
+  /** The key released and the slot it was for, from a release's answer: a JSON object with
+    * string `released` and `for`. None for any other text.
+    */
+  private def releasedSlot(text: String): Option[(String, String)] =
+    scala.util.Try(ujson.read(text)).toOption match {
+      case Some(o: ujson.Obj) =>
+        for {
+          key <- o.value.get("released").flatMap(_.strOpt)
+          slot <- o.value.get("for").flatMap(_.strOpt)
+        } yield (key, BriefFiles.slot(slot))
+      case _ => None
+    }
 
   private def replied(ran: Either[CommandError, Answered]): Reply = ran match {
     case Right(Answered.Done(text)) => Reply(200, text)
