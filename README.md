@@ -44,3 +44,23 @@ bin/workshop export m17 /tmp/m17        # the project's export files, through a 
 ```
 
 A command through `bin/workshop` fails loud, exit 2, when serve is not running.
+
+## Backups
+
+`ops/backup.sh` dumps `grit_workshop` (`pg_dump -Fc`, through the grit checkout's compose
+Postgres, whose `pg_dump` matches the server) into `${WORKSHOP_BACKUP_DIR:-$HOME/backups/grit_workshop}`:
+today's under `daily/`, the month's first also under `monthly/`; the newest 14 dailies and 6
+monthlies are kept. Point `WORKSHOP_BACKUP_DIR` at a second disk to keep them off the
+database's.
+
+`ops/systemd/` holds the user units that run it nightly at 03:30 (missed nights run at the next
+start). They need systemd as the machine's init; on WSL, `[boot] systemd=true` in
+`/etc/wsl.conf`. To install:
+
+```bash
+mkdir -p ~/.config/systemd/user
+ln -s ~/Projects/workshop/ops/systemd/workshop-backup.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now workshop-backup.timer
+systemctl --user list-timers workshop-backup.timer
+```
