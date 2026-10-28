@@ -14,6 +14,7 @@ import grit.core.store.StoreError
 import grit.core.visibility.Integrity
 
 import com.sun.net.httpserver.{HttpExchange, HttpHandler, HttpServer}
+import java.util.concurrent.{ExecutorService, Executors}
 
 /** The edge Claude Code sessions and their person reach the projects plugin's commands through:
   * HTTP on `KALANDRA_LISTEN` (`host:port` on a loopback address; default [[ClaudeCodeEdge.Listen]]),
@@ -69,10 +70,12 @@ final class ClaudeCodeEdge(owner: Account, realm: Realm, room: Place, believed: 
       // `Clock` capabilities, both shared, the room's settings and the briefs' directory; two
       // writes of one brief each move a whole file into place), so no tracked effect is
       // observed through it outside this edge's Open.
+      val threads = Executors.newFixedThreadPool(ClaudeCodeEdge.Threads)
+      server.setExecutor(threads)
       server.createContext("/", new ClaudeCodeEdge.Handler(routes))
       server.start()
       log(s"claude-code: serving commands on http://${ClaudeCodeEdge.shown(at)}")
-      new ClaudeCodeEdge.Serving(server, stores, source)
+      new ClaudeCodeEdge.Serving(server, threads, stores, source)
     }
   }
 }
@@ -91,6 +94,9 @@ object ClaudeCodeEdge {
 
   /** `127.0.0.1:7317`. */
   val Listen: String = "127.0.0.1:7317"
+
+  /** 4: the requests answered at once; a fifth waits for one of them to finish. */
+  val Threads: Int = 4
 
   /** Where `env` says to listen, or why not: not `host:port`, or a host that is no loopback
     * address.
@@ -157,8 +163,12 @@ object ClaudeCodeEdge {
   }
 
   /** The edge while served: `server` until [[close]]. */
-  private final class Serving(server: HttpServer, stores: EdgeStores^, source: Source)
-      extends ServedEdge.Open {
+  private final class Serving(
+      server: HttpServer,
+      threads: ExecutorService,
+      stores: EdgeStores^,
+      source: Source
+  ) extends ServedEdge.Open {
 
     // No conversation is heard here, so there is no reply to deliver.
     def deliver(): Either[StoreError, Int] = Right(0)
@@ -167,6 +177,9 @@ object ClaudeCodeEdge {
 
     private val stopped = new AtomicBoolean(false)
 
-    def close(): Unit = if (stopped.compareAndSet(false, true)) server.stop(1)
+    def close(): Unit = if (stopped.compareAndSet(false, true)) {
+      server.stop(1)
+      threads.shutdown()
+    }
   }
 }
