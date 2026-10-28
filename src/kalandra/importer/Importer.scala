@@ -54,7 +54,7 @@ object Importer {
         "key" -> project,
         "method" -> MethodName.value(pin.method),
         "version" -> pin.version.toString,
-        "digest" -> pin.digest
+        "digest" -> pin.digest.hex
       )
     )
     def file(d: Draft): (String, String) = {

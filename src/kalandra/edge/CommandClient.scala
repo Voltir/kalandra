@@ -4,7 +4,7 @@ import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.nio.charset.StandardCharsets
 
-import grit.core.plugin.Answered
+import grit.core.plugin.CommandOutcome
 
 /** A client of a running serve's edge at `base` (`http://host:port`), which [[Routes]] answers.
   */
@@ -15,7 +15,7 @@ final class CommandClient private (base: String) {
   /** The command `name` run with `args`: what it answered, done or refused; or why not, when
     * serve cannot be reached or answers another status (with that status and its text).
     */
-  def run(name: String, args: ujson.Obj): Either[String, Answered] = {
+  def run(name: String, args: ujson.Obj): Either[String, CommandOutcome] = {
     val uri = URI.create(s"$base${Routes.Command}$name")
     scala.util
       .Try(
@@ -32,8 +32,8 @@ final class CommandClient private (base: String) {
       .map(e => s"kalandra serve is not reachable at $uri: $e")
       .flatMap(r =>
         r.statusCode match {
-          case 200 => Right(Answered.Done(r.body))
-          case 409 => Right(Answered.Refused(r.body))
+          case 200 => Right(CommandOutcome.Done(r.body))
+          case 409 => Right(CommandOutcome.Refused(r.body))
           case other => Left(s"$name answered $other: ${r.body}")
         }
       )
@@ -51,7 +51,7 @@ final class CommandClient private (base: String) {
       val args = ujson.Obj("project" -> project)
       after.foreach(a => args("after") = a)
       val page = run("project_export", args).flatMap {
-        case Answered.Done(text) =>
+        case CommandOutcome.Done(text) =>
           scala.util
             .Try {
               val page = ujson.read(text)
@@ -63,7 +63,7 @@ final class CommandClient private (base: String) {
             .toEither
             .left
             .map(_ => s"not an export page: $text")
-        case Answered.Refused(why) => Left(why)
+        case CommandOutcome.Refused(why) => Left(why)
       }
       page match {
         case Left(why) => Left(why)

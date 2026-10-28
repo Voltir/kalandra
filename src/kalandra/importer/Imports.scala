@@ -2,7 +2,7 @@ package kalandra.importer
 
 import java.nio.file.Path
 
-import grit.core.plugin.Answered
+import grit.core.plugin.CommandOutcome
 import grit.projects.artifact.Project
 import grit.projects.method.Method
 import grit.projects.name.{KindName, MethodName, ProjectKey}
@@ -151,9 +151,9 @@ object Imports {
 
   private def started(client: CommandClient, project: String): Either[String, Unit] =
     client.run("project_new", ujson.Obj("project" -> project)).flatMap {
-      case Answered.Done(_) => Right(())
-      case Answered.Refused(why) if why.endsWith("exists already") => Right(())
-      case Answered.Refused(why) => Left(why)
+      case CommandOutcome.Done(_) => Right(())
+      case CommandOutcome.Refused(why) if why.endsWith("exists already") => Right(())
+      case CommandOutcome.Refused(why) => Left(why)
     }
 
   private def asked(client: CommandClient, w: Write): Option[(String, String)] = {
@@ -162,8 +162,8 @@ object Imports {
       case Write.Move(k, to) => s"move ${k.value} to ${grit.projects.name.StateName.value(to)}"
     }
     client.run(w.command, w.arguments) match {
-      case Right(Answered.Done(_)) => None
-      case Right(Answered.Refused(why)) => Some(key -> why)
+      case Right(CommandOutcome.Done(_)) => None
+      case Right(CommandOutcome.Refused(why)) => Some(key -> why)
       case Left(why) => Some(key -> why)
     }
   }

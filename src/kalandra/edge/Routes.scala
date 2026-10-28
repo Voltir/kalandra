@@ -6,7 +6,7 @@ import grit.core.clock.Clock
 import grit.core.edge.{CommandError, PluginCommands}
 import grit.core.identity.Account
 import grit.core.place.Place
-import grit.core.plugin.Answered
+import grit.core.plugin.CommandOutcome
 import grit.core.tool.ToolName
 import grit.core.visibility.Integrity
 
@@ -203,9 +203,9 @@ object Routes {
       case _ => None
     }
 
-  private def replied(ran: Either[CommandError, Answered]): Reply = ran match {
-    case Right(Answered.Done(text)) => Reply(200, text)
-    case Right(Answered.Refused(why)) => Reply(409, why)
+  private def replied(ran: Either[CommandError, CommandOutcome]): Reply = ran match {
+    case Right(CommandOutcome.Done(text)) => Reply(200, text)
+    case Right(CommandOutcome.Refused(why)) => Reply(409, why)
     case Left(CommandError.Unknown(name)) =>
       Reply(404, s"no command is named ${ToolName.value(name)}")
     case Left(CommandError.Unread(_, reason)) => Reply(400, reason)

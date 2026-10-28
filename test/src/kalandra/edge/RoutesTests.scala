@@ -10,7 +10,7 @@ import grit.core.clock.Clock
 import grit.core.edge.{CommandError, PluginCommands}
 import grit.core.identity.Account
 import grit.core.place.Place
-import grit.core.plugin.Answered
+import grit.core.plugin.CommandOutcome
 import grit.core.provider.ToolSchema
 import grit.core.store.StoreError
 import grit.core.tool.ToolName
@@ -34,7 +34,7 @@ object RoutesTests extends TestSuite {
     * ran or refused; but `project_brief`, which answers each of `briefs` in turn as done.
     */
   private final class Recording(
-      answer: Either[CommandError, Answered],
+      answer: Either[CommandError, CommandOutcome],
       briefs: Vector[String] = Vector.empty,
       tools: Vector[ToolSchema] = Offered
   ) extends PluginCommands {
@@ -47,10 +47,10 @@ object RoutesTests extends TestSuite {
         name: ToolName,
         args: ujson.Value,
         at: Instant
-    ): Either[CommandError, Answered] = {
+    ): Either[CommandError, CommandOutcome] = {
       ran += Ran(by, room, believed, name, args, at)
       if (name == Brief)
-        Right(Answered.Done(briefs.lift(ran.count(_.name == Brief) - 1).getOrElse("")))
+        Right(CommandOutcome.Done(briefs.lift(ran.count(_.name == Brief) - 1).getOrElse("")))
       else answer
     }
   }
@@ -73,12 +73,12 @@ object RoutesTests extends TestSuite {
   private val owner = Account.of("workshop", "local/someone").fold(sys.error, identity)
   private val room = Place.read("fs:/home/someone/grit").fold(sys.error, identity)
 
-  private def routed(answer: Either[CommandError, Answered]): (Routes^, Recording^) =
+  private def routed(answer: Either[CommandError, CommandOutcome]): (Routes^, Recording^) =
     routedBy(answer, Vector.empty, Files.createTempDirectory("briefs"))
 
   /** Routes over [[Recording]] commands, writing brief files into `dir`. */
   private def routedBy(
-      answer: Either[CommandError, Answered],
+      answer: Either[CommandError, CommandOutcome],
       briefs: Vector[String],
       dir: Path
   ): (Routes^, Recording^) = {
@@ -91,7 +91,7 @@ object RoutesTests extends TestSuite {
 
   /** Routes over [[Recording]] commands offering `tools`. */
   private def offering(tools: Vector[ToolSchema]): (Routes^, Recording^) = {
-    val commands = new Recording(Right(Answered.Done("shown")), Vector.empty, tools)
+    val commands = new Recording(Right(CommandOutcome.Done("shown")), Vector.empty, tools)
     val dir = Files.createTempDirectory("briefs")
     (
       new Routes(commands, owner, room, Integrity.Member, Stopped, new BriefFiles(dir), Listen),
@@ -143,7 +143,7 @@ object RoutesTests extends TestSuite {
   val tests = Tests {
     test("a claim that is Done writes the slot's brief file, a refused one writes none") {
       val dir = Files.createTempDirectory("briefs")
-      val (routes, commands) = routedBy(Right(Answered.Done("Claimed.")), Vector("# m17/s8\n"), dir)
+      val (routes, commands) = routedBy(Right(CommandOutcome.Done("Claimed.")), Vector("# m17/s8\n"), dir)
       routes.ask("POST", "/command/project_claim", claim) ==> Reply(200, "Claimed.")
       listed(dir) ==> Vector("coder-opus__3f2a.md")
       Files.readString(dir.resolve("coder-opus__3f2a.md")) ==> "# m17/s8\n"
@@ -154,7 +154,7 @@ object RoutesTests extends TestSuite {
       )
       val refusedDir = Files.createTempDirectory("briefs")
       val (refusing, refused) =
-        routedBy(Right(Answered.Refused("claimed already")), Vector("no"), refusedDir)
+        routedBy(Right(CommandOutcome.Refused("claimed already")), Vector("no"), refusedDir)
       refusing.ask("POST", "/command/project_claim", claim) ==> Reply(409, "claimed already")
       listed(refusedDir) ==> Vector.empty[String]
       refused.ran.map(r => ToolName.value(r.name)).toVector ==> Vector("project_claim")
@@ -163,7 +163,7 @@ object RoutesTests extends TestSuite {
     test("release deletes the file") {
       val dir = Files.createTempDirectory("briefs")
       val released = """{"released":"m17/s8","for":"coder-opus/3f2a"}"""
-      val (routes, commands) = routedBy(Right(Answered.Done(released)), Vector("# brief\n"), dir)
+      val (routes, commands) = routedBy(Right(CommandOutcome.Done(released)), Vector("# brief\n"), dir)
       routes.ask("POST", "/command/project_claim", claim).status ==> 200
       listed(dir) ==> Vector("coder-opus__3f2a.md")
       routes.ask("POST", "/command/project_release", """{"key":"m17/s8"}""") ==> Reply(
@@ -177,7 +177,7 @@ object RoutesTests extends TestSuite {
 
     test("a release whose answer names no slot keeps the file, and says so") {
       val dir = Files.createTempDirectory("briefs")
-      val (routes, _) = routedBy(Right(Answered.Done("Released m17/s8.")), Vector("# brief\n"), dir)
+      val (routes, _) = routedBy(Right(CommandOutcome.Done("Released m17/s8.")), Vector("# brief\n"), dir)
       routes.ask("POST", "/command/project_claim", claim).status ==> 200
       routes.ask("POST", "/command/project_release", """{"key":"m17/s8"}""") ==> Reply(
         200,
@@ -189,7 +189,7 @@ object RoutesTests extends TestSuite {
     test("the file is replaced whole, never half-written") {
       val dir = Files.createTempDirectory("briefs")
       val texts = Vector("first brief, longer than the second\n", "second\n")
-      val (routes, _) = routedBy(Right(Answered.Done("Claimed.")), texts, dir)
+      val (routes, _) = routedBy(Right(CommandOutcome.Done("Claimed.")), texts, dir)
       routes.ask("POST", "/command/project_claim", claim).status ==> 200
       routes.ask("POST", "/command/project_claim", claim).status ==> 200
       listed(dir) ==> Vector("coder-opus__3f2a.md")
@@ -206,7 +206,7 @@ object RoutesTests extends TestSuite {
     test(
       "POST /command/<name> runs it as the owner in the room, believed as given, its body as arguments"
     ) {
-      val (routes, commands) = routed(Right(Answered.Done("shown")))
+      val (routes, commands) = routed(Right(CommandOutcome.Done("shown")))
       routes.ask("POST", "/command/project_show", """{"key":"m17/s6"}""") ==> Reply(200, "shown")
       commands.ran.toVector ==> Vector(
         Ran(
@@ -221,15 +221,15 @@ object RoutesTests extends TestSuite {
     }
 
     test("an empty body is no arguments") {
-      val (routes, commands) = routed(Right(Answered.Done("listed")))
+      val (routes, commands) = routed(Right(CommandOutcome.Done("listed")))
       routes.ask("POST", "/command/project_list", "") ==> Reply(200, "listed")
       commands.ran.map(_.args).toVector ==> Vector(ujson.Obj())
     }
 
     test("a refusal and each command error answer their own status") {
       val name = ToolName("project_move")
-      Vector[Either[CommandError, Answered]](
-        Right(Answered.Refused("not ready")),
+      Vector[Either[CommandError, CommandOutcome]](
+        Right(CommandOutcome.Refused("not ready")),
         Left(CommandError.Unknown(name)),
         Left(CommandError.Unread(name, "no key")),
         Left(CommandError.NotVouched(owner)),
@@ -240,7 +240,7 @@ object RoutesTests extends TestSuite {
     }
 
     test("a body that is not a JSON object runs nothing, and is 400") {
-      val (routes, commands) = routed(Right(Answered.Done("kept")))
+      val (routes, commands) = routed(Right(CommandOutcome.Done("kept")))
       Vector("{not json", "[1]").map(routes.ask("POST", "/command/project_keep", _).status) ==>
         Vector(400, 400)
       commands.ran.size ==> 0
@@ -318,7 +318,7 @@ object RoutesTests extends TestSuite {
     }
 
     test("tools/call runs the command as /command does, its text the content") {
-      val (routes, commands) = routed(Right(Answered.Done("shown")))
+      val (routes, commands) = routed(Right(CommandOutcome.Done("shown")))
       rpc(
         routes.ask(
           "POST",
@@ -348,8 +348,8 @@ object RoutesTests extends TestSuite {
         )
       )
       val dir = Files.createTempDirectory("briefs")
-      val (claiming, _) = routedBy(Right(Answered.Done("Claimed.")), Vector("# m17/s8\n"), dir)
-      val (refusing, _) = routed(Right(Answered.Refused("claimed already")))
+      val (claiming, _) = routedBy(Right(CommandOutcome.Done("Claimed.")), Vector("# m17/s8\n"), dir)
+      val (refusing, _) = routed(Right(CommandOutcome.Refused("claimed already")))
       Vector(claiming, refusing).map(r =>
         rpc(
           r.ask(
@@ -379,7 +379,7 @@ object RoutesTests extends TestSuite {
     }
 
     test("an unknown method, a call naming no command, or no JSON-RPC: an error, nothing run") {
-      val (routes, commands) = routed(Right(Answered.Done("kept")))
+      val (routes, commands) = routed(Right(CommandOutcome.Done("kept")))
       Vector(
         routes.ask("POST", "/mcp", request("resources/list", ujson.Obj())),
         routes.ask("POST", "/mcp", request("tools/call", ujson.Obj("arguments" -> ujson.Obj()))),
@@ -408,7 +408,7 @@ object RoutesTests extends TestSuite {
     }
 
     test("a foreign Origin is refused and runs nothing") {
-      val (routes, commands) = routed(Right(Answered.Done("kept")))
+      val (routes, commands) = routed(Right(CommandOutcome.Done("kept")))
       val show = """{"key":"m17/s6"}"""
       val list = request("tools/list", ujson.Obj())
       Vector(
@@ -428,7 +428,7 @@ object RoutesTests extends TestSuite {
     }
 
     test("a rebinding Host is refused and runs nothing") {
-      val (routes, commands) = routed(Right(Answered.Done("kept")))
+      val (routes, commands) = routed(Right(CommandOutcome.Done("kept")))
       val show = """{"key":"m17/s6"}"""
       Vector(Some("evil.example:7317"), Some("127.0.0.1:80"), Some("localhost"), None)
         .flatMap(h =>
@@ -448,7 +448,7 @@ object RoutesTests extends TestSuite {
     }
 
     test("the CLI's request, no Origin and a loopback Host, still runs") {
-      val (routes, commands) = routed(Right(Answered.Done("shown")))
+      val (routes, commands) = routed(Right(CommandOutcome.Done("shown")))
       val show = """{"key":"m17/s6"}"""
       Vector(
         routes.answer("POST", "/command/project_show", None, Some("127.0.0.1:7317"), show),
@@ -465,7 +465,7 @@ object RoutesTests extends TestSuite {
     }
 
     test("another path or method runs nothing: 404 and 405") {
-      val (routes, commands) = routed(Right(Answered.Done("kept")))
+      val (routes, commands) = routed(Right(CommandOutcome.Done("kept")))
       Vector(
         routes.ask("POST", "/commands/project_keep", "{}"),
         routes.ask("POST", "/command/", "{}"),

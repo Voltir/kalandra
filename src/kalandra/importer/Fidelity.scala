@@ -8,11 +8,12 @@ import grit.prose.markdown.Markdown
 /** Whether a project holds an import whole: S7's cutover criterion (a). */
 object Fidelity {
 
-  /** `text` as markdown reads and writes it once: `Markdown.write(Markdown.parse(text))`, the
+  /** `text` as markdown reads and writes it once, its wrapped lines joined as a body's are, the
     * one function an artifact's text is compared under (grit has no `Body.normalise`; it is
     * defined here, since nothing in grit changes for the import).
     */
-  def normalise(text: String): String = Markdown.write(Markdown.parse(text))
+  def normalise(text: String): String =
+    Markdown.write(Markdown.parse(text, Markdown.Newline.Space))
 
   /** Every way `stored` fails to hold `imported` of `sources`, none when it holds it whole: a
     * source whose lines are not each in exactly one artifact (a source with a part that failed
