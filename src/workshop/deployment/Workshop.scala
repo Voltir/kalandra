@@ -5,7 +5,7 @@ import java.time.ZoneOffset
 import scala.concurrent.duration.DurationInt
 
 import grit.core.files.Formats
-import grit.core.identity.{Account, Identities}
+import grit.core.identity.{Account, Identities, Realm, Vouching}
 import grit.core.message.Tokens
 import grit.core.period.LifecycleSettings
 import grit.core.persona.Persona
@@ -28,6 +28,7 @@ import grit.core.visibility.{
 import grit.kit.deployment.{Assembly, Deployment, Offer, Offered, Placer, Rounds, Seed}
 import grit.projects.plugin.Projects
 
+import workshop.edge.ClaudeCodeEdge
 import workshop.method.GritMethod
 
 /** workshop: grit's own projects, kept by the projects plugin (ADR 0049) under
@@ -43,6 +44,11 @@ object Workshop {
     Account
       .of("workshop", "local/nick")
       .fold(why => throw new IllegalStateException(why), identity)
+
+  /** The realm its owner's account is in, `workshop:local`, which its edge alone vouches for. */
+  val Local: Realm =
+    // A literal Realm.of accepts.
+    Realm.of("workshop", "local").fold(why => throw new IllegalStateException(why), identity)
 
   /** What its room is labelled, and its owner cleared for: internal. */
   val Kept: DeclaredLabel = Label.at(Level.Internal)
@@ -96,8 +102,13 @@ object Workshop {
         .map(_.toString)
       visible <- visibility(checkout)
       persona <- Persona.of("Workshop")
+      identities <- Identities
+        .of(Vector(Vouching(ClaudeCodeEdge.Attester, Local)), Set.empty)
+        .left
+        .map(_.toString)
       made <- Deployment
         .of(
+          edges = Vector(new ClaudeCodeEdge(Owner, Local, room(checkout), Believed)),
           plugins = Vector(projects),
           policy = catalog.policy,
           offer = Offer(Offered.Read, rounds),
@@ -111,7 +122,7 @@ object Workshop {
           sweep = 30.seconds,
           persona = persona,
           visibility = visible,
-          identities = Identities.Shipped,
+          identities = identities,
           formats = Formats(_ => Vector.empty)
         )
         .left

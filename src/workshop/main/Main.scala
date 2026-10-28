@@ -6,7 +6,7 @@ import grit.kit.run.Kit
 import workshop.deployment.Workshop
 
 /** `workshop serve`: serves the workshop deployment until the process is
-  * stopped. It reads the environment alone: `GRIT_DATABASE_URL` (default
+  * stopped; `workshop export`, [[Export]]. It reads the environment alone: `GRIT_DATABASE_URL` (default
   * [[Main.DefaultDatabase]]; a URL naming another deployment's database, `grit`
   * or `grit_bort`, is refused) and `WORKSHOP_CHECKOUT`, the grit checkout its
   * room is (default `$HOME/Projects/grit`). No model's key is passed on, so
@@ -51,7 +51,9 @@ object Main {
   def main(args: Array[String]): Unit = {
     val ran: Either[String, Unit] = args.toList match {
       case List("serve") => serve(sys.env)
-      case _ => Left("usage: workshop serve")
+      case List("export", project, into) =>
+        Export.run(sys.env, project, java.nio.file.Path.of(into)).map(n => println(s"$n files"))
+      case _ => Left("usage: workshop serve | workshop export <project> <directory>")
     }
     ran.left.foreach { why =>
       System.err.println(s"[workshop] $why")
