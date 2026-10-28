@@ -27,7 +27,7 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 - **Brief files.** A `project_claim` that is done through the edge also writes its brief
   (`project_brief` for the claim's key and role) to a file a session hook reads:
   `${WORKSHOP_BRIEFS:-$HOME/.local/state/workshop/briefs}/<slot>.md`, the slot being the
-  claim's `for`, lower-cased with every character outside a slug part written `-`, and each `/`
+  claim's `for` with `A`-`Z` lower-cased and every other character outside a slug part written `-`, and each `/`
   written `__` in the file's name. It is replaced whole, through a file beside it. A
   `project_release` through the edge takes `for` too, and once done deletes that file.
 - It names grit's kit, core, prose and the projects plugin alone.
@@ -54,6 +54,42 @@ bin/workshop export m17 /tmp/m17        # the project's export files, through a 
 ```
 
 A command through `bin/workshop` fails loud, exit 2, when serve is not running.
+
+## The brief hook
+
+`hooks/brief-hook.sh` puts a claimed brief in a Claude Code session's context, or in a
+subagent's: as a SessionStart and a SubagentStart hook it reads the event on stdin and prints
+the brief file of its slot as `additionalContext`. A session's slot is the sha1 of its working
+directory; a subagent's is `<agent type>/<sha1 of the session's working directory>`, normalised as
+`BriefFiles.slot` normalises a claim's `for` (`BriefHookTests` holds the two to one rule).
+`bin/workshop slot [agent-type]`, run in the session's directory, prints it, for a claim's `for`:
+
+```bash
+cd ~/Projects/grit
+w=~/Projects/workshop/bin/workshop
+$w claim "{\"key\":\"<key>\",\"role\":\"<role>\",\"for\":\"$($w slot coder-haiku)\"}"
+```
+
+It needs bash, `jq`, `sha1sum` and `timeout`, never a JVM or the network, and it reads the file
+the edge wrote at the claim, so it works with serve down. A missing file, a read over a second, or
+anything else that fails, and it exits 0 with no output: the session starts without a brief.
+SessionStart has no matcher, so the brief is injected at startup, on resume, after `/clear` and
+after `/compact` (each resume injects it again). What a test hook saw of these events is in
+[`docs/claude-code-hooks.md`](docs/claude-code-hooks.md). To install it in grit's checkout, in
+`.claude/settings.local.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/workshop/hooks/brief-hook.sh", "timeout": 5 }] }
+    ],
+    "SubagentStart": [
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/workshop/hooks/brief-hook.sh", "timeout": 5 }] }
+    ]
+  }
+}
+```
 
 ## Importing grit's planning tree
 

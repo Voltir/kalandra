@@ -8,6 +8,7 @@
 #   bin/workshop <command> [json]           run a projects command through a running serve:
 #                                           `keep` or `project_keep`, its arguments a JSON object
 #   bin/workshop build                      build the jar serve and export run from
+#   bin/workshop slot [agent-type]          the slot a claim's `for` names here (hooks/brief-hook.sh)
 #
 # A command prints the edge's answer and exits 0 only when it did what it was asked; it fails
 # loud, exit 2, when serve is not reachable at WORKSHOP_LISTEN (default 127.0.0.1:7317).
@@ -19,7 +20,7 @@ java="${GRIT_JDK_HOME:-/home/nickchilders/.jdks/jdk-26.0.2}/bin/java"
 listen="${WORKSHOP_LISTEN:-127.0.0.1:7317}"
 
 usage() {
-  sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 
@@ -32,6 +33,9 @@ build() {
 case "$1" in
   build)
     build
+    ;;
+  slot)
+    exec "$root/hooks/brief-hook.sh" --slot "${2-}"
     ;;
   serve | export | import | verify)
     [[ -f "$jar" ]] || build

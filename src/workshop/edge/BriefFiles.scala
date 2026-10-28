@@ -47,15 +47,20 @@ final class BriefFiles(dir: Path) {
 
 object BriefFiles {
 
-  /** `raw`, an edge's name for a session or agent, as grit takes a slot (`BriefSlot`): lower
-    * case, every character but a letter, a digit, `-` or `/` written `-`, and each part's
-    * leading `-` dropped. So `Explore` is `explore`, and `Coder_Opus/3F2A` `coder-opus/3f2a`.
+  /** `raw`, an edge's name for a session or agent, as grit takes a slot (`BriefSlot`): per
+    * character (code point), `A`-`Z` lower-cased, `a`-`z`, `0`-`9`, `-` and `/` kept, any other
+    * written `-`; then each part's leading `-` dropped. So `Explore` is `explore`, and
+    * `Coder_Opus/3F2A` `coder-opus/3f2a`. `hooks/brief-hook.sh` keeps this rule too.
     */
   def slot(raw: String): String =
-    raw
-      .toLowerCase(java.util.Locale.ROOT)
+    raw.codePoints.toArray
+      .map(c =>
+        if (c >= 'A' && c <= 'Z') (c - 'A' + 'a').toChar
+        else if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '/') c.toChar
+        else '-'
+      )
+      .mkString
       .split("/", -1)
-      .map(_.map(c => if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') c else '-'))
       .map(_.dropWhile(_ == '-'))
       .mkString("/")
 }
