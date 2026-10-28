@@ -1,5 +1,7 @@
 package workshop.edge
 
+import java.net.InetSocketAddress
+
 import grit.core.clock.Clock
 import grit.core.edge.{CommandError, PluginCommands}
 import grit.core.identity.Account
@@ -33,6 +35,9 @@ object Reply {
   * `project_release` here also takes `for` (400 without it), which it does not pass on; once
   * the release is done, that slot's file is deleted. A file that cannot be written or deleted,
   * or a brief refused, is said after the command's text; the command stays done.
+  *
+  * Every request is first checked as coming from this machine, since a web page can send one
+  * too (through DNS rebinding, with its own name as `Host`): see [[answer]].
   */
 final class Routes(
     commands: PluginCommands,
@@ -40,7 +45,8 @@ final class Routes(
     room: Place,
     believed: Integrity,
     clock: Clock^,
-    briefs: BriefFiles
+    briefs: BriefFiles,
+    listen: InetSocketAddress
 ) {
 
   /** `method` at `path` with `body`, answered: the command's text with 200 when it did what it
@@ -49,9 +55,22 @@ final class Routes(
     * arguments the command does not read; 403 for an owner no person is linked to; 500 when the
     * command's store call failed; 503 when the database could not be reached. Only a 200 kept
     * anything. At [[Routes.McpPath]]: a POST answered as [[Mcp]] says, anything else 405.
+    *
+    * First, 403, running nothing, when `origin` (the `Origin` header) is given and is not
+    * `http://` a loopback host (`127.0.0.1`, `localhost`, `[::1]`) at any port, or when `host`
+    * (the `Host` header) is not `listen`'s address and port or `localhost` and its port. A
+    * request with no `Origin` (curl, `bin/workshop`, an MCP client) passes on its `Host`.
     */
-  def answer(method: String, path: String, body: String): Reply =
-    if (path == Routes.McpPath) {
+  def answer(
+      method: String,
+      path: String,
+      origin: Option[String],
+      host: Option[String],
+      body: String
+  ): Reply =
+    if (!origin.forall(Routes.loopbackOrigin) || !host.exists(local))
+      Reply(403, "refused: only a request from this machine is answered")
+    else if (path == Routes.McpPath) {
       if (method == "POST") mcp(body)
       else Reply(405, s"post a JSON-RPC message; $method runs nothing")
     } else
@@ -66,6 +85,14 @@ final class Routes(
             case (Right(name), Right(args)) => routed(name, args)
           }
       }
+
+  /** Whether `host`, a `Host` header, names `listen`: its address or `localhost`, and its port. */
+  private def local(host: String): Boolean = {
+    val port = listen.getPort
+    val address = listen.getAddress.getHostAddress
+    val named = if (address.contains(':')) s"[$address]" else address
+    Set(s"$named:$port", s"localhost:$port").contains(host.trim.toLowerCase(java.util.Locale.ROOT))
+  }
 
   /** One MCP message, answered; a call to a command not offered runs nothing. */
   private def mcp(body: String): Reply = Mcp.read(body) match {
@@ -148,6 +175,12 @@ object Routes {
 
   /** `/command/`: where a command is posted, its name after. */
   val Command: String = "/command/"
+
+  /** Whether `origin`, an `Origin` header, is `http://` a loopback host at a port, or none. */
+  private def loopbackOrigin(origin: String): Boolean =
+    LoopbackOrigin.matches(origin.trim.toLowerCase(java.util.Locale.ROOT))
+
+  private val LoopbackOrigin = raw"http://(127\.0\.0\.1|localhost|\[::1\])(:[0-9]{1,5})?".r
 
   /** `/mcp`: where MCP messages are posted. */
   val McpPath: String = "/mcp"

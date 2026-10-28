@@ -1,5 +1,6 @@
 package workshop.edge
 
+import java.net.{InetAddress, InetSocketAddress}
 import java.nio.file.{Files, Path}
 import java.time.Instant
 
@@ -81,14 +82,20 @@ object RoutesTests extends TestSuite {
       dir: Path
   ): (Routes^, Recording^) = {
     val commands = new Recording(answer, briefs)
-    (new Routes(commands, owner, room, Integrity.Member, Stopped, new BriefFiles(dir)), commands)
+    (
+      new Routes(commands, owner, room, Integrity.Member, Stopped, new BriefFiles(dir), Listen),
+      commands
+    )
   }
 
   /** Routes over [[Recording]] commands offering `tools`. */
   private def offering(tools: Vector[ToolSchema]): (Routes^, Recording^) = {
     val commands = new Recording(Right(Answered.Done("shown")), Vector.empty, tools)
     val dir = Files.createTempDirectory("briefs")
-    (new Routes(commands, owner, room, Integrity.Member, Stopped, new BriefFiles(dir)), commands)
+    (
+      new Routes(commands, owner, room, Integrity.Member, Stopped, new BriefFiles(dir), Listen),
+      commands
+    )
   }
 
   /** A JSON-RPC request to `method` with `params`, as `id` 7. */
@@ -120,13 +127,23 @@ object RoutesTests extends TestSuite {
   private def listed(dir: Path): Vector[String] =
     dir.toFile.list().toVector.sorted
 
+  private val Listen = new InetSocketAddress(InetAddress.getLoopbackAddress, 7317)
+
+  /** `ask` is `answer` for a request as `bin/workshop` sends it: no `Origin`, `Host` the listen
+    * address.
+    */
+  extension (routes: Routes^) {
+    private def ask(method: String, path: String, body: String): Reply =
+      routes.answer(method, path, None, Some("127.0.0.1:7317"), body)
+  }
+
   private val claim = """{"key":"m17/s8","role":"builder","for":"Coder_Opus/3F2A"}"""
 
   val tests = Tests {
     test("a claim that is Done writes the slot's brief file, a refused one writes none") {
       val dir = Files.createTempDirectory("briefs")
       val (routes, commands) = routedBy(Right(Answered.Done("Claimed.")), Vector("# m17/s8\n"), dir)
-      routes.answer("POST", "/command/project_claim", claim) ==> Reply(200, "Claimed.")
+      routes.ask("POST", "/command/project_claim", claim) ==> Reply(200, "Claimed.")
       listed(dir) ==> Vector("coder-opus__3f2a.md")
       Files.readString(dir.resolve("coder-opus__3f2a.md")) ==> "# m17/s8\n"
       commands.ran.map(r => (ToolName.value(r.name), r.args)).toVector ==> Vector(
@@ -137,7 +154,7 @@ object RoutesTests extends TestSuite {
       val refusedDir = Files.createTempDirectory("briefs")
       val (refusing, refused) =
         routedBy(Right(Answered.Refused("claimed already")), Vector("no"), refusedDir)
-      refusing.answer("POST", "/command/project_claim", claim) ==> Reply(409, "claimed already")
+      refusing.ask("POST", "/command/project_claim", claim) ==> Reply(409, "claimed already")
       listed(refusedDir) ==> Vector.empty[String]
       refused.ran.map(r => ToolName.value(r.name)).toVector ==> Vector("project_claim")
     }
@@ -145,9 +162,9 @@ object RoutesTests extends TestSuite {
     test("release deletes the file") {
       val dir = Files.createTempDirectory("briefs")
       val (routes, commands) = routedBy(Right(Answered.Done("Done.")), Vector("# brief\n"), dir)
-      routes.answer("POST", "/command/project_claim", claim).status ==> 200
+      routes.ask("POST", "/command/project_claim", claim).status ==> 200
       listed(dir) ==> Vector("coder-opus__3f2a.md")
-      routes.answer(
+      routes.ask(
         "POST",
         "/command/project_release",
         """{"key":"m17/s8","for":"Coder_Opus/3F2A"}"""
@@ -156,7 +173,7 @@ object RoutesTests extends TestSuite {
       commands.ran.lastOption.map(r => (ToolName.value(r.name), r.args)) ==>
         Some("project_release" -> ujson.Obj("key" -> "m17/s8"))
       val before = commands.ran.size
-      routes.answer("POST", "/command/project_release", """{"key":"m17/s8"}""").status ==> 400
+      routes.ask("POST", "/command/project_release", """{"key":"m17/s8"}""").status ==> 400
       commands.ran.size ==> before
     }
 
@@ -164,8 +181,8 @@ object RoutesTests extends TestSuite {
       val dir = Files.createTempDirectory("briefs")
       val texts = Vector("first brief, longer than the second\n", "second\n")
       val (routes, _) = routedBy(Right(Answered.Done("Claimed.")), texts, dir)
-      routes.answer("POST", "/command/project_claim", claim).status ==> 200
-      routes.answer("POST", "/command/project_claim", claim).status ==> 200
+      routes.ask("POST", "/command/project_claim", claim).status ==> 200
+      routes.ask("POST", "/command/project_claim", claim).status ==> 200
       listed(dir) ==> Vector("coder-opus__3f2a.md")
       Files.readString(dir.resolve("coder-opus__3f2a.md")) ==> "second\n"
     }
@@ -181,7 +198,7 @@ object RoutesTests extends TestSuite {
       "POST /command/<name> runs it as the owner in the room, believed as given, its body as arguments"
     ) {
       val (routes, commands) = routed(Right(Answered.Done("shown")))
-      routes.answer("POST", "/command/project_show", """{"key":"m17/s6"}""") ==> Reply(200, "shown")
+      routes.ask("POST", "/command/project_show", """{"key":"m17/s6"}""") ==> Reply(200, "shown")
       commands.ran.toVector ==> Vector(
         Ran(
           owner,
@@ -196,7 +213,7 @@ object RoutesTests extends TestSuite {
 
     test("an empty body is no arguments") {
       val (routes, commands) = routed(Right(Answered.Done("listed")))
-      routes.answer("POST", "/command/project_list", "") ==> Reply(200, "listed")
+      routes.ask("POST", "/command/project_list", "") ==> Reply(200, "listed")
       commands.ran.map(_.args).toVector ==> Vector(ujson.Obj())
     }
 
@@ -209,13 +226,13 @@ object RoutesTests extends TestSuite {
         Left(CommandError.NotVouched(owner)),
         Left(CommandError.Store(name, StoreError.Full(20000))),
         Left(CommandError.Unavailable("down"))
-      ).map(a => routed(a)._1.answer("POST", "/command/project_move", "{}").status) ==>
+      ).map(a => routed(a)._1.ask("POST", "/command/project_move", "{}").status) ==>
         Vector(409, 404, 400, 403, 500, 503)
     }
 
     test("a body that is not a JSON object runs nothing, and is 400") {
       val (routes, commands) = routed(Right(Answered.Done("kept")))
-      Vector("{not json", "[1]").map(routes.answer("POST", "/command/project_keep", _).status) ==>
+      Vector("{not json", "[1]").map(routes.ask("POST", "/command/project_keep", _).status) ==>
         Vector(400, 400)
       commands.ran.size ==> 0
     }
@@ -224,7 +241,7 @@ object RoutesTests extends TestSuite {
       val (routes, commands) = offering(Vector.empty)
       def initialize(version: String) =
         rpc(
-          routes.answer(
+          routes.ask(
             "POST",
             "/mcp",
             request(
@@ -254,7 +271,7 @@ object RoutesTests extends TestSuite {
 
     test("a notification is accepted with 202 and no body, and runs nothing") {
       val (routes, commands) = offering(Vector.empty)
-      routes.answer(
+      routes.ask(
         "POST",
         "/mcp",
         """{"jsonrpc":"2.0","method":"notifications/initialized"}"""
@@ -273,8 +290,8 @@ object RoutesTests extends TestSuite {
         "type" -> "string",
         "description" -> "The slot the claim was for, whose brief file is deleted."
       )
-      routes.answer("POST", "/mcp", request("tools/list", ujson.Obj())).contentType ==> Reply.Json
-      rpc(routes.answer("POST", "/mcp", request("tools/list", ujson.Obj()))) ==> (
+      routes.ask("POST", "/mcp", request("tools/list", ujson.Obj())).contentType ==> Reply.Json
+      rpc(routes.ask("POST", "/mcp", request("tools/list", ujson.Obj()))) ==> (
         200,
         result(
           ujson.Obj(
@@ -298,7 +315,7 @@ object RoutesTests extends TestSuite {
     test("tools/call runs the command as /command does, its text the content") {
       val (routes, commands) = routed(Right(Answered.Done("shown")))
       rpc(
-        routes.answer(
+        routes.ask(
           "POST",
           "/mcp",
           request(
@@ -330,7 +347,7 @@ object RoutesTests extends TestSuite {
       val (refusing, _) = routed(Right(Answered.Refused("claimed already")))
       Vector(claiming, refusing).map(r =>
         rpc(
-          r.answer(
+          r.ask(
             "POST",
             "/mcp",
             request(
@@ -359,20 +376,20 @@ object RoutesTests extends TestSuite {
     test("an unknown method, a call naming no command, or no JSON-RPC: an error, nothing run") {
       val (routes, commands) = routed(Right(Answered.Done("kept")))
       Vector(
-        routes.answer("POST", "/mcp", request("resources/list", ujson.Obj())),
-        routes.answer("POST", "/mcp", request("tools/call", ujson.Obj("arguments" -> ujson.Obj()))),
-        routes.answer(
+        routes.ask("POST", "/mcp", request("resources/list", ujson.Obj())),
+        routes.ask("POST", "/mcp", request("tools/call", ujson.Obj("arguments" -> ujson.Obj()))),
+        routes.ask(
           "POST",
           "/mcp",
           request("tools/call", ujson.Obj("name" -> "project_move", "arguments" -> ujson.Obj()))
         ),
-        routes.answer(
+        routes.ask(
           "POST",
           "/mcp",
           request("tools/call", ujson.Obj("name" -> "project_show", "arguments" -> ujson.Arr()))
         ),
-        routes.answer("POST", "/mcp", "{not json"),
-        routes.answer("POST", "/mcp", """[{"jsonrpc":"2.0","id":1,"method":"ping"}]""")
+        routes.ask("POST", "/mcp", "{not json"),
+        routes.ask("POST", "/mcp", """[{"jsonrpc":"2.0","id":1,"method":"ping"}]""")
       ).map(errorCode) ==> Vector(
         (200, Some((ujson.Num(7), -32601.0))),
         (200, Some((ujson.Num(7), -32602.0))),
@@ -381,16 +398,73 @@ object RoutesTests extends TestSuite {
         (400, Some((ujson.Null, -32700.0))),
         (400, Some((ujson.Null, -32600.0)))
       )
-      routes.answer("GET", "/mcp", "").status ==> 405
+      routes.ask("GET", "/mcp", "").status ==> 405
       commands.ran.size ==> 0
+    }
+
+    test("a foreign Origin is refused and runs nothing") {
+      val (routes, commands) = routed(Right(Answered.Done("kept")))
+      val show = """{"key":"m17/s6"}"""
+      val list = request("tools/list", ujson.Obj())
+      Vector(
+        "http://evil.example",
+        "http://127.0.0.1.evil.example:7317",
+        "null",
+        "https://localhost:7317"
+      )
+        .flatMap(o =>
+          Vector(
+            routes.answer("POST", "/command/project_show", Some(o), Some("127.0.0.1:7317"), show),
+            routes.answer("POST", "/mcp", Some(o), Some("127.0.0.1:7317"), list)
+          )
+        )
+        .map(_.status) ==> Vector.fill(8)(403)
+      commands.ran.size ==> 0
+    }
+
+    test("a rebinding Host is refused and runs nothing") {
+      val (routes, commands) = routed(Right(Answered.Done("kept")))
+      val show = """{"key":"m17/s6"}"""
+      Vector(Some("evil.example:7317"), Some("127.0.0.1:80"), Some("localhost"), None)
+        .flatMap(h =>
+          Vector(
+            routes.answer("POST", "/command/project_show", None, h, show),
+            routes.answer(
+              "POST",
+              "/mcp",
+              Some("http://localhost:7317"),
+              h,
+              request("ping", ujson.Obj())
+            )
+          )
+        )
+        .map(_.status) ==> Vector.fill(8)(403)
+      commands.ran.size ==> 0
+    }
+
+    test("the CLI's request, no Origin and a loopback Host, still runs") {
+      val (routes, commands) = routed(Right(Answered.Done("shown")))
+      val show = """{"key":"m17/s6"}"""
+      Vector(
+        routes.answer("POST", "/command/project_show", None, Some("127.0.0.1:7317"), show),
+        routes.answer("POST", "/command/project_show", None, Some("LocalHost:7317"), show),
+        routes.answer(
+          "POST",
+          "/command/project_show",
+          Some("http://[::1]:5173"),
+          Some("localhost:7317"),
+          show
+        )
+      ).map(_.status) ==> Vector(200, 200, 200)
+      commands.ran.size ==> 3
     }
 
     test("another path or method runs nothing: 404 and 405") {
       val (routes, commands) = routed(Right(Answered.Done("kept")))
       Vector(
-        routes.answer("POST", "/commands/project_keep", "{}"),
-        routes.answer("POST", "/command/", "{}"),
-        routes.answer("GET", "/command/project_keep", "")
+        routes.ask("POST", "/commands/project_keep", "{}"),
+        routes.ask("POST", "/command/", "{}"),
+        routes.ask("GET", "/command/project_keep", "")
       ).map(_.status) ==> Vector(404, 404, 405)
       commands.ran.size ==> 0
     }

@@ -47,7 +47,15 @@ final class ClaudeCodeEdge(owner: Account, realm: Realm, room: Place, believed: 
         .before(source, owner)
         .left
         .map(why => EdgeRefusal.Failed(s"${Account.written(owner)} is not vouched: $why"))
-      routes = new Routes(stores.commands, owner, room, believed, clock, ClaudeCodeEdge.briefs(env))
+      routes = new Routes(
+        stores.commands,
+        owner,
+        room,
+        believed,
+        clock,
+        ClaudeCodeEdge.briefs(env),
+        at
+      )
       server <- scala.util
         .Try(HttpServer.create(at, 0))
         .toEither
@@ -132,7 +140,14 @@ object ClaudeCodeEdge {
     def handle(exchange: HttpExchange): Unit =
       try {
         val body = new String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
-        val reply = routes.answer(exchange.getRequestMethod, exchange.getRequestURI.getPath, body)
+        val headers = exchange.getRequestHeaders
+        val reply = routes.answer(
+          exchange.getRequestMethod,
+          exchange.getRequestURI.getPath,
+          Option(headers.getFirst("Origin")),
+          Option(headers.getFirst("Host")),
+          body
+        )
         val bytes = reply.text.getBytes(StandardCharsets.UTF_8)
         exchange.getResponseHeaders.set("Content-Type", reply.contentType)
         exchange.sendResponseHeaders(reply.status, if (bytes.isEmpty) -1 else bytes.length.toLong)

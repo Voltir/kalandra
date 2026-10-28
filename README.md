@@ -105,6 +105,12 @@ claude mcp add --scope local --transport http workshop http://127.0.0.1:7317/mcp
 
 With serve down, a session starts without the tools.
 
+Both `/mcp` and `/command` refuse, with 403 and running nothing, a request whose `Origin` is not
+`http://` on `127.0.0.1`, `localhost` or `[::1]`, or whose `Host` is not the listen address or
+`localhost` at its port: a web page in a browser on this machine could otherwise post to them,
+by DNS rebinding with its own name as `Host`, and keep durable records. A request with no
+`Origin`, as from `bin/workshop`, curl or Claude Code's MCP client, passes on its `Host`.
+
 ## Importing grit's planning tree
 
 `bin/workshop import <grit checkout>` reads `roadmap/` (the roadmap, `done.md`, the other notes,

@@ -56,5 +56,6 @@ and a subagent named the one claimed for `probe/<sha1>`.
 | 4 | fork | 0.400¢ |
 | 5 | resume, `/clear` | 0¢ |
 | 6 | the hook and `/mcp` end to end | 0.240¢ |
+| 7 | run 6 again, with `Origin` and `Host` checked | 0.153¢ |
 
-1.41¢ in all, from each run's `total_cost_usd`.
+1.56¢ in all, from each run's `total_cost_usd`.
