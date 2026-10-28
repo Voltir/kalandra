@@ -45,7 +45,7 @@ bin/workshop export m17 /tmp/m17        # the project's export files, through a 
 
 A command through `bin/workshop` fails loud, exit 2, when serve is not running.
 
-## Backups
+## Backups and the restore test
 
 `ops/backup.sh` dumps `grit_workshop` (`pg_dump -Fc`, through the grit checkout's compose
 Postgres, whose `pg_dump` matches the server) into `${WORKSHOP_BACKUP_DIR:-$HOME/backups/grit_workshop}`:
@@ -64,3 +64,8 @@ systemctl --user daemon-reload
 systemctl --user enable --now workshop-backup.timer
 systemctl --user list-timers workshop-backup.timer
 ```
+
+`ops/restore-test.sh [project ...]` shows a dump restores whole: it keeps two artifacts of the
+project `restore-check` through `bin/workshop` (the same each run), dumps with `ops/backup.sh`,
+restores into `grit_workshop_restore`, serves that on `127.0.0.1:7318`, and compares each
+project's export from the two databases; then stops what it started and drops the copy.
