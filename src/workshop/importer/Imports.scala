@@ -22,6 +22,7 @@ final case class Report(
     keeps: Int,
     moves: Int,
     refused: Vector[(String, String)],
+    unmoved: Vector[(String, String)],
     failed: Vector[(String, String)],
     problems: Vector[String]
 ) extends caps.Pure {
@@ -31,8 +32,9 @@ final case class Report(
     Vector(
       s"sources: $sources",
       s"artifacts: ${kinds.values.sum} (${kinds.toVector.sorted.map((k, n) => s"$k $n").mkString(", ")})",
-      s"writes: ${keeps + moves} ($keeps keeps, $moves moves), ${refused.size} refused"
+      s"writes: ${keeps + moves} ($keeps keeps, $moves moves), ${refused.size} refused, ${unmoved.size} unmoved"
     ) ++ refused.map((k, why) => s"refused: $k: $why") ++
+      unmoved.map((k, why) => s"unmoved: $k: $why") ++
       failed.map((p, why) => s"not imported: $p: $why") ++ problems.map(p => s"problem: $p")
 }
 
@@ -48,7 +50,8 @@ object Imports {
   /** Imports the tree under `root` into `project` through `client`, writing nothing when
     * `dry` (the project is still started when it is not there); what it did, or why it stopped before writing: serve unreachable, the project
     * unreadable or pinned to a method version not declared here, the roadmap unreadable, or
-    * the import not a project ([[Sync.writes]]). A write refused is reported, not a stop.
+    * the import not a project ([[Sync.writes]]). A write refused, or a milestone move the
+    * method has no way to, is reported, not a stop.
     */
   def run(
       client: CommandClient,
@@ -58,7 +61,8 @@ object Imports {
   ): Either[String, Report] =
     for {
       read <- prepared(client, root, project)
-      writes <- Sync.writes(read.imported.project, read.existing, read.method)
+      synced <- Sync.writes(read.imported.project, read.existing, read.method)
+      writes = synced.writes
       refused = if (dry) Vector.empty else writes.flatMap(w => asked(client, w))
       problems =
         if (!dry) Vector.empty
@@ -77,6 +81,7 @@ object Imports {
       writes.count(_.command == "project_keep"),
       writes.count(_.command == "project_move"),
       refused,
+      synced.unmoved,
       read.imported.failed,
       problems
     )

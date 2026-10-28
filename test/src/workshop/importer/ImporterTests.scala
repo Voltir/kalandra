@@ -34,6 +34,19 @@ object ImporterTests extends TestSuite {
   private val empty: Project =
     Project.of(Fixture.project, Fixture.pin, Vector.empty).fold(sys.error, identity)
 
+  /** `p` with the artifact `local` held in `state`, its other artifacts as they are. */
+  private def restated(p: Project, local: String, state: String): Project = {
+    val to = StateName.of(state).fold(sys.error, identity)
+    Project
+      .of(
+        p.key,
+        p.pin,
+        p.artifacts
+          .map(a => if (a.head.key == key(local)) a.copy(head = a.head.copy(state = to)) else a)
+      )
+      .fold(sys.error, identity)
+  }
+
   val tests = Tests {
     test(
       "the import's files read back after a render with the same heads, and a second render changes nothing"
@@ -146,7 +159,8 @@ object ImporterTests extends TestSuite {
     test(
       "a first import keeps each parent before its children, a cite cycle's first artifact twice, then moves each to its state"
     ) {
-      val writes = Sync.writes(imported.project, empty, Fixture.method).fold(sys.error, identity)
+      val writes =
+        Sync.writes(imported.project, empty, Fixture.method).fold(sys.error, identity).writes
       val keeps = writes.collect { case Write.Keep(k, args) => (k, args) }
       val order = keeps.map(_._1).zipWithIndex.groupMap(_._1)(_._2)
       val parentLater = keeps.zipWithIndex.collect {
@@ -177,7 +191,7 @@ object ImporterTests extends TestSuite {
       "a second import of the same tree writes nothing, and a changed source rewrites its artifact alone"
     ) {
       val held = stored(imported.project)
-      Sync.writes(imported.project, held, Fixture.method) ==> Right(Vector.empty)
+      Sync.writes(imported.project, held, Fixture.method).map(_.writes) ==> Right(Vector.empty)
       val changed = Fixture.sources.map(s =>
         if (s.path == ".local/backlog/email-edge.md")
           s.copy(text = "# Email edge\n\nMail as an edge, later.\n")
@@ -188,10 +202,55 @@ object ImporterTests extends TestSuite {
         .fold(b => sys.error(b.toString), identity)
       Sync
         .writes(again.project, held, Fixture.method)
-        .map(_.map {
+        .map(_.writes.map {
           case Write.Keep(k, _) => s"keep ${k.local}"
           case Write.Move(k, _) => s"move ${k.local}"
         }) ==> Right(Vector("keep note-email-edge"))
+    }
+
+    test("a re-import leaves an existing stage's stored state alone") {
+      val held = restated(stored(imported.project), "plan-m3-s1-documents", "building")
+      Sync.writes(imported.project, held, Fixture.method).map(_.writes) ==> Right(Vector.empty)
+    }
+
+    test("a new artifact takes its state from the source") {
+      val held = stored(imported.project)
+      val without = Project
+        .of(held.key, held.pin, held.artifacts.filterNot(_.head.key == key("slack-joins")))
+        .fold(sys.error, identity)
+      Sync
+        .writes(imported.project, without, Fixture.method)
+        .map(_.writes.collect {
+          case Write.Move(k, to) if k == key("slack-joins") => StateName.value(to)
+        }) ==> Right(Vector("next"))
+    }
+
+    test("a milestone whose roadmap section changed is moved") {
+      val held = restated(stored(imported.project), "slack-joins", "later")
+      Sync
+        .writes(imported.project, held, Fixture.method)
+        .map(_.writes.collect {
+          case Write.Move(k, to) if k == key("slack-joins") => StateName.value(to)
+        }) ==> Right(Vector("next"))
+    }
+
+    test(
+      "a milestone whose roadmap state has no move from its stored state is reported, not a stop"
+    ) {
+      val held = restated(stored(imported.project), "slack-joins", "done")
+      Sync.writes(imported.project, held, Fixture.method).map { s =>
+        (
+          s.writes.collect { case Write.Move(k, _) if k == key("slack-joins") => k },
+          s.unmoved
+        )
+      } ==> Right(
+        (
+          Vector.empty,
+          Vector(
+            s"move ${key("slack-joins").value} to next" -> "no moves take a milestone from done to next"
+          )
+        )
+      )
     }
   }
 }

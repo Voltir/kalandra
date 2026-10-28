@@ -29,6 +29,11 @@ enum Write extends caps.Pure {
   }
 }
 
+/** What the import writes ([[Sync.writes]]): the writes, and each milestone move it could not
+  * make, as `move <key> to <state>` with why.
+  */
+final case class Synced(writes: Vector[Write], unmoved: Vector[(String, String)]) extends caps.Pure
+
 /** What an import writes to a project already holding `existing`. */
 object Sync {
 
@@ -37,13 +42,16 @@ object Sync {
     * nothing. Each artifact not held already, or held with another title, parent, cites or
     * body, is kept, a parent before its children; one citing what is not kept yet is first
     * kept without those cites (its body's links to them left as their text), then again whole
-    * once every artifact is kept. Then each is moved, its children first, along the method's
-    * shortest way from the state it is in to its imported state. Nothing is deleted: an
-    * artifact `existing` holds that the import does not is left as it is ([[Fidelity]] names
-    * it). Refused when the import's normal form is not a project, an artifact would change its
-    * kind, or no way of moves reaches its state.
+    * once every artifact is kept. Then each new artifact is moved, its children first, along the
+    * method's shortest way from its kind's first state to its imported state. An existing
+    * artifact keeps the state `existing` holds, except a milestone, whose state the roadmap
+    * decides: it is moved along the way from the state it holds, and one with no such way is
+    * in [[Synced.unmoved]] rather than a stop. Nothing is deleted: an artifact `existing` holds
+    * that the import does not is left as it is ([[Fidelity]] names it). Refused when the
+    * import's normal form is not a project, an artifact would change its kind, or a new
+    * artifact has no way of moves from its kind's first state to its own.
     */
-  def writes(imported: Project, existing: Project, method: Method): Either[String, Vector[Write]] =
+  def writes(imported: Project, existing: Project, method: Method): Either[String, Synced] =
     for {
       desired <- ProjectMarkdown
         .read(ProjectMarkdown.render(imported))
@@ -56,17 +64,42 @@ object Sync {
         .toLeft(())
       ordered = desired.artifacts.sortBy(a => depth(desired, a))
       keeps = kept(ordered, held)
-      moves <- ordered.reverse.foldLeft[Either[String, Vector[Write]]](Right(Vector.empty)) {
-        (done, a) =>
-          for {
-            ws <- done
-            from = held.get(a.head.key).map(_.head.state).orElse(first(method, a.head.kind))
-            way <- from.fold[Either[String, Vector[StateName]]](
-              Left(s"${KindName.value(a.head.kind)} is no kind of the method")
-            )(f => way(method, a.head.kind, f, a.head.state))
-          } yield ws ++ way.map(Write.Move(a.head.key, _))
+      moves <- ordered.reverse.foldLeft[Either[String, Synced]](
+        Right(Synced(Vector.empty, Vector.empty))
+      ) { (done, a) =>
+        for {
+          s <- done
+          step <- moved(method, held.get(a.head.key), a)
+        } yield Synced(s.writes ++ step.writes, s.unmoved ++ step.unmoved)
       }
-    } yield keeps ++ moves
+    } yield Synced(keeps ++ moves.writes, moves.unmoved)
+
+  /** The moves `a` gets, given the artifact `existing` holds under its key, if any. A new
+    * artifact is moved from its kind's first state. An existing one that is no milestone keeps
+    * its stored state, so gets none; an existing milestone is moved from the state it holds,
+    * and when the method has no way there it is unmoved, with why.
+    */
+  private def moved(method: Method, held: Option[Artifact], a: Artifact): Either[String, Synced] =
+    held match {
+      case Some(_) if KindName.value(a.head.kind) != "milestone" =>
+        Right(Synced(Vector.empty, Vector.empty))
+      case Some(h) =>
+        Right(
+          way(method, a.head.kind, h.head.state, a.head.state).fold(
+            why =>
+              Synced(
+                Vector.empty,
+                Vector(s"move ${a.head.key.value} to ${StateName.value(a.head.state)}" -> why)
+              ),
+            path => Synced(path.map(Write.Move(a.head.key, _)), Vector.empty)
+          )
+        )
+      case None =>
+        first(method, a.head.kind)
+          .toRight(s"${KindName.value(a.head.kind)} is no kind of the method")
+          .flatMap(from => way(method, a.head.kind, from, a.head.state))
+          .map(path => Synced(path.map(Write.Move(a.head.key, _)), Vector.empty))
+    }
 
   private def kept(ordered: Vector[Artifact], held: Map[ArtifactKey, Artifact]): Vector[Write] = {
     val start = (held.keySet, Vector.empty[Write], Vector.empty[Artifact])

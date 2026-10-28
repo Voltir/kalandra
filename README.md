@@ -55,7 +55,9 @@ A command through `bin/workshop` fails loud, exit 2, when serve is not running.
 `mechanisms/`), `.local/backlog/` and the open plans (those the roadmap names outside Done and
 the Update Protocol) and keeps them, through a running serve, as the project `grit`, under the
 mapping `workshop.importer.Importer` documents. It only ever adds and changes: an artifact whose
-source went away stays. A second run over an unchanged tree writes nothing; `--dry-run` writes
+source went away stays. An existing artifact keeps the state the store holds: the source sets a new
+artifact's state, and a milestone's (from its roadmap section, moved when the method has the way;
+a milestone with no such way is reported, not a stop). A second run over an unchanged tree writes nothing; `--dry-run` writes
 no artifact, and also checks the import against its own normal form. `bin/workshop verify <grit
 checkout>` checks the stored project holds the tree whole (`Fidelity.problems`) and is at the
 round-trip law's normal form; it exits non-zero on any problem. The tree is only read.
