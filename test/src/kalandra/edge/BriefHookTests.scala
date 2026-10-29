@@ -3,43 +3,24 @@ package kalandra.edge
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.security.MessageDigest
-import java.util.concurrent.TimeUnit
 
+import kalandra.hooks.HookRun
 import utest.*
 
 /** `hooks/brief-hook.sh`, run as Claude Code runs it: a hook event's JSON on stdin. */
 object BriefHookTests extends TestSuite {
 
-  /** What one run of the hook did: its exit status, what it printed, and how long it took. */
-  private final case class Ran(status: Int, out: String, err: String, millis: Long)
+  private type Ran = HookRun.Ran
 
-  private val script = sys.env.getOrElse("KALANDRA_HOOK", "hooks/brief-hook.sh")
-
-  /** The hook run with `args` in `cwd`, `stdin` its input, reading briefs from `briefs`; killed
-    * after 5 s.
-    */
-  private def hook(stdin: String, briefs: Path, cwd: Path, args: String*): Ran = {
-    val command = new java.util.ArrayList[String]()
-    (Vector("bash", script) ++ args).foreach(a => { command.add(a); () })
-    val builder = new ProcessBuilder(command).directory(cwd.toFile)
-    builder.environment().put("KALANDRA_BRIEFS", briefs.toString)
-    val out = Files.createTempFile("hook", ".out")
-    val err = Files.createTempFile("hook", ".err")
-    builder.redirectOutput(out.toFile).redirectError(err.toFile)
-    val started = System.nanoTime()
-    val process = builder.start()
-    // A hook that exits before reading its stdin closes the pipe; what it then did is the test.
-    scala.util.Try {
-      process.getOutputStream.write(stdin.getBytes(StandardCharsets.UTF_8))
-      process.getOutputStream.close()
-    }
-    if (!process.waitFor(5, TimeUnit.SECONDS)) {
-      process.descendants().forEach(p => { p.destroyForcibly(); () })
-      process.destroyForcibly().waitFor()
-    }
-    val millis = (System.nanoTime() - started) / 1000000
-    Ran(process.exitValue(), Files.readString(out), Files.readString(err), millis)
-  }
+  /** The hook run with `args` in `cwd`, `stdin` its input, reading briefs from `briefs`. */
+  private def hook(stdin: String, briefs: Path, cwd: Path, args: String*): Ran =
+    HookRun.run(
+      HookRun.script("brief-hook.sh"),
+      stdin,
+      cwd,
+      Map("KALANDRA_BRIEFS" -> briefs.toString),
+      args*
+    )
 
   private def sha1(s: String): String =
     MessageDigest
