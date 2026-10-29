@@ -37,12 +37,14 @@ object RoutesTests extends TestSuite {
   )
 
   /** Records each run and answers `answer`, as [[PluginCommands.run]] would for a command it
-    * ran or refused; but `project_brief`, which answers each of `briefs` in turn as done.
+    * ran or refused; but `project_brief`, which answers each of `briefs` in turn as done, and
+    * `project_claims`, which answers `claims` as done.
     */
   private final class Recording(
       answer: Either[CommandError, CommandOutcome],
       briefs: Vector[String] = Vector.empty,
-      tools: Vector[ToolSchema] = Offered
+      tools: Vector[ToolSchema] = Offered,
+      claims: String = """{"claims":[]}"""
   ) extends PluginCommands {
     val ran = scala.collection.mutable.ArrayBuffer.empty[Ran]
     def offered: Vector[ToolSchema] = tools
@@ -57,6 +59,7 @@ object RoutesTests extends TestSuite {
       ran += Ran(by, room, believed, name, args, at)
       if (name == Brief)
         Right(CommandOutcome.Done(briefs.lift(ran.count(_.name == Brief) - 1).getOrElse("")))
+      else if (ToolName.value(name) == "project_claims") Right(CommandOutcome.Done(claims))
       else answer
     }
   }
@@ -86,9 +89,10 @@ object RoutesTests extends TestSuite {
   private def routedBy(
       answer: Either[CommandError, CommandOutcome],
       briefs: Vector[String],
-      dir: Path
+      dir: Path,
+      claims: String = """{"claims":[]}"""
   ): (Routes^, Recording^) = {
-    val commands = new Recording(answer, briefs)
+    val commands = new Recording(answer, briefs, claims = claims)
     (
       new Routes(
         commands,
@@ -231,6 +235,46 @@ object RoutesTests extends TestSuite {
       refusing.ask("POST", "/command/project_claim", claim) ==> Reply(409, "claimed already")
       listed(refusedDir) ==> Vector.empty[String]
       refused.ran.map(r => ToolName.value(r.name)).toVector ==> Vector("project_claim")
+    }
+
+    test("a keep or move that is Done rewrites each live claim's brief file there is") {
+      val dir = Files.createTempDirectory("briefs")
+      def held(key: String, slot: String): ujson.Value =
+        ujson.Obj("key" -> key, "role" -> "builder", "for" -> slot, "by" -> "someone")
+      val live = ujson.Obj(
+        "claims" -> ujson.Arr(held("m17/s8", "coder-opus/3f2a"), held("m17/s9", "elsewhere"))
+      )
+      val (routes, commands) = routedBy(
+        Right(CommandOutcome.Done("Done.")),
+        Vector("# claimed\n", "# kept\n", "# moved\n"),
+        dir,
+        live.render()
+      )
+      routes.ask("POST", "/command/project_claim", claim).status ==> 200
+      routes.ask("POST", "/command/project_keep", """{"key":"m17/plan","text":"x"}""") ==>
+        Reply(200, "Done.")
+      val kept = Files.readString(dir.resolve("coder-opus__3f2a.md"))
+      routes.ask("POST", "/command/project_move", """{"key":"m17/s9","to":"done"}""") ==>
+        Reply(200, "Done.")
+      (kept, Files.readString(dir.resolve("coder-opus__3f2a.md")), listed(dir)) ==>
+        ("# kept\n", "# moved\n", Vector("coder-opus__3f2a.md"))
+      commands.ran.map(r => (ToolName.value(r.name), r.args)).toVector.drop(2) ==> Vector(
+        "project_keep" -> ujson.Obj("key" -> "m17/plan", "text" -> "x"),
+        "project_claims" -> ujson.Obj("project" -> "m17"),
+        "project_brief" -> ujson.Obj("key" -> "m17/s8", "role" -> "builder"),
+        "project_move" -> ujson.Obj("key" -> "m17/s9", "to" -> "done"),
+        "project_claims" -> ujson.Obj("project" -> "m17"),
+        "project_brief" -> ujson.Obj("key" -> "m17/s8", "role" -> "builder")
+      )
+    }
+
+    test("a keep refused rewrites nothing") {
+      val dir = Files.createTempDirectory("briefs")
+      val (routes, commands) =
+        routedBy(Right(CommandOutcome.Refused("no such state")), Vector("# brief\n"), dir)
+      routes.ask("POST", "/command/project_keep", """{"key":"m17/plan"}""") ==>
+        Reply(409, "no such state")
+      commands.ran.map(r => ToolName.value(r.name)).toVector ==> Vector("project_keep")
     }
 
     test("release deletes the file") {

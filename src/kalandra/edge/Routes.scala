@@ -1,6 +1,7 @@
 package kalandra.edge
 
 import java.net.InetSocketAddress
+import java.nio.file.Files
 import java.time.Instant
 
 import scala.concurrent.duration.*
@@ -13,7 +14,7 @@ import grit.core.place.Place
 import grit.core.plugin.CommandOutcome
 import grit.core.tool.ToolName
 import grit.core.visibility.Integrity
-import grit.projects.name.{ArtifactKey, StateName}
+import grit.projects.name.{ArtifactKey, ProjectKey, StateName}
 import grit.projects.plugin.Projects
 
 import kalandra.capture.Spooled
@@ -41,9 +42,13 @@ object Reply {
   * `project_claim`'s `for` is passed on as [[BriefFiles.slot]] maps it; once the claim is done,
   * `project_brief` for its key and role is written to that slot's file in `briefs`.
   * `project_release` takes its key alone and is passed on as given; once the release is done,
-  * the slot its answer names (`{"released","for"}` JSON) has its file deleted. A file that
-  * cannot be written or deleted, a brief refused, or a release answer naming no slot, is said
-  * after the command's text; the command stays done.
+  * the slot its answer names (`{"released","for"}` JSON) has its file deleted. Once a
+  * `project_keep` or `project_move` is done, each live claim on its artifact's project whose slot
+  * has a brief file (`project_claims`) has that file written again from `project_brief`, whether
+  * or not its brief shows the artifact: a session reads its file only at a start or a compaction,
+  * so a brief rewritten mid-session reaches its window at the next one, by design. A file that
+  * cannot be written or deleted, a brief or the claims refused, or a release answer naming no
+  * slot, is said after the command's text; the command stays done.
   *
   * Every request is first checked as coming from this machine, since a web page can send one
   * too (through DNS rebinding, with its own name as `Host`): see [[answer]].
@@ -172,7 +177,35 @@ final class Routes(
                 _ => Reply(200, s"Released $key.")
               )
         }
+    case Routes.Keep | Routes.Move =>
+      val changed = ran(name, args)
+      text(args, "key").flatMap(ArtifactKey.read(_).toOption) match {
+        case Some(key) if changed.status == 200 =>
+          rewritten(key.project).fold(changed)(why => Reply(200, s"${changed.text}\n$why"))
+        case _ => changed
+      }
     case _ => ran(name, args)
+  }
+
+  /** Writes again the brief file of each live claim on `project` whose slot has one; what failed,
+    * if anything did.
+    */
+  private def rewritten(project: ProjectKey): Option[String] = {
+    val claims = ran(Routes.Claims, ujson.Obj("project" -> ProjectKey.value(project)))
+    val failed =
+      if (claims.status != 200) Vector(s"the claims were not read: ${claims.text}")
+      else
+        Routes.held(claims.text) match {
+          case None => Vector("the claims' answer was not read")
+          case Some(held) =>
+            held.filter(h => Files.exists(briefs.file(h.slot))).flatMap { h =>
+              val brief = ran(Routes.Brief, ujson.Obj("key" -> h.key, "role" -> h.role))
+              (if (brief.status == 200) briefs.write(h.slot, brief.text)
+               else Left(brief.text)).left.toOption
+                .map(why => s"${h.slot}: $why")
+            }
+        }
+    Option.when(failed.nonEmpty)(s"Brief files not written again: ${failed.mkString("; ")}")
   }
 
   private def ran(name: ToolName, args: ujson.Obj): Reply =
@@ -312,7 +345,34 @@ object Routes {
 
   private val Claim = "project_claim"
   private[edge] val Release = "project_release"
+  private val Keep = "project_keep"
+  private val Move = "project_move"
   private val Brief = ToolName("project_brief")
+  private val Claims = ToolName("project_claims")
+
+  /** A live claim, from the claims' answer: its artifact's key, its role, and the slot it is for. */
+  private final case class Held(key: String, role: String, slot: String)
+
+  /** The live claims a `project_claims` answer lists (`{"claims":[{"key","role","for"}]}`), each
+    * slot as [[BriefFiles.slot]] maps it; none for any other text.
+    */
+  private def held(text: String): Option[Vector[Held]] =
+    scala.util
+      .Try(ujson.read(text))
+      .toOption
+      .flatMap(_.objOpt)
+      .flatMap(_.get("claims"))
+      .flatMap(_.arrOpt)
+      .map(
+        _.toVector.flatMap(c =>
+          for {
+            o <- c.objOpt
+            key <- o.get("key").flatMap(_.strOpt)
+            role <- o.get("role").flatMap(_.strOpt)
+            slot <- o.get("for").flatMap(_.strOpt)
+          } yield Held(key, role, BriefFiles.slot(slot))
+        )
+      )
 
   /** The key released and the slot it was for, from a release's answer: a JSON object with
     * string `released` and `for`. None for any other text.
