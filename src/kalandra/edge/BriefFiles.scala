@@ -47,6 +47,12 @@ final class BriefFiles(dir: Path) {
 
 object BriefFiles {
 
+  /** 7,000: the most characters a brief file holds. Claude Code takes at most 10,000 characters
+    * from a hook; a brief, the digest written beside it, and the line between them stay under
+    * that with room for the hook's JSON.
+    */
+  val BriefChars: Int = 7000
+
   /** `raw`, an edge's name for a session or agent, as grit takes a slot (`BriefSlot`): per
     * character (code point), `A`-`Z` lower-cased, `a`-`z`, `0`-`9`, `-` and `/` kept, any other
     * written `-`; then each part's leading `-` dropped. So `Explore` is `explore`, and

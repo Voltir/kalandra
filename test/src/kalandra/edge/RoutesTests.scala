@@ -227,7 +227,7 @@ object RoutesTests extends TestSuite {
       commands.ran.map(r => (ToolName.value(r.name), r.args)).toVector ==> Vector(
         "project_claim" -> ujson
           .Obj("key" -> "m17/s8", "role" -> "builder", "for" -> "coder-opus/3f2a"),
-        "project_brief" -> ujson.Obj("key" -> "m17/s8", "role" -> "builder")
+        "project_brief" -> ujson.Obj("key" -> "m17/s8", "role" -> "builder", "chars" -> 7000)
       )
       val refusedDir = Files.createTempDirectory("briefs")
       val (refusing, refused) =
@@ -261,10 +261,10 @@ object RoutesTests extends TestSuite {
       commands.ran.map(r => (ToolName.value(r.name), r.args)).toVector.drop(2) ==> Vector(
         "project_keep" -> ujson.Obj("key" -> "m17/plan", "text" -> "x"),
         "project_claims" -> ujson.Obj("project" -> "m17"),
-        "project_brief" -> ujson.Obj("key" -> "m17/s8", "role" -> "builder"),
+        "project_brief" -> ujson.Obj("key" -> "m17/s8", "role" -> "builder", "chars" -> 7000),
         "project_move" -> ujson.Obj("key" -> "m17/s9", "to" -> "done"),
         "project_claims" -> ujson.Obj("project" -> "m17"),
-        "project_brief" -> ujson.Obj("key" -> "m17/s8", "role" -> "builder")
+        "project_brief" -> ujson.Obj("key" -> "m17/s8", "role" -> "builder", "chars" -> 7000)
       )
     }
 

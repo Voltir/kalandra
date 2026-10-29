@@ -40,7 +40,8 @@ object Reply {
   * waits on `watch` as [[Routes.watchOf]] reads its body. Nothing else runs anything.
   *
   * `project_claim`'s `for` is passed on as [[BriefFiles.slot]] maps it; once the claim is done,
-  * `project_brief` for its key and role is written to that slot's file in `briefs`.
+  * `project_brief` for its key and role, at most [[BriefFiles.BriefChars]] characters, is written
+  * to that slot's file in `briefs`.
   * `project_release` takes its key alone and is passed on as given; once the release is done,
   * the slot its answer names (`{"released","for"}` JSON) has its file deleted. Once a
   * `project_keep` or `project_move` is done, each live claim on its artifact's project whose slot
@@ -154,8 +155,7 @@ final class Routes(
       val claimed = ran(name, slot.fold(args)(s => replaced(args, "for", Some(s))))
       (claimed.status, slot, text(args, "key"), text(args, "role")) match {
         case (200, Some(s), Some(key), Some(role)) =>
-          val brief = ran(Routes.Brief, ujson.Obj("key" -> key, "role" -> role))
-          (if (brief.status == 200) briefs.write(s, brief.text) else Left(brief.text))
+          briefed(s, key, role)
             .fold(
               why => Reply(200, s"${claimed.text}\nNo brief file was written: $why"),
               _ => claimed
@@ -199,13 +199,19 @@ final class Routes(
           case None => Vector("the claims' answer was not read")
           case Some(held) =>
             held.filter(h => Files.exists(briefs.file(h.slot))).flatMap { h =>
-              val brief = ran(Routes.Brief, ujson.Obj("key" -> h.key, "role" -> h.role))
-              (if (brief.status == 200) briefs.write(h.slot, brief.text)
-               else Left(brief.text)).left.toOption
-                .map(why => s"${h.slot}: $why")
+              briefed(h.slot, h.key, h.role).left.toOption.map(why => s"${h.slot}: $why")
             }
         }
     Option.when(failed.nonEmpty)(s"Brief files not written again: ${failed.mkString("; ")}")
+  }
+
+  /** `project_brief` for `key` and `role`, at most [[BriefFiles.BriefChars]] characters, written
+    * as `slot`'s brief; or why not: the brief refused, or the file not written.
+    */
+  private def briefed(slot: String, key: String, role: String): Either[String, Unit] = {
+    val brief =
+      ran(Routes.Brief, ujson.Obj("key" -> key, "role" -> role, "chars" -> BriefFiles.BriefChars))
+    if (brief.status == 200) briefs.write(slot, brief.text) else Left(brief.text)
   }
 
   private def ran(name: ToolName, args: ujson.Obj): Reply =
