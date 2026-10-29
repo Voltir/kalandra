@@ -37,9 +37,10 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   `hooks/spool-hook.sh` spools in grit's session record (grit's ADR 0050), as the account, at
   its room's label, each session placed at its worktree. Every 2 s it records the files the
   hook appended to `${KALANDRA_SPOOL:-$HOME/.local/state/kalandra/spool}`, one transaction a
-  file, and deletes them. A file whose recording fails 3 times goes to `quarantine/` there (the
-  newest 20 kept); a line it cannot read, or a session it cannot place, is dropped and said in
-  serve's log.
+  file, and deletes them. A file the store refuses 3 times goes to `quarantine/` there (the
+  newest 20 kept); while the database cannot be reached, a pass ends at once, trying no file and
+  taking no new one, so the hook's own bound holds what waits. A line it cannot read, or a
+  session it cannot place, is dropped and said in serve's log.
 - It names grit's kit, core, prose and the projects plugin alone.
 
 It compiles under grit's flags (`-no-indent`, capture and separation checking, `-Werror`).

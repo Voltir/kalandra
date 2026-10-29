@@ -11,6 +11,7 @@ import scala.util.control.NonFatal
 import grit.core.edge.EdgeSessions
 import grit.core.identity.Account
 import grit.core.place.Place
+import grit.core.store.StoreError
 
 /** The sessions `hooks/spool-hook.sh` spools in `dir`, recorded through `sessions` as `owner`
   * in `room`; what went wrong told to `log`.
@@ -32,17 +33,33 @@ final class Ingest(
 
   /** One pass over the spool; how many files it recorded. First each file an earlier pass took
     * (a stopped serve's included) is recorded, all its sessions in one call, and deleted; a line
-    * [[Spooled.of]] refuses is dropped, and said, with why. A file whose recording fails is
-    * kept for the next pass, and after [[Ingest.Tries]] failures moved to `quarantine/`, which
-    * keeps its newest [[Ingest.Quarantined]]. Then each session file the hook appends to is
-    * taken, renamed for the next pass, so that an append begun before the rename is in it
-    * before it is read. A spool that is no directory is a pass that records nothing.
+    * [[Spooled.of]] refuses is dropped, and said, with why. A file the store refuses
+    * ([[StoreError.Invalid]]) is kept for the next pass, and after [[Ingest.Tries]] refusals
+    * moved to `quarantine/`, which keeps its newest [[Ingest.Quarantined]]. Any other failure
+    * is the store out of reach: the pass ends there, said once, the file untried and nothing
+    * taken, so new lines wait in the hook's files, which the hook bounds. Otherwise each session
+    * file the hook appends to is then taken, renamed for the next pass, so that an append begun
+    * before the rename is in it before it is read. A spool that is no directory is a pass that
+    * records nothing.
     */
   def once(): Int =
     if (!Files.isDirectory(dir)) 0
     else {
-      val recorded = listed(dir, Ingest.Taken).count(record)
-      listed(dir, ".jsonl").foreach(take)
+      val (recorded, unreachable) =
+        listed(dir, Ingest.Taken).foldLeft((0, Option.empty[StoreError])) {
+          case ((n, None), file) =>
+            record(file) match {
+              case Ingest.Outcome.Recorded => (n + 1, None)
+              case Ingest.Outcome.Kept => (n, None)
+              case Ingest.Outcome.Unreachable(why) => (n, Some(why))
+            }
+          case (ended, _) => ended
+        }
+      unreachable match {
+        case Some(why) =>
+          log(s"claude-code spool: the store is unreachable, the pass ended: $why")
+        case None => listed(dir, ".jsonl").foreach(take)
+      }
       recorded
     }
 
@@ -53,8 +70,10 @@ final class Ingest(
     attempt(s"take ${file.getFileName}")(Files.move(file, taken, StandardCopyOption.ATOMIC_MOVE))
   }
 
-  /** Whether `file` was recorded, and so deleted. */
-  private def record(file: Path): Boolean = {
+  /** What became of `file`: recorded and deleted, kept or dropped, or not tried for want of
+    * the store.
+    */
+  private def record(file: Path): Ingest.Outcome = {
     val name = file.getFileName.toString
     val lines = attempt(s"read $name")(
       new String(Files.readAllBytes(file), StandardCharsets.UTF_8).linesIterator.toVector
@@ -70,12 +89,15 @@ final class Ingest(
     }
     if (batches.isEmpty) {
       attempt(s"delete $name")(Files.delete(file))
-      false
+      Ingest.Outcome.Kept
     } else
       sessions.record(owner, room, batches) match {
         case Right(_) =>
           attempt(s"delete $name")(Files.delete(file))
-          true
+          Ingest.Outcome.Recorded
+        // Only a refusal of what the file holds is the file's fault; any other failure is the
+        // store out of reach, which no try of this file can mend.
+        case Left(why) if !why.isInstanceOf[StoreError.Invalid] => Ingest.Outcome.Unreachable(why)
         case Left(why) =>
           val (stem, tries) = Ingest.tried(name)
           val next = s"$stem.${tries + 1}${Ingest.Taken}"
@@ -96,7 +118,7 @@ final class Ingest(
             )
             log(s"claude-code spool: $name not recorded, try ${tries + 1} of ${Ingest.Tries}: $why")
           }
-          false
+          Ingest.Outcome.Kept
       }
   }
 
@@ -126,8 +148,21 @@ object Ingest {
   /** 2 seconds: how long after one pass the next begins. */
   val Every: FiniteDuration = 2.seconds
 
-  /** 3: the passes a file's recording may fail on before it is quarantined. */
+  /** 3: the passes the store may refuse a file's recording on before it is quarantined. */
   val Tries: Int = 3
+
+  /** What one pass did with a taken file. */
+  private enum Outcome {
+
+    /** Recorded, and deleted. */
+    case Recorded
+
+    /** Left for a later pass, quarantined, or deleted with nothing in it to record. */
+    case Kept
+
+    /** Not tried: the store could not be reached, `why`. */
+    case Unreachable(why: StoreError)
+  }
 
   /** 20: the quarantined files kept, the newest. */
   val Quarantined: Int = 20

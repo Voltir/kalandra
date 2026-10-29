@@ -24,8 +24,10 @@ object IngestTests extends TestSuite {
   private val Room: Place = Place.under(Namespace.Task, Vector("kalandra"))
   private val S = "faafcbf0-3592-4c99-8f14-21889a88798e"
 
-  /** Keeps each call's batches, and answers `answer` (how many lines it logged, or why not). */
-  private final class Recorder(answer: Either[StoreError, Int]) extends EdgeSessions {
+  /** Keeps each call's batches, and answers `answers` in turn (how many lines it logged, or why
+    * not), the last again once they run out.
+    */
+  private final class Recorder(answers: Either[StoreError, Int]*) extends EdgeSessions {
     val calls = new ConcurrentLinkedQueue[(Account, Place, Vector[EdgeSessions.Batch])]()
     def record(
         by: Account,
@@ -33,7 +35,7 @@ object IngestTests extends TestSuite {
         batches: Vector[EdgeSessions.Batch]
     ): Either[StoreError, Int] = {
       calls.add((by, room, batches))
-      answer
+      answers.lift(calls.size - 1).getOrElse(answers.last)
     }
   }
 
@@ -155,9 +157,9 @@ object IngestTests extends TestSuite {
       )
     }
 
-    test("a file whose recording fails is tried 3 times, then quarantined; 20 are kept there") {
+    test("a file the store refuses is tried 3 times, then quarantined; 20 are kept there") {
       val dir = Files.createTempDirectory("spool")
-      val sessions = new Recorder(Left(StoreError.DatabaseError("down")))
+      val sessions = new Recorder(Left(StoreError.Invalid("refused")))
       val said = new ConcurrentLinkedQueue[String]()
       val quarantine = Files.createDirectories(dir.resolve("quarantine"))
       (1 to 20).foreach { i =>
@@ -177,7 +179,32 @@ object IngestTests extends TestSuite {
         !held.contains("old-01.ingesting"),
         held.contains("old-02.ingesting"),
         said.asScala.toVector.last ==
-          s"claude-code spool: $S.1.3.ingesting quarantined after 3 tries: DatabaseError(down)"
+          s"claude-code spool: $S.1.3.ingesting quarantined after 3 tries: Invalid(refused)"
+      )
+    }
+
+    test(
+      "while the database is down a pass ends, tries nothing and takes nothing; then it records"
+    ) {
+      val dir = Files.createTempDirectory("spool")
+      val down = Left(StoreError.DatabaseError("down"))
+      val sessions = new Recorder(down, down, down, down, down, Right(1))
+      val said = new ConcurrentLinkedQueue[String]()
+      spooled(dir, s"$S.1.0.ingesting", line(1, "SessionStart"))
+      spooled(dir, "other.jsonl", line(1, "SessionStart"))
+      val spool = ingest(dir, sessions, said)
+      val passes = (1 to 5).map(_ => spool.once())
+      val whileDown = names(dir)
+      val after = spool.once()
+      assert(
+        passes == Vector(0, 0, 0, 0, 0),
+        whileDown == Set(s"$S.1.0.ingesting", "other.jsonl"),
+        after == 1,
+        !names(dir).contains("quarantine"),
+        !names(dir).contains(s"$S.1.0.ingesting"),
+        said.asScala.toVector == Vector.fill(5)(
+          "claude-code spool: the store is unreachable, the pass ended: DatabaseError(down)"
+        )
       )
     }
   }
