@@ -60,12 +60,17 @@ HTTP) → `main` (`serve`, `export`, `import`, `verify`).
 ./mill test
 KALANDRA_LINT=1 MILL_OUTPUT_DIR=out/lint ./mill __.compile   # the unused-warnings pass
 bin/kalandra build                      # the jar serve and export run from
-bin/kalandra serve                      # blocks; stop it with SIGTERM
+bin/kalandra serve                      # blocks, in the foreground; stop it with SIGTERM
+bin/kalandra start                      # serve in the background, into logs/serve.log; waits until it answers
+bin/kalandra stop                       # SIGTERM serve's own processes, by checkout and argv, never a pattern
+bin/kalandra restart                    # stop, then start (does not build)
+bin/kalandra status                     # serve's pids, and whether commands answer
 bin/kalandra new '{"project":"m17"}'    # any command: `keep` or `project_keep`, then its JSON
 bin/kalandra export m17 /tmp/m17        # the project's export files, through a running serve
 ```
 
-A command through `bin/kalandra` fails loud, exit 2, when serve is not running.
+A command through `bin/kalandra` fails loud, exit 2, when serve is not running. Use `start` and
+`stop` rather than signalling serve by hand: a pattern kill matches its own shell.
 
 ## The brief hook
 

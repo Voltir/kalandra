@@ -9,6 +9,10 @@
 #                                           `keep` or `project_keep`, its arguments a JSON object
 #   bin/kalandra build                      build the jar serve and export run from
 #   bin/kalandra slot [agent-type]          the slot a claim's `for` names here (hooks/brief-hook.sh)
+#   bin/kalandra stop                       stop serve: SIGTERM its processes, wait up to 30 s
+#   bin/kalandra start                      start serve in the background (no build), wait until it answers
+#   bin/kalandra restart                    stop, then start
+#   bin/kalandra status                     serve's pids, and whether commands answer
 #
 # A command prints the edge's answer and exits 0 only when it did what it was asked; it fails
 # loud, exit 2, when serve is not reachable at KALANDRA_LISTEN (default 127.0.0.1:7317).
@@ -20,12 +24,96 @@ java="${GRIT_JDK_HOME:-/home/nickchilders/.jdks/jdk-26.0.2}/bin/java"
 listen="${KALANDRA_LISTEN:-127.0.0.1:7317}"
 
 usage() {
-  sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 
 build() {
   (cd "$root" && ./mill show assembly >/dev/null)
+}
+
+# serve's pids, one a line: a java process whose cwd is this checkout and whose argv holds the
+# exact argument `serve`. argv is read NUL-split, so no substring of a command line matches, and
+# the running shell (its exe is bash, not java) is never serve.
+serve_pids() {
+  local p pid exe arg found
+  for p in /proc/[0-9]*; do
+    pid="${p#/proc/}"
+    [[ "$pid" == "$$" || "$pid" == "${BASHPID-}" ]] && continue
+    [[ "$(readlink "$p/cwd" 2>/dev/null)" == "$root" ]] || continue
+    exe="$(readlink "$p/exe" 2>/dev/null)" || continue
+    [[ "$exe" == */java ]] || continue
+    found=0
+    while IFS= read -r -d '' arg; do
+      [[ "$arg" == serve ]] && found=1
+    done <"$p/cmdline" || continue
+    if [[ "$found" == 1 ]]; then echo "$pid"; fi
+  done
+  return 0
+}
+
+# Whether serve answers a projects command at all: any HTTP answer, even a refusal, counts; only
+# unreachable (the command's exit 2) does not.
+serve_answers() {
+  local rc=0
+  "$root/bin/kalandra" project_list '{"project":"grit"}' >/dev/null 2>&1 || rc=$?
+  [[ "$rc" != 2 ]]
+}
+
+serve_stop() {
+  local ps
+  ps="$(serve_pids)"
+  if [[ -z "$ps" ]]; then
+    echo "serve is not running."
+    return 0
+  fi
+  kill $ps 2>/dev/null || true
+  for _ in $(seq 30); do
+    if [[ -z "$(serve_pids)" ]]; then
+      echo "Stopped serve (pids: $(echo $ps))."
+      return 0
+    fi
+    sleep 1
+  done
+  echo "serve still running after 30 s: $(echo $(serve_pids))" >&2
+  return 1
+}
+
+serve_start() {
+  if [[ -n "$(serve_pids)" ]]; then
+    echo "serve is already running: $(echo $(serve_pids))" >&2
+    return 1
+  fi
+  export GRIT_DATABASE_URL="${GRIT_DATABASE_URL:-jdbc:postgresql://localhost:5432/grit_kalandra}"
+  cd "$root"
+  mkdir -p logs
+  ( setsid nohup "$root/bin/kalandra" serve >> logs/serve.log 2>&1 < /dev/null & )
+  for _ in $(seq 60); do
+    if serve_answers; then
+      local first
+      first="$(serve_pids | head -n 1)"
+      echo "serve started (pid ${first:-?})"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "serve did not answer within 120 s; see $root/logs/serve.log" >&2
+  return 1
+}
+
+serve_status() {
+  local ps
+  ps="$(serve_pids)"
+  if [[ -z "$ps" ]]; then
+    echo "serve pids: none"
+  else
+    echo "serve pids: $(echo $ps)"
+  fi
+  if serve_answers; then
+    echo "commands answer at $listen"
+  else
+    echo "commands do not answer at $listen"
+  fi
 }
 
 [[ $# -ge 1 ]] || usage
@@ -36,6 +124,18 @@ case "$1" in
     ;;
   slot)
     exec "$root/hooks/brief-hook.sh" --slot "${2-}"
+    ;;
+  stop)
+    serve_stop
+    ;;
+  start)
+    serve_start
+    ;;
+  restart)
+    serve_stop && serve_start
+    ;;
+  status)
+    serve_status
     ;;
   serve | export | import | verify)
     [[ -f "$jar" ]] || build
