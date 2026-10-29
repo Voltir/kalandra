@@ -76,6 +76,25 @@ object SpooledTests extends TestSuite {
       )
     }
 
+    test("a commit's shape names its worktree; one too long with its subject leaves it out") {
+      val worktree = "/work/" + ("w" * 150)
+      def commit(subject: String) = ujson.write(
+        ujson.Obj(
+          "s" -> S,
+          "n" -> N.toString,
+          "k" -> "commit",
+          "w" -> worktree,
+          "d" -> ujson.Obj("sha" -> "abc", "subject" -> subject)
+        )
+      )
+      val written = s"fs:$worktree"
+      assert(
+        read(commit("fix")).map(_._5) ==
+          Right(s"""{"sha":"abc","subject":"fix","worktree":"$written"}"""),
+        read(commit("é" * 100)).map(_._5) == Right(s"""{"sha":"abc","worktree":"$written"}""")
+      )
+    }
+
     test("a subagent's line is a session of its own, its parent's child, at its own worktree") {
       val sub = ujson.write(
         ujson.Obj(

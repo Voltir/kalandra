@@ -29,7 +29,8 @@ object Spooled {
   /** The event a spool line says, or why not: no JSON object, over [[Longest]] bytes, a kind
     * no hook writes, an ordinal not above 0, no absolute worktree to place it at, an id
     * [[SessionId.of]] refuses, a holder [[ClaimHolder.of]] refuses, a closing with no text, or a
-    * shape [[Event.Shape.of]] refuses.
+    * shape [[Event.Shape.of]] refuses. A commit's shape names the worktree it was made in
+    * ([[Event.Shape.committed]]), its subject left out when the shape would be too long with it.
     */
   def of(line: String): Either[String, Spooled] =
     for {
@@ -47,8 +48,8 @@ object Spooled {
       }
       id = child.getOrElse(self)
       n <- o.get("n").flatMap(_.strOpt).flatMap(_.toLongOption).toRight("no ordinal")
-      at <- o.get("w").flatMap(_.strOpt).filter(_.startsWith("/")) match {
-        case Some(w) => Right(Place.under(Namespace.Fs, Vector(w)))
+      at <- o.get("w").flatMap(_.strOpt).flatMap(worktree) match {
+        case Some(w) => Right(w)
         case None =>
           Left(
             s"session ${grit.core.id.Harness.value(Harness)}:${id.local} cannot be placed: no worktree"
@@ -61,7 +62,15 @@ object Spooled {
       k <- text(o, "k")
       d = o.get("d").flatMap(_.objOpt).fold(ujson.Obj())(ujson.Obj.from(_))
       kind <- kindOf(k, d, o.get("t").flatMap(_.strOpt))
-      shape <- Event.Shape.of(d)
+      shape <- kind match {
+        case Event.Kind.Commit =>
+          Event.Shape
+            .committed(at, d)
+            .orElse(
+              Event.Shape.committed(at, ujson.Obj.from(d.value.toSeq.filterNot(_._1 == "subject")))
+            )
+        case _ => Event.Shape.of(d)
+      }
       event <- Event.of(
         n,
         Instant.ofEpochSecond(Math.floorDiv(n, Billion), Math.floorMod(n, Billion)),
@@ -69,6 +78,10 @@ object Spooled {
         shape
       )
     } yield Spooled(id, child.map(_ => self), at, holder, event)
+
+  /** The worktree at the absolute path `path`, as a session's place; none for a relative one. */
+  def worktree(path: String): Option[Place] =
+    Option.when(path.startsWith("/"))(Place.under(Namespace.Fs, Vector(path)))
 
   private val Billion = 1_000_000_000L
 
