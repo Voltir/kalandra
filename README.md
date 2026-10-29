@@ -7,9 +7,11 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 
 - **The projects plugin** (ADR 0049), under one method, `grit` (`kalandra.method`): grit's own
   process as data. Version 1 (milestones, stages, ideas, mechanisms) is kept because the project
-  `restore-check` is pinned to its digest; version 2, the latest and so what a new project holds
-  to, has the kinds grit's planning tree imports into: milestones (later, next, now, parallel,
-  done), plans with their stages and sections, mechanisms and notes.
+  `restore-check` is pinned to its digest; version 2 has the kinds grit's planning tree imports
+  into: milestones (later, next, now, parallel, done), plans with their stages and sections,
+  mechanisms and notes. Version 3, the latest and so what a new project holds to, renames the
+  stage a checkpoint and adds backlog items; its coder and manager views always carry their
+  rules. `project_migrate` moves a project between versions.
 - **One account, one room.** Its account is `workshop:local/nick` (stored; kept from the deployment's earlier name); its room is the grit
   checkout's directory (`KALANDRA_CHECKOUT`, default `$HOME/Projects/grit`), declared internal,
   and the account alone is cleared for internal. Every other room is unmapped, so a command

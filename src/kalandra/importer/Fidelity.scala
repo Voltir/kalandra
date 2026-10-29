@@ -1,7 +1,7 @@
 package kalandra.importer
 
 import grit.projects.artifact.{Body, Project}
-import grit.projects.name.KindName
+import grit.projects.name.{KindName, LocalKey}
 import grit.prose.form.{Mark, Span}
 import grit.prose.markdown.Markdown
 
@@ -44,7 +44,7 @@ object Fidelity {
     val drafted = imported.project.artifacts.map(a => a.head.key.value).toSet
     val each = imported.project.artifacts.flatMap { a =>
       val key = a.head.key.value
-      val local = a.head.key.local
+      val local = LocalKey.value(a.head.key.local)
       val provenance = imported.provenance.get(local)
       val rewritten = provenance.toVector.collect {
         case p if unlinked(p.original) != unlinked(p.text) =>

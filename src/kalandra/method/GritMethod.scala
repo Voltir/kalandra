@@ -9,7 +9,7 @@ import grit.projects.method.{
   TransitionCheck,
   TransitionChecks
 }
-import grit.projects.name.{KindName, MethodName, RoleName, StateName}
+import grit.projects.name.{KindName, LocalKey, MethodName, RoleName, StateName}
 
 /** How grit itself is built, as a method (ADR 0049), in two versions.
   *
@@ -27,6 +27,14 @@ import grit.projects.name.{KindName, MethodName, RoleName, StateName}
   * artifact, is `current` until `retired`; a `mechanism` as in version 1; a `note`, a loose idea
   * or finding, is `open` until `folded` into other work or `dropped`. A `coder` is shown every
   * kind but notes, two links deep; a `manager` every kind, one link deep.
+  *
+  * Version 3, version 2 with its `stage` named `checkpoint`, the process's word, and a
+  * `backlog` kind: an item owed by the milestone it is parented to (which cannot end `done`
+  * while it is open), `open` until `taken` into work, `folded` into other work, or `dropped`; a
+  * `note` keeps records and references. A `coder` is shown what it was in version 2 and always
+  * carries the coder rules (`roadmap-coder-rules`); a `manager` every kind, one link deep, always
+  * carrying the update protocol (`roadmap-update-protocol`); a `reviewer` every kind, two links
+  * deep.
   */
 object GritMethod {
 
@@ -36,14 +44,17 @@ object GritMethod {
   /** Version 1, which the project `restore-check` holds to. */
   def v1: Either[Vector[String], Method] = method(1, declaredV1)
 
-  /** Version 2, the latest: what a new project holds to. */
+  /** Version 2, which grit's planning tree was imported into. */
   def v2: Either[Vector[String], Method] = method(2, declaredV2)
+
+  /** Version 3, the latest: what a new project holds to. */
+  def v3: Either[Vector[String], Method] = method(3, declaredV3)
 
   /** Every version, oldest first, or every reason one is not a method. */
   def all: Either[Vector[String], Vector[Method]] =
-    (v1, v2) match {
-      case (Right(a), Right(b)) => Right(Vector(a, b))
-      case (a, b) => Left(a.left.toSeq.flatten.toVector ++ b.left.toSeq.flatten)
+    Vector(v1, v2, v3).partitionMap(identity) match {
+      case (Vector(), methods) => Right(methods)
+      case (why, _) => Left(why.flatten)
     }
 
   private type Parts = (Vector[ArtifactKind], Vector[Transition], Vector[RoleView])
@@ -140,11 +151,25 @@ object GritMethod {
       (kinds, transitions, Vector(coding, managing))
     }
 
-  private def declaredV2: Either[String, Parts] =
+  /** Version 2's kinds and transitions, its `stage` named `work`: the planning tree versions 2
+    * and 3 share.
+    */
+  private final case class Planning(
+      milestone: KindName,
+      plan: KindName,
+      work: KindName,
+      section: KindName,
+      mechanism: KindName,
+      note: KindName,
+      kinds: Vector[ArtifactKind],
+      transitions: Vector[Transition]
+  )
+
+  private def planning(workName: String): Either[String, Planning] =
     for {
       milestone <- KindName.of("milestone")
       plan <- KindName.of("plan")
-      stage <- KindName.of("stage")
+      work <- KindName.of(workName)
       section <- KindName.of("section")
       mechanism <- KindName.of("mechanism")
       note <- KindName.of("note")
@@ -163,14 +188,6 @@ object GritMethod {
       folded <- StateName.of("folded")
       current <- StateName.of("current")
       retired <- StateName.of("retired")
-      coder <- RoleName.of("coder")
-      manager <- RoleName.of("manager")
-      coding <- RoleView.of(coder, Set(milestone, plan, stage, section, mechanism), 2)
-      managing <- RoleView.of(
-        manager,
-        Set(milestone, plan, stage, section, mechanism, note),
-        1
-      )
     } yield {
       val unended = Vector(later, next, now, parallel)
       val kinds = Vector(
@@ -183,7 +200,7 @@ object GritMethod {
         ),
         ArtifactKind(plan, open, Vector(closed, dropped), Set(closed, dropped), Vector.empty),
         ArtifactKind(
-          stage,
+          work,
           planned,
           Vector(building, review, merged, dropped),
           Set(merged, dropped),
@@ -200,19 +217,66 @@ object GritMethod {
       val transitions = milestones ++ Vector(
         move(plan, open, closed, TransitionChecks.ChildrenEnded),
         move(plan, open, dropped),
-        move(stage, planned, building),
-        move(stage, building, review),
-        move(stage, review, building),
-        move(stage, review, merged),
-        move(stage, planned, dropped),
-        move(stage, building, dropped),
+        move(work, planned, building),
+        move(work, building, review),
+        move(work, review, building),
+        move(work, review, merged),
+        move(work, planned, dropped),
+        move(work, building, dropped),
         move(section, current, retired),
         move(mechanism, current, retired),
         move(note, open, folded),
         move(note, open, dropped)
       )
-      (kinds, transitions, Vector(coding, managing))
+      Planning(milestone, plan, work, section, mechanism, note, kinds, transitions)
     }
+
+  private def declaredV2: Either[String, Parts] =
+    for {
+      p <- planning("stage")
+      coder <- RoleName.of("coder")
+      manager <- RoleName.of("manager")
+      coding <- RoleView.of(coder, Set(p.milestone, p.plan, p.work, p.section, p.mechanism), 2)
+      managing <- RoleView.of(
+        manager,
+        Set(p.milestone, p.plan, p.work, p.section, p.mechanism, p.note),
+        1
+      )
+    } yield (p.kinds, p.transitions, Vector(coding, managing))
+
+  private def declaredV3: Either[String, Parts] =
+    for {
+      p <- planning("checkpoint")
+      backlog <- KindName.of("backlog")
+      open <- StateName.of("open")
+      taken <- StateName.of("taken")
+      folded <- StateName.of("folded")
+      dropped <- StateName.of("dropped")
+      coder <- RoleName.of("coder")
+      manager <- RoleName.of("manager")
+      reviewer <- RoleName.of("reviewer")
+      coderRules <- LocalKey.of("roadmap-coder-rules")
+      updateProtocol <- LocalKey.of("roadmap-update-protocol")
+      every = Set(p.milestone, p.plan, p.work, p.section, p.mechanism, p.note, backlog)
+      coding <- RoleView.of(
+        coder,
+        Set(p.milestone, p.plan, p.work, p.section, p.mechanism),
+        2,
+        Set(coderRules)
+      )
+      managing <- RoleView.of(manager, every, 1, Set(updateProtocol))
+      reviewing <- RoleView.of(reviewer, every, 2)
+    } yield (
+      p.kinds :+ ArtifactKind(
+        backlog,
+        open,
+        Vector(taken, folded, dropped),
+        Set(taken, folded, dropped),
+        Vector.empty
+      ),
+      p.transitions ++ Vector(taken, folded, dropped).map(move(backlog, open, _)),
+      Vector(coding, managing, reviewing)
+    )
 
   // A literal the name's constructor accepts.
   private def name(n: Either[String, MethodName]): MethodName =
