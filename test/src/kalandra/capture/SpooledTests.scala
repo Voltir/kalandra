@@ -56,6 +56,10 @@ object SpooledTests extends TestSuite {
         line("MultiEdit", ujson.Obj("path" -> "B.scala", "ok" -> true)) -> Event.Kind.Edited,
         line("NotebookEdit", ujson.Obj("path" -> "B.ipynb", "ok" -> true)) -> Event.Kind.Edited,
         line("Bash", ujson.Obj("program" -> "git", "ok" -> false)) -> Event.Kind.Ran,
+        line(
+          "mcp__scout__show",
+          ujson.Obj("named" -> "Ledger.post", "tool" -> "show", "ok" -> true, "bytes" -> 9)
+        ) -> Event.Kind.Read(9),
         line("commit", ujson.Obj("sha" -> "abc", "subject" -> "s")) -> Event.Kind.Commit,
         line("Stop", ujson.Obj(), "t" -> "the work so far") -> Event.Kind.Closing(summary),
         line("PostCompact", ujson.Obj("trigger" -> "auto"), "t" -> "the work so far") ->

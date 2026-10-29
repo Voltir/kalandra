@@ -15,8 +15,8 @@
 #    "h":slot (a start's only)}
 #
 # - `k` is the harness's own name: the event's, or for a tool event the tool's (Read, Edit, Write,
-#   MultiEdit, NotebookEdit, Bash; any other tool spools nothing); `commit` for --commit. serve
-#   maps it to grit's words.
+#   MultiEdit, NotebookEdit, Bash, and scout's MCP tools, mcp__scout__*; any other tool spools
+#   nothing); `commit` for --commit. serve maps it to grit's words, a scout query to a read.
 # - `n` is the time in microseconds times 1000 plus this process's id modulo 1000, written as a
 #   string because it passes the integers a JSON reader's double holds exactly: grit knows an
 #   event recorded again by it, so two events of one session given the same `n` (two hooks in
@@ -24,7 +24,9 @@
 #   silently.
 # - `w` is the worktree the event ran in: `git rev-parse --show-toplevel` in its cwd, else the cwd.
 # - `d` is what the event was, never its content: a path relative to the cwd (outside it, its
-#   file name alone), whether the tool succeeded, a Read's bytes, a Bash command's program alone.
+#   file name alone), whether the tool succeeded, a Read's bytes, a Bash command's program alone;
+#   for a scout query, what it `named` (the first of its symbols, or its suite, target or pattern,
+#   cut to 120 characters), its `tool`, and its answer's UTF-8 `bytes` (0 for none).
 # - `h`, on a SessionStart or SubagentStart only, is the slot the session works as, hooks/slot.sh's
 #   for the event's own cwd (not `w`) and, in a subagent, its agent type: the brief hook's slot,
 #   whose claims the session's work keeps from lapsing. Without slot.sh, no line has one.
@@ -124,6 +126,12 @@ fi
       elif startswith($cwd + "/") then .[($cwd | length) + 1:]
       else split("/") | last
       end | .[:120];
+    def answer:
+      if type == "string" then .
+      elif type == "array" then map(select(type == "object") | .text | select(type == "string")) | join("")
+      elif type == "object" and (.content | type) == "array" then .content | answer
+      else ""
+      end;
     def program:
       cut(400) | split(" ") | map(select(length > 0 and (contains("=") | not)))
       | (.[0] // "") | split("/") | last | .[:40];
@@ -139,6 +147,12 @@ fi
        elif $k == "Edit" or $k == "Write" or $k == "MultiEdit" or $k == "NotebookEdit" then
          {path: ((.tool_input.file_path // .tool_input.notebook_path) | rel($cwd)), ok: $ok}
        elif $k == "Bash" then {program: (.tool_input.command | program), ok: $ok}
+       elif ($k | type) == "string" and ($k | startswith("mcp__scout__")) then
+         {named: (.tool_input
+                  | [(.symbols | if type == "array" then .[0] else null end), .suite, .target, .pattern]
+                  | map(select(type == "string")) | (.[0] // "") | .[:120]),
+          tool: ($k | ltrimstr("mcp__scout__") | .[:40]), ok: $ok,
+          bytes: (.tool_response | answer | utf8bytelength)}
        elif $k == "Stop" then {}
        elif $k == "PostCompact" then {trigger: (.trigger | cut(20))}
        elif $k == "SessionEnd" then {reason: (.reason | cut(40))}

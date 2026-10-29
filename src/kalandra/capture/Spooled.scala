@@ -85,6 +85,9 @@ object Spooled {
 
   private val Billion = 1_000_000_000L
 
+  /** `mcp__scout__`: how Claude Code names scout's tools; a query of one is a read. */
+  private val Scout = "mcp__scout__"
+
   private def text(o: collection.Map[String, ujson.Value], key: String): Either[String, String] =
     o.get(key).flatMap(_.strOpt).toRight(s"no $key")
 
@@ -92,7 +95,7 @@ object Spooled {
   private def kindOf(k: String, d: ujson.Obj, t: Option[String]): Either[String, Event.Kind] =
     k match {
       case "SessionStart" | "SubagentStart" => Right(Event.Kind.Started)
-      case "Read" =>
+      case read if read == "Read" || read.startsWith(Spooled.Scout) =>
         d.value
           .get("bytes")
           .flatMap(_.numOpt)

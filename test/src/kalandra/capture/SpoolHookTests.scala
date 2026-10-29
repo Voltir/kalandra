@@ -164,6 +164,55 @@ object SpoolHookTests extends TestSuite {
       )
     }
 
+    test("a scout query spools a read: what it named, its tool, and its answer's bytes") {
+      val (root, cwd) = worktree()
+      val spool = Files.createTempDirectory("spool")
+      def answered(text: String): (String, ujson.Value) =
+        "tool_response" -> ujson.Arr(ujson.Obj("type" -> "text", "text" -> text))
+      val stdins = Vector(
+        tool(
+          "PostToolUse",
+          cwd,
+          "mcp__scout__show",
+          ujson.Obj("symbols" -> ujson.Arr("Ledger.post", "Ledger"), "body" -> ujson.Arr("post")),
+          answered("héllo")
+        ),
+        tool("PostToolUse", cwd, "mcp__scout__tests", ujson.Obj("suite" -> "S" * 200)),
+        tool(
+          "PostToolUseFailure",
+          cwd,
+          "mcp__scout__file",
+          ujson.Obj("target" -> "Ledger.scala"),
+          "error" -> "no such file"
+        ),
+        tool(
+          "PostToolUse",
+          cwd,
+          "mcp__scout__find",
+          ujson.Obj("pattern" -> "*Shelf*"),
+          "tool_response" -> "two"
+        )
+      )
+      val ran = stdins.map(hook(_, spool, cwd))
+      val (lines, _) = spooled(spool)
+      def line(tool: String, named: String, ok: Boolean, bytes: Int): ujson.Value =
+        ujson.Obj(
+          "s" -> Session,
+          "k" -> s"mcp__scout__$tool",
+          "w" -> root.toString,
+          "d" -> ujson.Obj("named" -> named, "tool" -> tool, "ok" -> ok, "bytes" -> bytes)
+        )
+      assert(
+        ran.map(_.status) == Vector.fill(stdins.size)(0),
+        lines == Vector(
+          line("show", "Ledger.post", true, 6),
+          line("tests", "S" * 120, true, 0),
+          line("file", "Ledger.scala", false, 0),
+          line("find", "*Shelf*", true, 3)
+        )
+      )
+    }
+
     test("a start line's `h` is the slot brief-hook.sh --slot gives in the event's own cwd") {
       val (root, cwd) = worktree()
       val spool = Files.createTempDirectory("spool")

@@ -131,11 +131,11 @@ added to those above):
       { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
     ],
     "PostToolUse": [
-      { "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash",
+      { "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__scout__.*",
         "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5, "async": true }] }
     ],
     "PostToolUseFailure": [
-      { "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash",
+      { "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__scout__.*",
         "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5, "async": true }] }
     ],
     "Stop": [
