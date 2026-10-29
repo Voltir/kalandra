@@ -9,6 +9,10 @@
 #                                           `keep` or `project_keep`, its arguments a JSON object
 #   bin/kalandra build                      build the jar serve and export run from
 #   bin/kalandra slot [agent-type]          the slot a claim's `for` names here (hooks/brief-hook.sh)
+#   bin/kalandra wait '<json>'              wait until an artifact reaches a state, or a commit is made
+#                                           ({"artifact":"<key>","state":["review"]} or
+#                                           {"commit":{"worktree":"<path>"}}; "within" seconds,
+#                                           default 300, at most 600): exit 0 met, 3 lapsed
 #   bin/kalandra stop                       stop serve: SIGTERM its processes, wait up to 30 s
 #   bin/kalandra start                      start serve in the background (no build), wait until it answers
 #   bin/kalandra restart                    stop, then start
@@ -24,7 +28,7 @@ java="${GRIT_JDK_HOME:-/home/nickchilders/.jdks/jdk-26.0.2}/bin/java"
 listen="${KALANDRA_LISTEN:-127.0.0.1:7317}"
 
 usage() {
-  sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 
@@ -150,6 +154,27 @@ case "$1" in
     ;;
   -h | --help | help)
     usage
+    ;;
+  wait)
+    out="$(mktemp)"
+    trap 'rm -f "$out" "$out.err"' EXIT
+    # The edge holds a watch at most 10 minutes; a little more lets its answer arrive.
+    if ! status="$(curl -sS --max-time 630 -o "$out" -w '%{http_code}' -X POST \
+      -H 'Content-Type: application/json' --data-binary "${2:-}" \
+      "http://$listen/wait" 2>"$out.err")"; then
+      echo "kalandra: serve is not reachable at $listen: $(cat "$out.err")" >&2
+      exit 2
+    fi
+    cat "$out"
+    [[ -s "$out" && "$(tail -c1 "$out")" != "" ]] && echo
+    case "$status" in
+      200) exit 0 ;;
+      408) exit 3 ;;
+      *)
+        echo "kalandra: wait answered $status" >&2
+        exit 1
+        ;;
+    esac
     ;;
   *)
     name="$1"

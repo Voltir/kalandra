@@ -4,18 +4,24 @@ import java.net.{InetAddress, InetSocketAddress}
 import java.nio.file.{Files, Path}
 import java.time.Instant
 
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration.*
 
 import grit.core.clock.Clock
-import grit.core.edge.{CommandError, PluginCommands}
+import grit.core.edge.{CommandError, EdgeWatch, PluginCommands, WatchError, WatchFor, Watched}
+import grit.core.id.{ClaimHolder, DocumentVersionId, SessionId}
 import grit.core.identity.Account
 import grit.core.place.Place
 import grit.core.plugin.CommandOutcome
 import grit.core.provider.ToolSchema
+import grit.core.session.Event
 import grit.core.store.StoreError
 import grit.core.tool.ToolName
 import grit.core.visibility.Integrity
+import grit.projects.artifact.ArtifactJson
+import grit.projects.name.{ArtifactKey, StateName}
+import grit.projects.plugin.Projects
 
+import kalandra.capture.Spooled
 import utest.*
 
 object RoutesTests extends TestSuite {
@@ -84,7 +90,16 @@ object RoutesTests extends TestSuite {
   ): (Routes^, Recording^) = {
     val commands = new Recording(answer, briefs)
     (
-      new Routes(commands, owner, room, Integrity.Member, Stopped, new BriefFiles(dir), Listen),
+      new Routes(
+        commands,
+        EdgeWatch.Refusing,
+        owner,
+        room,
+        Integrity.Member,
+        Stopped,
+        new BriefFiles(dir),
+        Listen
+      ),
       commands
     )
   }
@@ -94,10 +109,67 @@ object RoutesTests extends TestSuite {
     val commands = new Recording(Right(CommandOutcome.Done("shown")), Vector.empty, tools)
     val dir = Files.createTempDirectory("briefs")
     (
-      new Routes(commands, owner, room, Integrity.Member, Stopped, new BriefFiles(dir), Listen),
+      new Routes(
+        commands,
+        EdgeWatch.Refusing,
+        owner,
+        room,
+        Integrity.Member,
+        Stopped,
+        new BriefFiles(dir),
+        Listen
+      ),
       commands
     )
   }
+
+  /** Records each watch and answers `answer`, as [[EdgeWatch.until]] would once it came to it. */
+  private final class Watching(answer: Either[WatchError, Watched]) extends EdgeWatch {
+    val asked =
+      scala.collection.mutable.ArrayBuffer.empty[(Account, Place, WatchFor, FiniteDuration)]
+    def until(
+        by: Account,
+        room: Place,
+        what: WatchFor,
+        within: FiniteDuration
+    ): Either[WatchError, Watched] = {
+      asked += ((by, room, what, within))
+      answer
+    }
+  }
+
+  /** Routes over a [[Watching]] watch answering `answer`. */
+  private def watchedBy(answer: Either[WatchError, Watched]): (Routes^, Watching^) = {
+    val watching = new Watching(answer)
+    val commands = new Recording(Right(CommandOutcome.Done("shown")))
+    val dir = Files.createTempDirectory("briefs")
+    (
+      new Routes(
+        commands,
+        watching,
+        owner,
+        room,
+        Integrity.Member,
+        Stopped,
+        new BriefFiles(dir),
+        Listen
+      ),
+      watching
+    )
+  }
+
+  private def ok[A](e: Either[String, A]): A = e.fold(sys.error, identity)
+
+  private val review = ok(StateName.of("review"))
+  private val merged = ok(StateName.of("merged"))
+
+  private val fixer = Place.read("fs:/work/fixer").fold(sys.error, identity)
+
+  private val committed = Watched.Committed(
+    ok(SessionId.of(Spooled.Harness, "s-1")),
+    at,
+    ok(Event.Shape.committed(fixer, ujson.Obj("sha" -> "abc123", "subject" -> "the subject")))
+  )
 
   /** A JSON-RPC request to `method` with `params`, as `id` 7. */
   private def request(method: String, params: ujson.Value): String =
@@ -143,7 +215,8 @@ object RoutesTests extends TestSuite {
   val tests = Tests {
     test("a claim that is Done writes the slot's brief file, a refused one writes none") {
       val dir = Files.createTempDirectory("briefs")
-      val (routes, commands) = routedBy(Right(CommandOutcome.Done("Claimed.")), Vector("# m17/s8\n"), dir)
+      val (routes, commands) =
+        routedBy(Right(CommandOutcome.Done("Claimed.")), Vector("# m17/s8\n"), dir)
       routes.ask("POST", "/command/project_claim", claim) ==> Reply(200, "Claimed.")
       listed(dir) ==> Vector("coder-opus__3f2a.md")
       Files.readString(dir.resolve("coder-opus__3f2a.md")) ==> "# m17/s8\n"
@@ -163,7 +236,8 @@ object RoutesTests extends TestSuite {
     test("release deletes the file") {
       val dir = Files.createTempDirectory("briefs")
       val released = """{"released":"m17/s8","for":"coder-opus/3f2a"}"""
-      val (routes, commands) = routedBy(Right(CommandOutcome.Done(released)), Vector("# brief\n"), dir)
+      val (routes, commands) =
+        routedBy(Right(CommandOutcome.Done(released)), Vector("# brief\n"), dir)
       routes.ask("POST", "/command/project_claim", claim).status ==> 200
       listed(dir) ==> Vector("coder-opus__3f2a.md")
       routes.ask("POST", "/command/project_release", """{"key":"m17/s8"}""") ==> Reply(
@@ -177,7 +251,8 @@ object RoutesTests extends TestSuite {
 
     test("a release whose answer names no slot keeps the file, and says so") {
       val dir = Files.createTempDirectory("briefs")
-      val (routes, _) = routedBy(Right(CommandOutcome.Done("Released m17/s8.")), Vector("# brief\n"), dir)
+      val (routes, _) =
+        routedBy(Right(CommandOutcome.Done("Released m17/s8.")), Vector("# brief\n"), dir)
       routes.ask("POST", "/command/project_claim", claim).status ==> 200
       routes.ask("POST", "/command/project_release", """{"key":"m17/s8"}""") ==> Reply(
         200,
@@ -348,7 +423,8 @@ object RoutesTests extends TestSuite {
         )
       )
       val dir = Files.createTempDirectory("briefs")
-      val (claiming, _) = routedBy(Right(CommandOutcome.Done("Claimed.")), Vector("# m17/s8\n"), dir)
+      val (claiming, _) =
+        routedBy(Right(CommandOutcome.Done("Claimed.")), Vector("# m17/s8\n"), dir)
       val (refusing, _) = routed(Right(CommandOutcome.Refused("claimed already")))
       Vector(claiming, refusing).map(r =>
         rpc(
@@ -462,6 +538,66 @@ object RoutesTests extends TestSuite {
         )
       ).map(_.status) ==> Vector(200, 200, 200)
       commands.ran.size ==> 3
+    }
+
+    test("a watch for an artifact's states waits as the owner in the room, 5 minutes unless told") {
+      val version = DocumentVersionId.of(7L).getOrElse(sys.error("no version"))
+      val (routes, watching) =
+        watchedBy(Right(Watched.Held(version, Set(ArtifactJson.stateRef(review)), at)))
+      val reply =
+        routes.ask("POST", "/wait", """{"artifact":"grit/plan-x","state":["review","merged"]}""")
+      val reaching = ok(Projects.reaching(ok(ArtifactKey.read("grit/plan-x")), Set(review, merged)))
+      assert(
+        watching.asked.toVector == Vector((owner, room, reaching, 5.minutes)),
+        reply == Reply(200, s"grit/plan-x is in review (version 7, written $at)")
+      )
+    }
+
+    test("a watch for a commit names a worktree or a slot, since now unless it says when") {
+      val (routes, watching) = watchedBy(Right(committed))
+      val replies = Vector(
+        """{"commit":{"worktree":"/work/fixer"},"within":60}""",
+        """{"commit":{"slot":"fixer"},"since":"2026-10-27T11:00:00Z"}"""
+      ).map(routes.ask("POST", "/wait", _))
+      val since = Instant.parse("2026-10-27T11:00:00Z")
+      assert(
+        watching.asked.map(a => (a._3, a._4)).toVector == Vector(
+          (WatchFor.Committed(WatchFor.Worker.At(fixer), at), 60.seconds),
+          (WatchFor.Committed(WatchFor.Worker.As(ok(ClaimHolder.of("fixer"))), since), 5.minutes)
+        ),
+        replies.distinct == Vector(
+          Reply(200, s"committed abc123 the subject in fs:/work/fixer, on session s-1 at $at")
+        )
+      )
+    }
+
+    test("a lapsed watch is 408, a busy or unreadable one 503, an unlinked owner's 403") {
+      Vector[Either[WatchError, Watched]](
+        Right(Watched.Lapsed),
+        Left(WatchError.Busy),
+        Left(WatchError.Unavailable("down")),
+        Left(WatchError.NotVouched(owner))
+      ).map(a =>
+        watchedBy(a)._1.ask("POST", "/wait", """{"commit":{"slot":"fixer"},"within":0}""")
+      ) ==> Vector(
+        Reply(408, "nothing met the watch within 0s"),
+        Reply(503, s"${EdgeWatch.Most} watches are under way already: wait for one to end"),
+        Reply(503, "the database is unavailable: down"),
+        Reply(403, "no person is linked to workshop:local/someone")
+      )
+    }
+
+    test("a watch's body it cannot read waits on nothing, and is 400; a GET is 405") {
+      val (routes, watching) = watchedBy(Right(Watched.Lapsed))
+      Vector(
+        routes.ask("POST", "/wait", """{"artifact":"grit/plan-x","state":[]}"""),
+        routes.ask("POST", "/wait", """{"artifact":"grit/plan-x","commit":{"slot":"f"}}"""),
+        routes.ask("POST", "/wait", """{"commit":{"worktree":"work/fixer"}}"""),
+        routes.ask("POST", "/wait", """{"commit":{"slot":"f"},"within":-1}"""),
+        routes.ask("POST", "/wait", """{"commit":{"slot":"f"},"since":"yesterday"}"""),
+        routes.ask("GET", "/wait", "")
+      ).map(_.status) ==> Vector(400, 400, 400, 400, 400, 405)
+      watching.asked.size ==> 0
     }
 
     test("another path or method runs nothing: 404 and 405") {

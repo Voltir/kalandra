@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.{ExecutorService, Executors, ScheduledExecutorService, TimeUnit}
 
 import grit.core.clock.Clock
-import grit.core.edge.{Asked, EdgeRefusal, EdgeStores, RealmSource, ServedEdge, Variable}
+import grit.core.edge.{Asked, EdgeRefusal, EdgeStores, EdgeWatch, RealmSource, ServedEdge, Variable}
 import grit.core.id.{AttesterName, EdgeName}
 import grit.core.identity.{Account, Realm, Standing}
 import grit.core.place.Place
@@ -51,6 +51,7 @@ final class ClaudeCodeEdge(owner: Account, realm: Realm, room: Place, believed: 
         .map(why => EdgeRefusal.Failed(s"${Account.written(owner)} is not vouched: $why"))
       routes = new Routes(
         stores.commands,
+        stores.watch,
         owner,
         room,
         believed,
@@ -64,11 +65,11 @@ final class ClaudeCodeEdge(owner: Account, realm: Realm, room: Place, believed: 
         .left
         .map(e => EdgeRefusal.Refused(s"cannot listen on ${ClaudeCodeEdge.shown(at)}: $e"))
     } yield {
-      // The server, a Java object, holds `routes` (the commands and the clock) where capture
+      // The server, a Java object, holds `routes` (the commands, the watch and the clock) where capture
       // checking no longer tracks them, with no caps.unsafe asked for. Sound because only `open`
       // hands it the handler, before it starts, and `close` stops it once, through an
-      // AtomicBoolean; its handler threads hold only immutable values (the `PluginCommands` and
-      // `Clock` capabilities, both shared, the room's settings and the briefs' directory; two
+      // AtomicBoolean; its handler threads hold only immutable values (the `PluginCommands`,
+      // `EdgeWatch` and `Clock` capabilities, all shared, the room's settings and the briefs' directory; two
       // writes of one brief each move a whole file into place), so no tracked effect is
       // observed through it outside this edge's Open.
       val threads = Executors.newFixedThreadPool(ClaudeCodeEdge.Threads)
@@ -110,8 +111,11 @@ object ClaudeCodeEdge {
   /** `127.0.0.1:7317`. */
   val Listen: String = "127.0.0.1:7317"
 
-  /** 4: the requests answered at once; a fifth waits for one of them to finish. */
-  val Threads: Int = 4
+  /** 4 + [[EdgeWatch.Most]]: the requests answered at once, a later one waiting for one of them
+    * to finish. A watch holds its thread for its whole wait, and at most [[EdgeWatch.Most]] run at
+    * once (the next is refused at once), so 4 are always left for every other request.
+    */
+  val Threads: Int = 4 + EdgeWatch.Most
 
   /** Where `env` says to listen, or why not: not `host:port`, or a host that is no loopback
     * address.

@@ -1,14 +1,22 @@
 package kalandra.edge
 
 import java.net.InetSocketAddress
+import java.time.Instant
+
+import scala.concurrent.duration.*
 
 import grit.core.clock.Clock
-import grit.core.edge.{CommandError, PluginCommands}
+import grit.core.edge.{CommandError, EdgeWatch, PluginCommands, WatchError, WatchFor, Watched}
+import grit.core.id.ClaimHolder
 import grit.core.identity.Account
 import grit.core.place.Place
 import grit.core.plugin.CommandOutcome
 import grit.core.tool.ToolName
 import grit.core.visibility.Integrity
+import grit.projects.name.{ArtifactKey, StateName}
+import grit.projects.plugin.Projects
+
+import kalandra.capture.Spooled
 
 /** What the edge answers one request: an HTTP status, its text, and that text's content type. */
 final case class Reply(status: Int, text: String, contentType: String = Reply.PlainText)
@@ -27,8 +35,8 @@ object Reply {
   * `clock`. `POST /command/<name>` runs the command `name` with its body, a JSON object, as its
   * arguments (an empty body: none). `POST /mcp` takes one [[Mcp]] message: `initialize`, `ping`,
   * `tools/list` (the commands offered) and `tools/call`, which runs an offered command as
-  * `/command/<name>` would, its text the content, an error unless that answered 200. Nothing
-  * else runs anything.
+  * `/command/<name>` would, its text the content, an error unless that answered 200. `POST /wait`
+  * waits on `watch` as [[Routes.watchOf]] reads its body. Nothing else runs anything.
   *
   * `project_claim`'s `for` is passed on as [[BriefFiles.slot]] maps it; once the claim is done,
   * `project_brief` for its key and role is written to that slot's file in `briefs`.
@@ -42,6 +50,7 @@ object Reply {
   */
 final class Routes(
     commands: PluginCommands,
+    watch: EdgeWatch,
     owner: Account,
     room: Place,
     believed: Integrity,
@@ -55,7 +64,11 @@ final class Routes(
     * other path; 405 for a command not posted; 400 for a body that is no JSON object, or
     * arguments the command does not read; 403 for an owner no person is linked to; 500 when the
     * command's store call failed; 503 when the database could not be reached. Only a 200 kept
-    * anything. At [[Routes.McpPath]]: a POST answered as [[Mcp]] says, anything else 405.
+    * anything. At [[Routes.McpPath]]: a POST answered as [[Mcp]] says, anything else 405. At
+    * [[Routes.WaitPath]]: a POST waited on as the owner in the room, blocking for the whole wait,
+    * anything else 405; 200 with what met it; 408 when nothing did before it lapsed; 400 for a
+    * body [[Routes.watchOf]] does not read; 403 for an owner no person is linked to; 503 when
+    * [[EdgeWatch.Most]] watches are under way, or the database could not be read.
     *
     * First, 403, running nothing, when `origin` (the `Origin` header) is given and is not
     * `http://` a loopback host (`127.0.0.1`, `localhost`, `[::1]`) at any port, or when `host`
@@ -74,6 +87,9 @@ final class Routes(
     else if (path == Routes.McpPath) {
       if (method == "POST") mcp(body)
       else Reply(405, s"post a JSON-RPC message; $method runs nothing")
+    } else if (path == Routes.WaitPath) {
+      if (method == "POST") waited(body)
+      else Reply(405, s"post a watch; $method waits on nothing")
     } else
       path.stripPrefix(Routes.Command) match {
         case name if name == path || name.isEmpty || name.contains('/') =>
@@ -117,6 +133,14 @@ final class Routes(
         case other => Mcp.failed(id, Mcp.MethodNotFound, s"no method is named $other")
       }
   }
+
+  /** The watch `body` asks for, waited on as the owner in the room. */
+  private def waited(body: String): Reply =
+    arguments(body).flatMap(Routes.watchOf(_, clock.now())) match {
+      case Left(why) => Reply(400, why)
+      case Right((what, within)) =>
+        Routes.watched(what, within, watch.until(owner, room, what, within))
+    }
 
   /** `name` run with `args`, keeping the brief file of a claim or release that is done. */
   private def routed(name: ToolName, args: ujson.Obj): Reply = ToolName.value(name) match {
@@ -185,6 +209,106 @@ object Routes {
 
   /** `/mcp`: where MCP messages are posted. */
   val McpPath: String = "/mcp"
+
+  /** `/wait`: where a watch is posted. */
+  val WaitPath: String = "/wait"
+
+  /** 5 minutes: how long a watch waits when its body names no `within`; a client gone meanwhile
+    * holds its place among [[EdgeWatch.Most]] until then.
+    */
+  val Within: FiniteDuration = 5.minutes
+
+  /** What a watch's body asks for and how long it waits ([[Within]] unless `within` names
+    * seconds; [[EdgeWatch.bounded]] clamps it), or why not:
+    *   - `{"artifact": "<project>/<artifact>", "state": ["<state>", …]}`: the artifact in one of
+    *     the states ([[Projects.reaching]]);
+    *   - `{"commit": {"worktree": "<absolute path>"}}` or `{"commit": {"slot": "<holder>"}}`: a
+    *     commit made in the worktree, or by a session working as the holder, at or after `since`
+    *     (an ISO-8601 instant), by default `now`.
+    */
+  private[edge] def watchOf(
+      args: ujson.Obj,
+      now: Instant
+  ): Either[String, (WatchFor, FiniteDuration)] = {
+    val o = args.value
+    val within: Either[String, FiniteDuration] = o.get("within") match {
+      case None => Right(Within)
+      case Some(w) =>
+        w.numOpt
+          .filter(s => s >= 0 && s.isWhole)
+          .map(_.toLong.seconds)
+          .toRight("within is whole seconds, 0 or more")
+    }
+    val what: Either[String, WatchFor] = (o.get("artifact"), o.get("commit")) match {
+      case (Some(a), None) =>
+        for {
+          key <- a.strOpt.toRight("artifact is a key").flatMap(ArtifactKey.read)
+          names <- o.get("state").flatMap(_.arrOpt).toRight("state is a list of states' names")
+          states <- names.toVector.foldLeft[Either[String, Set[StateName]]](Right(Set.empty)) {
+            (acc, n) =>
+              acc.flatMap(got =>
+                n.strOpt.toRight(s"$n is no state's name").flatMap(StateName.of).map(got + _)
+              )
+          }
+          watch <- Projects.reaching(key, states)
+        } yield watch
+      case (None, Some(c)) =>
+        for {
+          by <- c.objOpt.map(_.toMap) match {
+            case Some(m) if m.keySet == Set("worktree") =>
+              m("worktree").strOpt
+                .flatMap(Spooled.worktree)
+                .map(WatchFor.Worker.At(_))
+                .toRight("worktree is an absolute path")
+            case Some(m) if m.keySet == Set("slot") =>
+              m("slot").strOpt
+                .toRight("slot is a holder's name")
+                .flatMap(ClaimHolder.of)
+                .map(WatchFor.Worker.As(_))
+            case _ => Left("commit names a worktree or a slot")
+          }
+          since <- o.get("since") match {
+            case None => Right(now)
+            case Some(s) =>
+              s.strOpt
+                .flatMap(t => scala.util.Try(Instant.parse(t)).toOption)
+                .toRight("since is an ISO-8601 instant")
+          }
+        } yield WatchFor.Committed(by, since)
+      case _ => Left("a watch names an artifact or a commit, one of them")
+    }
+    what.flatMap(w => within.map(w -> _))
+  }
+
+  /** What a watch for `what`, waiting `within`, answers when it came to `came`. */
+  private def watched(
+      what: WatchFor,
+      within: FiniteDuration,
+      came: Either[WatchError, Watched]
+  ): Reply = (what, came) match {
+    case (h: WatchFor.Holding, Right(held: Watched.Held)) =>
+      val states = Projects.reached(held).map(StateName.value).toVector.sorted.mkString(" and ")
+      Reply(
+        200,
+        s"${grit.core.id.DocKey.value(h.key)} is in $states (version ${held.version}, written ${held.written})"
+      )
+    case (_, Right(Watched.Committed(session, at, shape))) =>
+      val shown =
+        scala.util.Try(ujson.read(grit.core.session.Event.Shape.value(shape)).obj).toOption
+      def field(k: String) = shown.flatMap(_.get(k)).flatMap(_.strOpt)
+      val commit = (field("sha").map(_.take(12)) ++ field("subject")).mkString(" ")
+      val in = field(grit.core.session.Event.Shape.Worktree).fold("")(w => s" in $w")
+      Reply(200, s"committed $commit$in, on session ${session.local} at $at")
+    case (_, Right(Watched.Lapsed)) =>
+      Reply(408, s"nothing met the watch within ${EdgeWatch.bounded(within).toSeconds}s")
+    case (_, Right(other)) => Reply(500, s"the watch was met by what it did not ask for: $other")
+    case (_, Left(WatchError.Busy)) =>
+      Reply(503, s"${EdgeWatch.Most} watches are under way already: wait for one to end")
+    case (_, Left(WatchError.NotVouched(by))) =>
+      Reply(403, s"no person is linked to ${Account.written(by)}")
+    case (_, Left(WatchError.Unavailable(cause))) =>
+      Reply(503, s"the database is unavailable: $cause")
+  }
 
   private val Claim = "project_claim"
   private[edge] val Release = "project_release"

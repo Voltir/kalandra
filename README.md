@@ -25,7 +25,9 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   status. `POST /mcp` serves the same commands as MCP tools (streamable HTTP, one JSON reply per
   message, no session): `initialize`, `ping`, `tools/list` (`project_release` taking `for` there
   too) and `tools/call`, run as `/command` runs it; a command that did not answer 200 is a tool
-  error carrying its text. The edge also vouches for the account, the one member of its realm `workshop:local` (stored; kept from the earlier name),
+  error carrying its text. `POST /wait` (`bin/kalandra wait`) holds the request until an
+  artifact reaches one of some states, or a commit is made in a worktree, as grit's `EdgeWatch`
+  waits (grit's ADR 0051), and answers what met it, or 408 once it lapses. The edge also vouches for the account, the one member of its realm `workshop:local` (stored; kept from the earlier name),
   so a person is linked to it before the first command. It holds no transaction.
 - **Brief files.** A `project_claim` that is done through the edge also writes its brief
   (`project_brief` for the claim's key and role) to a file a session hook reads:
