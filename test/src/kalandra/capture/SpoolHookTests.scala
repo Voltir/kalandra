@@ -78,7 +78,7 @@ object SpoolHookTests extends TestSuite {
     val read = lines.map(ujson.read(_))
     (
       read.map(v => { val o = v.obj.clone(); o.remove("n"); ujson.Obj.from(o) }),
-      read.map(_("n").num.toLong)
+      read.map(_("n").str.toLong)
     )
   }
 

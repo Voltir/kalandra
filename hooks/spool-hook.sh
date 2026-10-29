@@ -16,7 +16,8 @@
 # - `k` is the harness's own name: the event's, or for a tool event the tool's (Read, Edit, Write,
 #   MultiEdit, NotebookEdit, Bash; any other tool spools nothing); `commit` for --commit. serve
 #   maps it to grit's words.
-# - `n` is the time in microseconds times 1000 plus this process's id modulo 1000: grit knows an
+# - `n` is the time in microseconds times 1000 plus this process's id modulo 1000, written as a
+#   string because it passes the integers a JSON reader's double holds exactly: grit knows an
 #   event recorded again by it, so two events of one session given the same `n` (two hooks in
 #   one microsecond whose process ids agree modulo 1000) keep only one, and the other is dropped
 #   silently.
@@ -83,7 +84,7 @@ if [[ "${1-}" == "--commit" ]]; then
     sha="$(git rev-parse HEAD)" || exit 0
     subject="$(git log -1 --format=%s)" || exit 0
     n="$(ordinal)" || exit 0
-    line="$(jq -cn --arg s "$session" --argjson n "$n" --arg w "$(where "$PWD")" \
+    line="$(jq -cn --arg s "$session" --arg n "$n" --arg w "$(where "$PWD")" \
       --arg sha "$sha" --arg subject "$subject" \
       '{s: $s, n: $n, k: "commit", w: $w, d: {sha: $sha, subject: $subject[:100]}}')" || exit 0
     append "$session" "$line"
@@ -102,7 +103,7 @@ fi
   [[ -z "$agent" ]] || named "$agent" || exit 0
   [[ -n "$cwd" ]] || exit 0
   n="$(ordinal)" || exit 0
-  line="$(jq -c --argjson n "$n" --arg w "$(where "$cwd")" '
+  line="$(jq -c --arg n "$n" --arg w "$(where "$cwd")" '
     def cut($k): if type == "string" then .[:$k] else "" end;
     def rel($cwd):
       if type != "string" then ""

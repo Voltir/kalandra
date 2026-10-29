@@ -4,6 +4,7 @@ import java.net.{InetAddress, InetSocketAddress}
 import java.nio.charset.StandardCharsets
 import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.{ExecutorService, Executors, ScheduledExecutorService, TimeUnit}
 
 import grit.core.clock.Clock
 import grit.core.edge.{Asked, EdgeRefusal, EdgeStores, RealmSource, ServedEdge, Variable}
@@ -14,7 +15,7 @@ import grit.core.store.StoreError
 import grit.core.visibility.Integrity
 
 import com.sun.net.httpserver.{HttpExchange, HttpHandler, HttpServer}
-import java.util.concurrent.{ExecutorService, Executors}
+import kalandra.capture.Ingest
 
 /** The edge Claude Code sessions and their person reach the projects plugin's commands through:
   * HTTP on `KALANDRA_LISTEN` (`host:port` on a loopback address; default [[ClaudeCodeEdge.Listen]]),
@@ -75,7 +76,21 @@ final class ClaudeCodeEdge(owner: Account, realm: Realm, room: Place, believed: 
       server.createContext("/", new ClaudeCodeEdge.Handler(routes))
       server.start()
       log(s"claude-code: serving commands on http://${ClaudeCodeEdge.shown(at)}")
-      new ClaudeCodeEdge.Serving(server, threads, stores, source)
+      // The ingest's one thread holds the session record, a shared capability, and `log` where
+      // capture checking no longer tracks them, as the server holds `routes`: sound for the same
+      // reason, `close` stopping it once before the edge's Open is gone. Only that thread runs
+      // the ingest, so its passes never overlap.
+      val spool = Ingest.spool(env)
+      val ingest = new Ingest(spool, stores.sessions, owner, room, log)
+      val ingesting = Executors.newSingleThreadScheduledExecutor()
+      val _ = ingesting.scheduleWithFixedDelay(
+        ingest,
+        0,
+        Ingest.Every.toMillis,
+        TimeUnit.MILLISECONDS
+      )
+      log(s"claude-code: recording the sessions spooled in $spool")
+      new ClaudeCodeEdge.Serving(server, threads, ingesting, stores, source)
     }
   }
 }
@@ -162,10 +177,11 @@ object ClaudeCodeEdge {
       } finally exchange.close()
   }
 
-  /** The edge while served: `server` until [[close]]. */
+  /** The edge while served: `server` and the spool's `ingesting` until [[close]]. */
   private final class Serving(
       server: HttpServer,
       threads: ExecutorService,
+      ingesting: ScheduledExecutorService,
       stores: EdgeStores^,
       source: Source
   ) extends ServedEdge.Open {
@@ -177,9 +193,12 @@ object ClaudeCodeEdge {
 
     private val stopped = new AtomicBoolean(false)
 
+    // A pass under way finishes its file's transaction: the file is then deleted or kept whole.
     def close(): Unit = if (stopped.compareAndSet(false, true)) {
       server.stop(1)
       threads.shutdown()
+      ingesting.shutdown()
+      val _ = ingesting.awaitTermination(10, TimeUnit.SECONDS)
     }
   }
 }
