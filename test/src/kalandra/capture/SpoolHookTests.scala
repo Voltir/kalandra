@@ -117,6 +117,12 @@ object SpoolHookTests extends TestSuite {
         tool("PostToolUse", cwd, "Edit", ujson.Obj("file_path" -> "/etc/elsewhere/B.scala")),
         tool("PostToolUse", cwd, "Bash", ujson.Obj("command" -> "FOO=secret /usr/bin/git status")),
         tool(
+          "PostToolUse",
+          cwd,
+          "Bash",
+          ujson.Obj("command" -> "cd /w/fixer && cd core; FOO=1 ./mill grit.core.compile")
+        ),
+        tool(
           "PostToolUseFailure",
           cwd,
           "Bash",
@@ -151,6 +157,7 @@ object SpoolHookTests extends TestSuite {
           line("Read", ujson.Obj("path" -> "src/A.scala", "ok" -> true, "bytes" -> 6)),
           line("Edit", ujson.Obj("path" -> "B.scala", "ok" -> true)),
           line("Bash", ujson.Obj("program" -> "git", "ok" -> true)),
+          line("Bash", ujson.Obj("program" -> "mill", "ok" -> true)),
           line("Bash", ujson.Obj("program" -> "npm", "ok" -> false)),
           line(
             "SubagentStart",

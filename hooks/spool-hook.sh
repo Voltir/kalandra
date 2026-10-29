@@ -37,8 +37,9 @@
 #   the path is then as for a file in no worktree); for a file in no worktree, relative to the cwd
 #   (outside it, its file name alone); a path kept to its last 120 characters, so that a shape
 #   stays within grit's 300 bytes (kalandra.capture.Spooled drops one past them); whether the tool
-#   succeeded, a Read's bytes, a Bash command's program alone; for a scout query, what it `named`
-#   (the first of its symbols, or its suite, target or pattern, cut to 120 characters), its
+#   succeeded, a Read's bytes, a Bash command's program alone (after any leading `cd X &&` or
+#   `cd X;`); for a scout query, what it `named` (the first of its symbols, or its suite, target
+#   or pattern, cut to 120 characters), its
 #   `tool`, and its answer's UTF-8 `bytes` (0 for none); for a commit, its `sha`, its `subject`
 #   (cut to 100 characters), `child: true` when a subagent's Bash made it
 #   ($CLAUDE_CODE_CHILD_SESSION=1), and for a rewrite the first 4 commits it `replaces`, each by
@@ -206,7 +207,8 @@ fi
       else ""
       end;
     def program:
-      cut(400) | split(" ") | map(select(length > 0 and (contains("=") | not)))
+      cut(400) | sub("^\\s*(cd(\\s+[^;&|\\s]+)?\\s*(&&|;)\\s*)+"; "")
+      | split(" ") | map(select(length > 0 and (contains("=") | not)))
       | (.[0] // "") | split("/") | last | .[:40];
     .hook_event_name as $e
     | (if $e == "PostToolUse" or $e == "PostToolUseFailure" then .tool_name else $e end) as $k
