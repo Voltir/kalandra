@@ -277,7 +277,7 @@ object SpoolHookTests extends TestSuite {
     }
 
     test(
-      "a rebase spools each commit it leaves once, as it finally is; an amend spools the amended commit once"
+      "a rebase spools each commit it leaves once, with the commits it replaces; an amend spools the amended commit again with the one it replaces"
     ) {
       val (root, _) = worktree()
       val spool = Files.createTempDirectory("spool")
@@ -328,10 +328,27 @@ object SpoolHookTests extends TestSuite {
         git("log", "--format=%h %s", "--abbrev=12", s"$base..HEAD").linesIterator.toVector
       val _ = git("commit", "-q", "--amend", "-m", "the second, amended")
       val amended = git("rev-parse", "--short=12", "HEAD")
-      val recorded = spooled(spool)._1.map(v => (v("d")("sha").str.take(12), v("d")("subject").str))
-      recorded ==> Vector(base, a, b, fix).zip(
-        Vector("the base", "the first", "the second", "fixup! the first")
-      ) ++ rebased.reverse.map(l => (l.take(12), l.drop(13))) :+ (amended, "the second, amended")
+      val recorded = spooled(spool)._1.map(v =>
+        (
+          v("d")("sha").str.take(12),
+          v("d")("subject").str,
+          v("d").obj.get("replaces").fold(Vector.empty[String])(_.arr.map(_.str).toVector)
+        )
+      )
+      val (first, second) = rebased.reverse.map(_.take(12)) match {
+        case Vector(f, s) => (f, s)
+        case other => sys.error(s"the rebase left $other")
+      }
+      recorded ==> Vector(
+        (base, "the base", Vector()),
+        (a, "the first", Vector()),
+        (b, "the second", Vector()),
+        (fix, "fixup! the first", Vector()),
+        (first, "the first", Vector(a, fix)),
+        (second, "the second", Vector(b)),
+        (amended, "the second, amended", Vector()),
+        (amended, "the second, amended", Vector(second))
+      )
     }
 
     test(

@@ -80,22 +80,27 @@ object SpooledTests extends TestSuite {
       )
     }
 
-    test("a commit's shape names its worktree; one too long with its subject leaves it out") {
-      val worktree = "/work/" + ("w" * 150)
-      def commit(subject: String) = ujson.write(
+    test(
+      "a commit's shape names its worktree; one too long cuts its subject to fit, or leaves it out"
+    ) {
+      def commit(w: Int, subject: String) = ujson.write(
         ujson.Obj(
           "s" -> S,
           "n" -> N.toString,
           "k" -> "commit",
-          "w" -> worktree,
+          "w" -> ("/work/" + ("w" * w)),
           "d" -> ujson.Obj("sha" -> "abc", "subject" -> subject)
         )
       )
-      val written = s"fs:$worktree"
+      def written(w: Int) = "fs:/work/" + ("w" * w)
+      // 300 bytes: 199 around the subject, 49 two-byte characters and a three-byte `…`.
       assert(
-        read(commit("fix")).map(_._5) ==
-          Right(s"""{"sha":"abc","subject":"fix","worktree":"$written"}"""),
-        read(commit("é" * 100)).map(_._5) == Right(s"""{"sha":"abc","worktree":"$written"}""")
+        read(commit(150, "fix")).map(_._5) ==
+          Right(s"""{"sha":"abc","subject":"fix","worktree":"${written(150)}"}"""),
+        read(commit(150, "é" * 100)).map(_._5) ==
+          Right(s"""{"sha":"abc","subject":"${"é" * 49}…","worktree":"${written(150)}"}"""),
+        read(commit(250, "é" * 100)).map(_._5) ==
+          Right(s"""{"sha":"abc","worktree":"${written(250)}"}""")
       )
     }
 

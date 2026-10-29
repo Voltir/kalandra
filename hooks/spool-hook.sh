@@ -7,13 +7,15 @@
 #   spool-hook.sh --commit   as a git post-commit hook: the commit just made, spooled for the
 #                            Claude Code session whose Bash made it ($CLAUDE_CODE_SESSION_ID);
 #                            nothing outside one, nor while a rebase is in progress
-#   spool-hook.sh --rewrite rebase
-#                            as a git post-rewrite hook: each commit a rebase left, once, in
-#                            order, spooled as --commit spools one. `--rewrite amend` spools
-#                            nothing: post-commit already spooled the amended commit.
+#   spool-hook.sh --rewrite rebase|amend
+#                            as a git post-rewrite hook: each commit a rebase or an amend left,
+#                            once, in order, spooled as --commit spools one, with the commits it
+#                            `replaces`; an amend inside a rebase spools nothing, the rebase's
+#                            own list holding it.
 #
-# A commit spooled before a rebase or an amend rewrote it stays as spooled: the old hash names a
-# commit a reader may still `git show`, and the record is append-only.
+# A commit spooled before a rebase or an amend rewrote it stays as spooled: the record is
+# append-only, and grit leaves out a commit a later one replaces or records again. So an amend,
+# which post-commit spooled as it was made, is spooled a second time by its rewrite.
 #
 # Each event is one line appended with one printf to
 # ${KALANDRA_SPOOL:-$HOME/.local/state/kalandra/spool}/<session_id>.jsonl:
@@ -38,8 +40,9 @@
 #   succeeded, a Read's bytes, a Bash command's program alone; for a scout query, what it `named`
 #   (the first of its symbols, or its suite, target or pattern, cut to 120 characters), its
 #   `tool`, and its answer's UTF-8 `bytes` (0 for none); for a commit, its `sha`, its `subject`
-#   (cut to 100 characters), and `child: true` when a subagent's Bash made it
-#   ($CLAUDE_CODE_CHILD_SESSION=1).
+#   (cut to 100 characters), `child: true` when a subagent's Bash made it
+#   ($CLAUDE_CODE_CHILD_SESSION=1), and for a rewrite the first 4 commits it `replaces`, each by
+#   its sha's first 12 characters (grit's Event.Shape.ReplacedChars); one past them stays listed.
 # - `h`, on a SessionStart or SubagentStart only, is the slot the session works as, hooks/slot.sh's
 #   for the event's own cwd (not `w`) and, in a subagent, its agent type: the brief hook's slot,
 #   whose claims the session's work keeps from lapsing. Without slot.sh, no line has one.
@@ -99,15 +102,19 @@ prune() {
   (cd -- "$spool" && xargs -r rm -f -- <<<"$old")
 }
 
-# The commit $2 spooled for session $1.
+# The commit $2 spooled for session $1, replacing the commits $3 names (space-separated), if any.
 commit() {
   local subject n line
   subject="$(git log -1 --format=%s "$2")" || return 1
   n="$(ordinal)" || return 1
   line="$(jq -cn --arg s "$1" --arg n "$n" --arg w "$(where "$PWD")" \
     --arg sha "$2" --arg subject "$subject" --arg child "${CLAUDE_CODE_CHILD_SESSION-}" \
-    '{s: $s, n: $n, k: "commit", w: $w,
-      d: ({sha: $sha, subject: $subject[:100]} + (if $child == "1" then {child: true} else {} end))}'
+    --arg olds "${3-}" \
+    '($olds | split(" ") | map(select(length > 0) | .[:12]) | .[:4]) as $r
+     | {s: $s, n: $n, k: "commit", w: $w,
+        d: ({sha: $sha, subject: $subject[:100]}
+            + (if $child == "1" then {child: true} else {} end)
+            + (if $r == [] then {} else {replaces: $r} end))}'
   )" || return 1
   append "$1" "$line"
 }
@@ -134,14 +141,22 @@ if [[ "${1-}" == "--rewrite" ]]; then
   {
     session="${CLAUDE_CODE_SESSION_ID-}"
     named "$session" || exit 0
-    [[ "${2-}" == "rebase" ]] || exit 0
+    case "${2-}" in
+      rebase) ;;
+      amend) rebasing && exit 0 ;;
+      *) exit 0 ;;
+    esac
     # Each line is `<old sha> <new sha> [extra]`; a squash or fixup maps several to one new sha.
-    declare -A seen=()
-    while read -r _ sha _; do
-      [[ "$sha" =~ ^[0-9a-f]{40,64}$ && -z "${seen[$sha]-}" ]] || continue
-      seen[$sha]=1
-      commit "$session" "$sha" || exit 0
+    declare -A olds=()
+    order=()
+    while read -r old sha _; do
+      [[ "$old" =~ ^[0-9a-f]{40,64}$ && "$sha" =~ ^[0-9a-f]{40,64}$ ]] || continue
+      [[ -n "${olds[$sha]+x}" ]] || order+=("$sha")
+      olds[$sha]="${olds[$sha]-} $old"
     done < <(timeout 1 cat)
+    for sha in "${order[@]}"; do
+      commit "$session" "$sha" "${olds[$sha]}" || exit 0
+    done
   } 2>/dev/null
   exit 0
 fi

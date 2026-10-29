@@ -30,7 +30,8 @@ object Spooled {
     * no hook writes, an ordinal not above 0, no absolute worktree to place it at, an id
     * [[SessionId.of]] refuses, a holder [[ClaimHolder.of]] refuses, a closing with no text, or a
     * shape [[Event.Shape.of]] refuses. A commit's shape names the worktree it was made in
-    * ([[Event.Shape.committed]]), its subject left out when the shape would be too long with it.
+    * ([[Event.Shape.committed]]), its subject cut to fit, ending `…`, when the shape would be
+    * too long with it whole, and left out when even one character of it would not fit.
     * Any other shape's [[Event.Shape.Worktree]], an edit's or a read's path's own worktree, is
     * written as a place; a line whose worktree is no absolute path is refused.
     */
@@ -66,12 +67,19 @@ object Spooled {
       kind <- kindOf(k, d, o.get("t").flatMap(_.strOpt))
       shape <- kind match {
         case Event.Kind.Commit =>
-          Event.Shape
-            .committed(at, d)
-            .orElse(
-              Event.Shape
-                .committed(at, ujson.Obj.from(d.value.toSeq.filterNot(_._1 == Event.Shape.Subject)))
-            )
+          def subjected(s: Option[String]) = Event.Shape.committed(
+            at,
+            ujson.Obj.from(d.value.toSeq.flatMap { (k, v) =>
+              if (k == Event.Shape.Subject) s.map(k -> ujson.Str(_)) else Some(k -> v)
+            })
+          )
+          val subject = d.value.get(Event.Shape.Subject).flatMap(_.strOpt)
+          val cuts = subject.fold(Iterator.empty[String])(s =>
+            (s.length - 1 to 1 by -1).iterator.map(k => s.take(k) + "…")
+          )
+          (Iterator(subjected(subject)) ++ cuts.map(c => subjected(Some(c))))
+            .find(_.isRight)
+            .getOrElse(subjected(None))
         case _ =>
           d.value.get(Event.Shape.Worktree) match {
             case None => Event.Shape.of(d)
