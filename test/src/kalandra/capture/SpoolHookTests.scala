@@ -272,6 +272,63 @@ object SpoolHookTests extends TestSuite {
     }
 
     test(
+      "a rebase spools each commit it leaves once, as it finally is; an amend spools the amended commit once"
+    ) {
+      val (root, _) = worktree()
+      val spool = Files.createTempDirectory("spool")
+      val hooks = Files.createTempDirectory("hooks")
+      val script = HookRun.script("spool-hook.sh").toAbsolutePath
+      Vector("post-commit" -> "--commit", "post-rewrite" -> "--rewrite").foreach((name, arg) => {
+        val _ = Files.writeString(
+          hooks.resolve(name),
+          s"#!/usr/bin/env bash\nexec bash '$script' $arg \"$$@\"\n"
+        )
+        hooks.resolve(name).toFile.setExecutable(true)
+      })
+      def git(args: String*): String = {
+        val b = new ProcessBuilder(
+          (Vector(
+            "git",
+            "-C",
+            root.toString,
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            s"core.hooksPath=$hooks"
+          ) ++ args).asJava
+        ).redirectErrorStream(true)
+        b.environment().put("CLAUDE_CODE_SESSION_ID", Session)
+        b.environment().put("KALANDRA_SPOOL", spool.toString)
+        b.environment().put("GIT_SEQUENCE_EDITOR", "true")
+        val p = b.start()
+        val out = new String(p.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+        assert(p.waitFor() == 0)
+        out.trim
+      }
+      def commit(subject: String, file: String): String = {
+        val _ = Files.writeString(root.resolve(file), subject)
+        val _ = git("add", file)
+        val _ = git("commit", "-q", "-m", subject)
+        git("rev-parse", "--short=12", "HEAD")
+      }
+      val base = commit("the base", "base")
+      val a = commit("the first", "a")
+      val b = commit("the second", "b")
+      val fix = commit("fixup! the first", "a2")
+      val _ = git("rebase", "-q", "-i", "--autosquash", "--force-rebase", base)
+      val rebased =
+        git("log", "--format=%h %s", "--abbrev=12", s"$base..HEAD").linesIterator.toVector
+      val _ = git("commit", "-q", "--amend", "-m", "the second, amended")
+      val amended = git("rev-parse", "--short=12", "HEAD")
+      val recorded = spooled(spool)._1.map(v => (v("d")("sha").str.take(12), v("d")("subject").str))
+      recorded ==> Vector(base, a, b, fix).zip(
+        Vector("the base", "the first", "the second", "fixup! the first")
+      ) ++ rebased.reverse.map(l => (l.take(12), l.drop(13))) :+ (amended, "the second, amended")
+    }
+
+    test(
       "a session's file past 2 MB takes no more lines; SessionStart keeps the newest 100 files"
     ) {
       val (_, cwd) = worktree()

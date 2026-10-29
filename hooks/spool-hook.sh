@@ -6,7 +6,14 @@
 #                            SessionEnd, SubagentStart or SubagentStop hook: the event's JSON on stdin
 #   spool-hook.sh --commit   as a git post-commit hook: the commit just made, spooled for the
 #                            Claude Code session whose Bash made it ($CLAUDE_CODE_SESSION_ID);
-#                            nothing outside one
+#                            nothing outside one, nor while a rebase is in progress
+#   spool-hook.sh --rewrite rebase
+#                            as a git post-rewrite hook: each commit a rebase left, once, in
+#                            order, spooled as --commit spools one. `--rewrite amend` spools
+#                            nothing: post-commit already spooled the amended commit.
+#
+# A commit spooled before a rebase or an amend rewrote it stays as spooled: the old hash names a
+# commit a reader may still `git show`, and the record is append-only.
 #
 # Each event is one line appended with one printf to
 # ${KALANDRA_SPOOL:-$HOME/.local/state/kalandra/spool}/<session_id>.jsonl:
@@ -86,17 +93,47 @@ prune() {
   (cd -- "$spool" && xargs -r rm -f -- <<<"$old")
 }
 
+# The commit $2 spooled for session $1.
+commit() {
+  local subject n line
+  subject="$(git log -1 --format=%s "$2")" || return 1
+  n="$(ordinal)" || return 1
+  line="$(jq -cn --arg s "$1" --arg n "$n" --arg w "$(where "$PWD")" \
+    --arg sha "$2" --arg subject "$subject" \
+    '{s: $s, n: $n, k: "commit", w: $w, d: {sha: $sha, subject: $subject[:100]}}')" || return 1
+  append "$1" "$line"
+}
+
+# Whether a rebase is in progress in this worktree.
+rebasing() {
+  local merge apply
+  merge="$(git rev-parse --git-path rebase-merge)" && apply="$(git rev-parse --git-path rebase-apply)" &&
+    [[ -d "$merge" || -d "$apply" ]]
+}
+
 if [[ "${1-}" == "--commit" ]]; then
   {
     session="${CLAUDE_CODE_SESSION_ID-}"
     named "$session" || exit 0
+    rebasing && exit 0
     sha="$(git rev-parse HEAD)" || exit 0
-    subject="$(git log -1 --format=%s)" || exit 0
-    n="$(ordinal)" || exit 0
-    line="$(jq -cn --arg s "$session" --arg n "$n" --arg w "$(where "$PWD")" \
-      --arg sha "$sha" --arg subject "$subject" \
-      '{s: $s, n: $n, k: "commit", w: $w, d: {sha: $sha, subject: $subject[:100]}}')" || exit 0
-    append "$session" "$line"
+    commit "$session" "$sha"
+  } 2>/dev/null
+  exit 0
+fi
+
+if [[ "${1-}" == "--rewrite" ]]; then
+  {
+    session="${CLAUDE_CODE_SESSION_ID-}"
+    named "$session" || exit 0
+    [[ "${2-}" == "rebase" ]] || exit 0
+    # Each line is `<old sha> <new sha> [extra]`; a squash or fixup maps several to one new sha.
+    declare -A seen=()
+    while read -r _ sha _; do
+      [[ "$sha" =~ ^[0-9a-f]{40,64}$ && -z "${seen[$sha]-}" ]] || continue
+      seen[$sha]=1
+      commit "$session" "$sha" || exit 0
+    done < <(timeout 1 cat)
   } 2>/dev/null
   exit 0
 fi

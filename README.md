@@ -163,11 +163,17 @@ added to those above):
 ```
 
 A commit made by a session's Bash is spooled by git's post-commit hook in that checkout
-(`.git/hooks/post-commit`, or the common one a worktree shares):
+(`.git/hooks/post-commit`, or the common one a worktree shares), and the commits a rebase leaves
+by its post-rewrite hook (`.git/hooks/post-rewrite`), so that a rebase records each once:
 
 ```bash
 #!/usr/bin/env bash
 /home/nickchilders/Projects/kalandra/hooks/spool-hook.sh --commit
+```
+
+```bash
+#!/usr/bin/env bash
+exec /home/nickchilders/Projects/kalandra/hooks/spool-hook.sh --rewrite "$@"
 ```
 
 ## The MCP server
