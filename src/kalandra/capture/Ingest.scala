@@ -85,7 +85,13 @@ final class Ingest(
       )
     val batches = read.map(s => (s.id, s.parent)).distinct.map { (id, parent) =>
       val its = read.filter(s => s.id == id && s.parent == parent)
-      EdgeSessions.Batch(id, parent, its.headOption.fold(Place.Everywhere)(_.at), its.map(_.event))
+      EdgeSessions.Batch(
+        id,
+        parent,
+        its.headOption.fold(Place.Everywhere)(_.at),
+        its.flatMap(_.holder).headOption,
+        its.map(_.event)
+      )
     }
     if (batches.isEmpty) {
       attempt(s"delete $name")(Files.delete(file))

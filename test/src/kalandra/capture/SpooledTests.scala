@@ -2,7 +2,7 @@ package kalandra.capture
 
 import java.time.Instant
 
-import grit.core.id.SessionId
+import grit.core.id.{ClaimHolder, SessionId}
 import grit.core.place.{Namespace, Place}
 import grit.core.session.{Event, Session}
 
@@ -125,6 +125,18 @@ object SpooledTests extends TestSuite {
         line("Read", ujson.Obj("bytes" -> -1)),
         line("SessionStart", ujson.Obj("source" -> "x" * 400))
       ).map(l => Spooled.of(l).left.map(_ => "refused")) ==> Vector.fill(11)(Left("refused"))
+    }
+
+    test("a start line's `h` is the holder its session works as; a line without one names none") {
+      val start = line("SessionStart", ujson.Obj("source" -> "startup"), "h" -> "0beec7b5")
+      val read = line("Read", ujson.Obj("path" -> "A.scala", "ok" -> true, "bytes" -> 6))
+      Vector(start, read).map(l => Spooled.of(l).map(_.holder)) ==>
+        Vector(Right(Some(ok(ClaimHolder.of("0beec7b5")))), Right(None))
+    }
+
+    test("a holder grit refuses drops its line, saying why") {
+      val start = line("SessionStart", ujson.Obj("source" -> "startup"), "h" -> "x" * 161)
+      Spooled.of(start) ==> Left("a claim's holder is 1 to 160 characters")
     }
 
     test("a line with no worktree says which session it cannot place") {

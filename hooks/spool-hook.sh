@@ -11,7 +11,8 @@
 # Each event is one line appended with one printf to
 # ${KALANDRA_SPOOL:-$HOME/.local/state/kalandra/spool}/<session_id>.jsonl:
 #
-#   {"s":session,"a":agent (a subagent's only),"n":ordinal,"k":kind,"w":worktree,"d":shape,"t":text}
+#   {"s":session,"a":agent (a subagent's only),"n":ordinal,"k":kind,"w":worktree,"d":shape,"t":text,
+#    "h":slot (a start's only)}
 #
 # - `k` is the harness's own name: the event's, or for a tool event the tool's (Read, Edit, Write,
 #   MultiEdit, NotebookEdit, Bash; any other tool spools nothing); `commit` for --commit. serve
@@ -24,6 +25,9 @@
 # - `w` is the worktree the event ran in: `git rev-parse --show-toplevel` in its cwd, else the cwd.
 # - `d` is what the event was, never its content: a path relative to the cwd (outside it, its
 #   file name alone), whether the tool succeeded, a Read's bytes, a Bash command's program alone.
+# - `h`, on a SessionStart or SubagentStart only, is the slot the session works as, hooks/slot.sh's
+#   for the event's own cwd (not `w`) and, in a subagent, its agent type: the brief hook's slot,
+#   whose claims the session's work keeps from lapsing. Without slot.sh, no line has one.
 # - `t` is the text of a Stop (its last reply) or a PostCompact (its summary), cut to 2,000
 #   characters; a Stop with none spools nothing. Such a line can pass 4 KB, past which an append
 #   is no longer one write, so one that meets a concurrent append can be torn; serve drops a line
@@ -38,6 +42,9 @@
 # exits 0 and spools nothing, so the session runs as it would without the hook.
 
 spool="${KALANDRA_SPOOL:-${HOME:-}/.local/state/kalandra/spool}"
+
+# slot(): the slot for a directory, and an agent type in it.
+. "$(dirname -- "${BASH_SOURCE[0]}")/slot.sh" 2>/dev/null
 cap=$((2 * 1024 * 1024))
 keep=100
 
@@ -95,15 +102,22 @@ fi
 {
   input="$(timeout 1 cat)" || exit 0
   # One per line: tab is whitespace to `read`, so an empty agent id would shift the cwd.
-  ids="$(jq -r '(.session_id // "" | tostring), (.agent_id // "" | tostring), (.cwd // "" | tostring)' \
-    <<<"$input")" || exit 0
+  ids="$(jq -r '(.session_id // "" | tostring), (.agent_id // "" | tostring), (.cwd // "" | tostring),
+    (.hook_event_name // "" | tostring), (.agent_type // "" | tostring)' <<<"$input")" || exit 0
   mapfile -t ids <<<"$ids"
-  session="${ids[0]-}" agent="${ids[1]-}" cwd="${ids[2]-}"
+  session="${ids[0]-}" agent="${ids[1]-}" cwd="${ids[2]-}" event="${ids[3]-}" type="${ids[4]-}"
   named "$session" || exit 0
   [[ -z "$agent" ]] || named "$agent" || exit 0
   [[ -n "$cwd" ]] || exit 0
   n="$(ordinal)" || exit 0
-  line="$(jq -c --arg n "$n" --arg w "$(where "$cwd")" '
+  h=""
+  if declare -F slot >/dev/null; then
+    case "$event" in
+      SessionStart) h="$(slot "$cwd")" || h="" ;;
+      SubagentStart) [[ -z "$type" ]] || h="$(slot "$cwd" "$type")" || h="" ;;
+    esac
+  fi
+  line="$(jq -c --arg n "$n" --arg w "$(where "$cwd")" --arg h "$h" '
     def cut($k): if type == "string" then .[:$k] else "" end;
     def rel($cwd):
       if type != "string" then ""
@@ -139,9 +153,10 @@ fi
       + (if (.agent_id // "") != "" then {a: .agent_id} else {} end)
       + {n: $n, k: $k, w: $w, d: $d}
       + (if $t != null then {t: $t} else {} end)
+      + (if $h != "" then {h: $h} else {} end)
   ' <<<"$input")" || exit 0
   [[ -n "$line" ]] || exit 0
   append "$session" "$line" || exit 0
-  [[ "$(jq -r '.hook_event_name' <<<"$input")" == "SessionStart" ]] && prune
+  [[ "$event" == "SessionStart" ]] && prune
 } 2>/dev/null
 exit 0

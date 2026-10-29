@@ -69,6 +69,19 @@ object SpoolHookTests extends TestSuite {
       (Vector[(String, ujson.Value)]("tool_name" -> tool, "tool_input" -> input) ++ more)*
     )
 
+  /** The slot `hooks/brief-hook.sh --slot` prints in `cwd`, for the agent type `type` if any. */
+  private def slot(cwd: Path, `type`: String = ""): String =
+    HookRun
+      .run(
+        HookRun.script("brief-hook.sh"),
+        "",
+        cwd,
+        Map.empty,
+        (Vector("--slot") ++ Option.when(`type`.nonEmpty)(`type`))*
+      )
+      .out
+      .stripSuffix("\n")
+
   /** The spool's lines for the session, each without its `n`; and the `n`s. */
   private def spooled(spool: Path): (Vector[ujson.Value], Vector[Long]) = {
     val file = spool.resolve(s"$Session.jsonl")
@@ -129,12 +142,17 @@ object SpoolHookTests extends TestSuite {
       assert(
         ran.map(r => (r.status, r.out, r.err)) == Vector.fill(stdins.size)((0, "", "")),
         lines == Vector(
-          line("SessionStart", ujson.Obj("source" -> "startup")),
+          line("SessionStart", ujson.Obj("source" -> "startup"), "h" -> slot(cwd)),
           line("Read", ujson.Obj("path" -> "A.scala", "ok" -> true, "bytes" -> 6)),
           line("Edit", ujson.Obj("path" -> "B.scala", "ok" -> true)),
           line("Bash", ujson.Obj("program" -> "git", "ok" -> true)),
           line("Bash", ujson.Obj("program" -> "npm", "ok" -> false)),
-          line("SubagentStart", ujson.Obj("type" -> "Explore"), "a" -> "a068ac6"),
+          line(
+            "SubagentStart",
+            ujson.Obj("type" -> "Explore"),
+            "a" -> "a068ac6",
+            "h" -> slot(cwd, "Explore")
+          ),
           line("Write", ujson.Obj("path" -> "C.scala", "ok" -> true), "a" -> "a068ac6"),
           line("SubagentStop", ujson.Obj("type" -> "Explore"), "a" -> "a068ac6"),
           line("Stop", ujson.Obj(), "t" -> "x" * 2000),
@@ -143,6 +161,23 @@ object SpoolHookTests extends TestSuite {
         ),
         ns.forall(_ > 1_700_000_000_000_000_000L),
         ns.distinct.size == ns.size
+      )
+    }
+
+    test("a start line's `h` is the slot brief-hook.sh --slot gives in the event's own cwd") {
+      val (root, cwd) = worktree()
+      val spool = Files.createTempDirectory("spool")
+      hook(event("SessionStart", cwd, "source" -> "startup"), spool, cwd)
+      hook(
+        event("SubagentStart", cwd, "agent_id" -> "a1", "agent_type" -> "coder-opus"),
+        spool,
+        root
+      )
+      val (lines, _) = spooled(spool)
+      val h = lines.map(_.obj.get("h").map(_.str))
+      assert(
+        h == Vector(Some(slot(cwd)), Some(slot(cwd, "coder-opus"))),
+        slot(cwd) != slot(root)
       )
     }
 

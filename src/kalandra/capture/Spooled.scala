@@ -2,14 +2,21 @@ package kalandra.capture
 
 import java.time.Instant
 
-import grit.core.id.{Harness, SessionId}
+import grit.core.id.{ClaimHolder, Harness, SessionId}
 import grit.core.place.{Namespace, Place}
 import grit.core.session.{Event, Session}
 
 /** One event `hooks/spool-hook.sh` spooled, in grit's words: on the session `id`, a child of
-  * `parent` when a subagent's, worked at `at`.
+  * `parent` when a subagent's, worked at `at`, as the claim holder `holder` when its line names
+  * one (a start's, its slot).
   */
-final case class Spooled(id: SessionId, parent: Option[SessionId], at: Place, event: Event)
+final case class Spooled(
+    id: SessionId,
+    parent: Option[SessionId],
+    at: Place,
+    holder: Option[ClaimHolder],
+    event: Event
+)
 
 object Spooled {
 
@@ -21,7 +28,8 @@ object Spooled {
 
   /** The event a spool line says, or why not: no JSON object, over [[Longest]] bytes, a kind
     * no hook writes, an ordinal not above 0, no absolute worktree to place it at, an id
-    * [[SessionId.of]] refuses, a closing with no text, or a shape [[Event.Shape.of]] refuses.
+    * [[SessionId.of]] refuses, a holder [[ClaimHolder.of]] refuses, a closing with no text, or a
+    * shape [[Event.Shape.of]] refuses.
     */
   def of(line: String): Either[String, Spooled] =
     for {
@@ -46,6 +54,10 @@ object Spooled {
             s"session ${grit.core.id.Harness.value(Harness)}:${id.local} cannot be placed: no worktree"
           )
       }
+      holder <- o.get("h").flatMap(_.strOpt) match {
+        case None => Right(None)
+        case Some(h) => ClaimHolder.of(h).map(Some(_))
+      }
       k <- text(o, "k")
       d = o.get("d").flatMap(_.objOpt).fold(ujson.Obj())(ujson.Obj.from(_))
       kind <- kindOf(k, d, o.get("t").flatMap(_.strOpt))
@@ -56,7 +68,7 @@ object Spooled {
         kind,
         shape
       )
-    } yield Spooled(id, child.map(_ => self), at, event)
+    } yield Spooled(id, child.map(_ => self), at, holder, event)
 
   private val Billion = 1_000_000_000L
 

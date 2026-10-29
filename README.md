@@ -73,8 +73,8 @@ A command through `bin/kalandra` fails loud, exit 2, when serve is not running.
 subagent's: as a SessionStart and a SubagentStart hook it reads the event on stdin and prints
 the brief file of its slot as `additionalContext`. A session's slot is the sha1 of its working
 directory; a subagent's is `<agent type>/<sha1 of the session's working directory>`, normalised as
-`BriefFiles.slot` normalises a claim's `for` (`BriefHookTests` holds the two to one rule).
-`bin/kalandra slot [agent-type]`, run in the session's directory, prints it, for a claim's `for`:
+`BriefFiles.slot` normalises a claim's `for` (`BriefHookTests` holds the two to one rule);
+`hooks/slot.sh` computes it for both hooks. `bin/kalandra slot [agent-type]`, run in the session's directory, prints it, for a claim's `for`:
 
 ```bash
 cd ~/Projects/grit
@@ -107,7 +107,9 @@ after `/compact` (each resume injects it again). What a test hook saw of these e
 
 `hooks/spool-hook.sh` appends one line per session event to the spool serve records from
 (Session capture, above); its header says what each line holds, what it bounds, and the one
-collision that drops an event silently. Like the brief hook it needs no JVM and no network and
+collision that drops an event silently. A session's start line names its slot, as the brief
+hook computes it, so the session record knows which claims its work keeps from lapsing (grit's
+`Claims.Lease`). Like the brief hook it needs no JVM and no network and
 fails open, and it works with serve down: the spool waits for serve, bounded. It needs bash 5,
 `jq`, `git` and coreutils. Its PostToolUse hooks run in the background (`async`), so a tool
 call never waits on it; the session's start, each reply's end, a compaction and the session's
