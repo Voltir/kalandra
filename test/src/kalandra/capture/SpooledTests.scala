@@ -99,6 +99,21 @@ object SpooledTests extends TestSuite {
       )
     }
 
+    test(
+      "an edit's or a read's worktree is written as a place; one that is no absolute path refuses the line"
+    ) {
+      val fixer = "/work/grit/.claude/worktrees/fixer"
+      def touched(k: String, w: String) =
+        line(k, ujson.Obj("path" -> "core/X.scala", "ok" -> true, "bytes" -> 3, "worktree" -> w))
+      assert(
+        read(touched("Edit", fixer)).map(_._5) ==
+          Right(s"""{"path":"core/X.scala","ok":true,"bytes":3,"worktree":"fs:$fixer"}"""),
+        read(touched("Read", fixer)).map(_._5) ==
+          Right(s"""{"path":"core/X.scala","ok":true,"bytes":3,"worktree":"fs:$fixer"}"""),
+        read(touched("Edit", "fixer")).isLeft
+      )
+    }
+
     test("a subagent's line is a session of its own, its parent's child, at its own worktree") {
       val sub = ujson.write(
         ujson.Obj(

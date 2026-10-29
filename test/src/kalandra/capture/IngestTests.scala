@@ -67,7 +67,8 @@ object IngestTests extends TestSuite {
         holder
       ),
       Vector.empty,
-      Vector("A.scala"),
+      0,
+      Vector(Session.Lately.Touched("A.scala", None)),
       Vector.empty
     )
 

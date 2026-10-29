@@ -30,10 +30,16 @@
 #   one microsecond whose process ids agree modulo 1000) keep only one, and the other is dropped
 #   silently.
 # - `w` is the worktree the event ran in: `git rev-parse --show-toplevel` in its cwd, else the cwd.
-# - `d` is what the event was, never its content: a path relative to the cwd (outside it, its
-#   file name alone), whether the tool succeeded, a Read's bytes, a Bash command's program alone;
-#   for a scout query, what it `named` (the first of its symbols, or its suite, target or pattern,
-#   cut to 120 characters), its `tool`, and its answer's UTF-8 `bytes` (0 for none).
+# - `d` is what the event was, never its content: a path relative to the file's own worktree,
+#   with that worktree as `worktree` when it is not `w` (one over 100 characters is not named, and
+#   the path is then as for a file in no worktree); for a file in no worktree, relative to the cwd
+#   (outside it, its file name alone); a path kept to its last 120 characters, so that a shape
+#   stays within grit's 300 bytes (kalandra.capture.Spooled drops one past them); whether the tool
+#   succeeded, a Read's bytes, a Bash command's program alone; for a scout query, what it `named`
+#   (the first of its symbols, or its suite, target or pattern, cut to 120 characters), its
+#   `tool`, and its answer's UTF-8 `bytes` (0 for none); for a commit, its `sha`, its `subject`
+#   (cut to 100 characters), and `child: true` when a subagent's Bash made it
+#   ($CLAUDE_CODE_CHILD_SESSION=1).
 # - `h`, on a SessionStart or SubagentStart only, is the slot the session works as, hooks/slot.sh's
 #   for the event's own cwd (not `w`) and, in a subagent, its agent type: the brief hook's slot,
 #   whose claims the session's work keeps from lapsing. Without slot.sh, no line has one.
@@ -99,8 +105,10 @@ commit() {
   subject="$(git log -1 --format=%s "$2")" || return 1
   n="$(ordinal)" || return 1
   line="$(jq -cn --arg s "$1" --arg n "$n" --arg w "$(where "$PWD")" \
-    --arg sha "$2" --arg subject "$subject" \
-    '{s: $s, n: $n, k: "commit", w: $w, d: {sha: $sha, subject: $subject[:100]}}')" || return 1
+    --arg sha "$2" --arg subject "$subject" --arg child "${CLAUDE_CODE_CHILD_SESSION-}" \
+    '{s: $s, n: $n, k: "commit", w: $w,
+      d: ({sha: $sha, subject: $subject[:100]} + (if $child == "1" then {child: true} else {} end))}'
+  )" || return 1
   append "$1" "$line"
 }
 
@@ -142,9 +150,12 @@ fi
   input="$(timeout 1 cat)" || exit 0
   # One per line: tab is whitespace to `read`, so an empty agent id would shift the cwd.
   ids="$(jq -r '(.session_id // "" | tostring), (.agent_id // "" | tostring), (.cwd // "" | tostring),
-    (.hook_event_name // "" | tostring), (.agent_type // "" | tostring)' <<<"$input")" || exit 0
+    (.hook_event_name // "" | tostring), (.agent_type // "" | tostring),
+    (.tool_input.file_path // .tool_input.notebook_path // "" | tostring | gsub("\n"; ""))' \
+    <<<"$input")" || exit 0
   mapfile -t ids <<<"$ids"
   session="${ids[0]-}" agent="${ids[1]-}" cwd="${ids[2]-}" event="${ids[3]-}" type="${ids[4]-}"
+  file="${ids[5]-}"
   named "$session" || exit 0
   [[ -z "$agent" ]] || named "$agent" || exit 0
   [[ -n "$cwd" ]] || exit 0
@@ -156,13 +167,23 @@ fi
       SubagentStart) [[ -z "$type" ]] || h="$(slot "$cwd" "$type")" || h="" ;;
     esac
   fi
-  line="$(jq -c --arg n "$n" --arg w "$(where "$cwd")" --arg h "$h" '
+  w="$(where "$cwd")"
+  # The worktree the file is in, when it is in one: its directory's, which a Write has made.
+  fw=""
+  [[ "$file" == /* ]] && fw="$(git -C "$(dirname -- "$file")" rev-parse --show-toplevel 2>/dev/null)"
+  line="$(jq -c --arg n "$n" --arg w "$w" --arg fw "$fw" --arg h "$h" '
     def cut($k): if type == "string" then .[:$k] else "" end;
     def rel($cwd):
       if type != "string" then ""
       elif startswith($cwd + "/") then .[($cwd | length) + 1:]
       else split("/") | last
-      end | .[:120];
+      end | .[-120:];
+    def placed($cwd):
+      if type == "string" and $fw != "" and startswith($fw + "/")
+         and ($fw == $w or ($fw | length) <= 100)
+      then {path: .[($fw | length) + 1:][-120:]} + (if $fw == $w then {} else {worktree: $fw} end)
+      else {path: rel($cwd)}
+      end;
     def answer:
       if type == "string" then .
       elif type == "array" then map(select(type == "object") | .text | select(type == "string")) | join("")
@@ -179,10 +200,10 @@ fi
     | (if $k == "SessionStart" then {source: (.source | cut(20))}
        elif $k == "SubagentStart" or $k == "SubagentStop" then {type: (.agent_type | cut(60))}
        elif $k == "Read" then
-         {path: (.tool_input.file_path | rel($cwd)), ok: $ok,
+         (.tool_input.file_path | placed($cwd)) + {ok: $ok,
           bytes: (.tool_response.file.content // "" | if type == "string" then utf8bytelength else 0 end)}
        elif $k == "Edit" or $k == "Write" or $k == "MultiEdit" or $k == "NotebookEdit" then
-         {path: ((.tool_input.file_path // .tool_input.notebook_path) | rel($cwd)), ok: $ok}
+         ((.tool_input.file_path // .tool_input.notebook_path) | placed($cwd)) + {ok: $ok}
        elif $k == "Bash" then {program: (.tool_input.command | program), ok: $ok}
        elif ($k | type) == "string" and ($k | startswith("mcp__scout__")) then
          {named: (.tool_input

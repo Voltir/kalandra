@@ -35,7 +35,12 @@ object SpoolHookTests extends TestSuite {
       HookRun.script("spool-hook.sh"),
       stdin,
       cwd,
-      Map("KALANDRA_SPOOL" -> spool.toString) ++ env,
+      // A test run from a Claude Code session or its subagent inherits these; a test sets them.
+      Map(
+        "KALANDRA_SPOOL" -> spool.toString,
+        "CLAUDE_CODE_SESSION_ID" -> "",
+        "CLAUDE_CODE_CHILD_SESSION" -> ""
+      ) ++ env,
       args*
     )
 
@@ -143,7 +148,7 @@ object SpoolHookTests extends TestSuite {
         ran.map(r => (r.status, r.out, r.err)) == Vector.fill(stdins.size)((0, "", "")),
         lines == Vector(
           line("SessionStart", ujson.Obj("source" -> "startup"), "h" -> slot(cwd)),
-          line("Read", ujson.Obj("path" -> "A.scala", "ok" -> true, "bytes" -> 6)),
+          line("Read", ujson.Obj("path" -> "src/A.scala", "ok" -> true, "bytes" -> 6)),
           line("Edit", ujson.Obj("path" -> "B.scala", "ok" -> true)),
           line("Bash", ujson.Obj("program" -> "git", "ok" -> true)),
           line("Bash", ujson.Obj("program" -> "npm", "ok" -> false)),
@@ -153,7 +158,7 @@ object SpoolHookTests extends TestSuite {
             "a" -> "a068ac6",
             "h" -> slot(cwd, "Explore")
           ),
-          line("Write", ujson.Obj("path" -> "C.scala", "ok" -> true), "a" -> "a068ac6"),
+          line("Write", ujson.Obj("path" -> "src/C.scala", "ok" -> true), "a" -> "a068ac6"),
           line("SubagentStop", ujson.Obj("type" -> "Explore"), "a" -> "a068ac6"),
           line("Stop", ujson.Obj(), "t" -> "x" * 2000),
           line("PostCompact", ujson.Obj("trigger" -> "manual"), "t" -> "the work so far"),
@@ -300,6 +305,7 @@ object SpoolHookTests extends TestSuite {
           ) ++ args).asJava
         ).redirectErrorStream(true)
         b.environment().put("CLAUDE_CODE_SESSION_ID", Session)
+        b.environment().remove("CLAUDE_CODE_CHILD_SESSION")
         b.environment().put("KALANDRA_SPOOL", spool.toString)
         b.environment().put("GIT_SEQUENCE_EDITOR", "true")
         val p = b.start()
@@ -326,6 +332,63 @@ object SpoolHookTests extends TestSuite {
       recorded ==> Vector(base, a, b, fix).zip(
         Vector("the base", "the first", "the second", "fixup! the first")
       ) ++ rebased.reverse.map(l => (l.take(12), l.drop(13))) :+ (amended, "the second, amended")
+    }
+
+    test(
+      "a path is relative to its own worktree, named when not the event's, and cut from the left past 120"
+    ) {
+      val (root, cwd) = worktree()
+      val (other, _) = worktree()
+      val spool = Files.createTempDirectory("spool")
+      val deep = Files.createDirectories(other.resolve("d" * 60).resolve("e" * 60))
+      val stdins = Vector(
+        tool("PostToolUse", cwd, "Edit", ujson.Obj("file_path" -> s"$cwd/A.scala")),
+        tool(
+          "PostToolUse",
+          cwd,
+          "Read",
+          ujson.Obj("file_path" -> s"$other/src/B.scala"),
+          "tool_response" -> ujson.Obj("file" -> ujson.Obj("content" -> "b"))
+        ),
+        tool("PostToolUse", cwd, "Write", ujson.Obj("file_path" -> s"$deep/C.scala"))
+      )
+      stdins.foreach(hook(_, spool, cwd))
+      val tail = s"${"d" * 60}/${"e" * 60}/C.scala".takeRight(120)
+      spooled(spool)._1.map(_("d")) ==> Vector(
+        ujson.Obj("path" -> "src/A.scala", "ok" -> true),
+        ujson.Obj(
+          "path" -> "src/B.scala",
+          "ok" -> true,
+          "bytes" -> 1,
+          "worktree" -> other.toString
+        ),
+        ujson.Obj("path" -> tail, "ok" -> true, "worktree" -> other.toString)
+      )
+      assert(root != other)
+    }
+
+    test("a commit made in a subagent, a child session, is marked `child`") {
+      val (root, cwd) = worktree()
+      val spool = Files.createTempDirectory("spool")
+      val made = new ProcessBuilder(
+        "git",
+        "-C",
+        root.toString,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.com",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "by an agent"
+      ).start().waitFor()
+      val env = Map("CLAUDE_CODE_SESSION_ID" -> Session, "CLAUDE_CODE_CHILD_SESSION" -> "1")
+      val _ = hook("", spool, cwd, env, Vector("--commit"))
+      spooled(spool)._1.map(v => (v("d").obj.get("child"), v("d")("subject").str)) ==>
+        Vector((Some(ujson.True), "by an agent"))
+      assert(made == 0)
     }
 
     test(

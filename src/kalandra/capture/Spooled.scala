@@ -31,6 +31,8 @@ object Spooled {
     * [[SessionId.of]] refuses, a holder [[ClaimHolder.of]] refuses, a closing with no text, or a
     * shape [[Event.Shape.of]] refuses. A commit's shape names the worktree it was made in
     * ([[Event.Shape.committed]]), its subject left out when the shape would be too long with it.
+    * Any other shape's [[Event.Shape.Worktree]], an edit's or a read's path's own worktree, is
+    * written as a place; a line whose worktree is no absolute path is refused.
     */
   def of(line: String): Either[String, Spooled] =
     for {
@@ -70,7 +72,23 @@ object Spooled {
               Event.Shape
                 .committed(at, ujson.Obj.from(d.value.toSeq.filterNot(_._1 == Event.Shape.Subject)))
             )
-        case _ => Event.Shape.of(d)
+        case _ =>
+          d.value.get(Event.Shape.Worktree) match {
+            case None => Event.Shape.of(d)
+            case Some(w) =>
+              w.strOpt
+                .flatMap(worktree)
+                .toRight(s"an event's worktree is no absolute path: $w")
+                .flatMap(p =>
+                  Event.Shape.of(
+                    ujson.Obj.from(
+                      d.value.toSeq.map((k, v) =>
+                        if (k == Event.Shape.Worktree) k -> ujson.Str(p.written) else k -> v
+                      )
+                    )
+                  )
+                )
+          }
       }
       event <- Event.of(
         n,
