@@ -33,11 +33,19 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   claim's `for` with `A`-`Z` lower-cased and every other character outside a slug part written `-`, and each `/`
   written `__` in the file's name. It is replaced whole, through a file beside it. A
   `project_release` through the edge takes `for` too, and once done deletes that file.
+- **Session capture** (`kalandra.capture`). The edge records each Claude Code session that
+  `hooks/spool-hook.sh` spools in grit's session record (grit's ADR 0050), as the account, at
+  its room's label, each session placed at its worktree. Every 2 s it records the files the
+  hook appended to `${KALANDRA_SPOOL:-$HOME/.local/state/kalandra/spool}`, one transaction a
+  file, and deletes them. A file whose recording fails 3 times goes to `quarantine/` there (the
+  newest 20 kept); a line it cannot read, or a session it cannot place, is dropped and said in
+  serve's log.
 - It names grit's kit, core, prose and the projects plugin alone.
 
 It compiles under grit's flags (`-no-indent`, capture and separation checking, `-Werror`).
 
-Packages, in one-way order: `method` (the method's data) → `edge` (and its client) →
+Packages, in one-way order: `method` (the method's data) → `capture` (the spool's lines and
+their ingest) → `edge` (and its client) →
 `deployment` → `importer` (grit's planning tree → export-shaped files → `project_keep` over
 HTTP) → `main` (`serve`, `export`, `import`, `verify`).
 
@@ -92,6 +100,59 @@ after `/compact` (each resume injects it again). What a test hook saw of these e
     ]
   }
 }
+```
+
+## The spool hook
+
+`hooks/spool-hook.sh` appends one line per session event to the spool serve records from
+(Session capture, above); its header says what each line holds, what it bounds, and the one
+collision that drops an event silently. Like the brief hook it needs no JVM and no network and
+fails open, and it works with serve down: the spool waits for serve, bounded. It needs bash 5,
+`jq`, `git` and coreutils. Its PostToolUse hooks run in the background (`async`), so a tool
+call never waits on it; the session's start, each reply's end, a compaction and the session's
+end run in order with the session, so their lines are written before it moves on. To install
+it beside the brief hook, in grit's checkout's `.claude/settings.local.json` (`hooks` entries
+added to those above):
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5, "async": true }] }
+    ],
+    "PostToolUseFailure": [
+      { "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5, "async": true }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
+    ],
+    "PostCompact": [
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
+    ],
+    "SubagentStart": [
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
+    ],
+    "SubagentStop": [
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
+    ]
+  }
+}
+```
+
+A commit made by a session's Bash is spooled by git's post-commit hook in that checkout
+(`.git/hooks/post-commit`, or the common one a worktree shares):
+
+```bash
+#!/usr/bin/env bash
+/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh --commit
 ```
 
 ## The MCP server
