@@ -82,7 +82,9 @@ object BriefHookTests extends TestSuite {
       ) ==> Vector.fill(5)(Some("SessionStart" -> "# the session's brief\n"))
     }
 
-    test("compact adds the digest, clear the digest with what was said; no other source does") {
+    test(
+      "--digest injects compact's digest, clear's digest with what was said, and nothing else; the brief stays alone"
+    ) {
       val (briefs, cwd) = dirs()
       val slot = sha1(cwd.toString)
       brief(briefs, slot, "# the brief\n")
@@ -90,23 +92,23 @@ object BriefHookTests extends TestSuite {
         .writeDigests(slot, w => s"## digest for $w")
         .fold(sys.error, identity) ==> true
       val sources = Vector("compact", "clear", "startup", "resume")
-      val fresh = sources.map(s => injected(hook(sessionStart(cwd, s), briefs, cwd)).map(_._2))
+      def ran(args: String*) =
+        sources.map(s => injected(hook(sessionStart(cwd, s), briefs, cwd, args*)).map(_._2))
+      val (alone, fresh) = (ran(), ran("--digest"))
       val old =
         java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() - 25 * 3600000L)
       SessionDigest.Window.values.foreach(w =>
         Files.setLastModifiedTime(new BriefFiles(briefs).digest(slot, w), old)
       )
-      val stale = Vector("compact", "clear").map(s =>
-        injected(hook(sessionStart(cwd, s), briefs, cwd)).map(_._2)
-      )
-      (fresh, stale) ==> (
+      (alone, fresh, ran("--digest")) ==> (
+        Vector.fill(4)(Some("# the brief\n")),
         Vector(
-          Some("# the brief\n\n## digest for HoldsLastSaid"),
-          Some("# the brief\n\n## digest for LacksLastSaid"),
-          Some("# the brief\n"),
-          Some("# the brief\n")
+          Some("## digest for HoldsLastSaid"),
+          Some("## digest for LacksLastSaid"),
+          None,
+          None
         ),
-        Vector.fill(2)(Some("# the brief\n"))
+        Vector.fill(4)(None)
       )
     }
 

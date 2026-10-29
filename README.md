@@ -94,10 +94,10 @@ the files the edge wrote, so it works with serve down. A missing file, a read ov
 anything else that fails, and it exits 0 with no output: the session starts without a brief.
 SessionStart has no matcher, so the brief is injected at startup, on resume, after `/clear` and
 after `/compact` (each resume injects it again). The edge writes a brief again after each keep or
-move of its project, and after each ingest pass a digest of the slot's session beside it; after
-`/compact` the digest follows the brief, and after `/clear` the digest with what the session last
-said (the hook's header says which file, and when it is left out). What a test hook saw of these
-events is in
+move of its project, and after each ingest pass a digest of the slot's session beside it, which
+a second SessionStart hook, `brief-hook.sh --digest`, injects after `/compact`, and with what the
+session last said after `/clear` (the hook's header says which file, when it is left out, and why
+it is a hook of its own). What a test hook saw of these events is in
 [`docs/claude-code-hooks.md`](docs/claude-code-hooks.md). To install it in grit's checkout, in
 `.claude/settings.local.json`:
 
@@ -105,7 +105,8 @@ events is in
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/brief-hook.sh", "timeout": 5 }] }
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/brief-hook.sh", "timeout": 5 }] },
+      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/brief-hook.sh --digest", "timeout": 5 }] }
     ],
     "SubagentStart": [
       { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/brief-hook.sh", "timeout": 5 }] }

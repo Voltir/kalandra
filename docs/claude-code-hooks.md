@@ -34,6 +34,10 @@ Every source carries `session_id`, `cwd`, `transcript_path`, `hook_event_name` a
 - **Each resume injects again**: the model named the `resume` and `compact` codewords side by side,
   so a session resumed n times without compacting holds n + 1 copies of a brief.
 - `model` appeared only on `compact`, not on `startup` in print mode.
+- **Each hook's `additionalContext` is capped on its own** at 10,000 characters, even when several
+  hooks run for one event, and every hook's is injected; past the cap the text goes to a file and
+  a 2,000-character preview is injected (the hooks reference, not seen here). So the digest is a
+  hook of its own, beside the brief's.
 
 ## UserPromptSubmit
 
