@@ -8,11 +8,20 @@
 #
 # The slot is hooks/slot.sh's, for the event's cwd and, in a subagent, its agent type. Its brief
 # is ${KALANDRA_BRIEFS:-$HOME/.local/state/kalandra/briefs}/<slot, each / written __>.md, the file
-# the edge writes when a claim for that slot is done.
+# the edge writes when a claim for that slot is done (kalandra.edge.BriefFiles).
 #
-# It needs bash, jq, sha1sum and timeout; never a JVM or the network. Any failure (no such file,
-# a read over a second, stdin that is no hook event, a tool missing) exits 0 and prints nothing,
-# so the session starts as it would without the hook.
+# A window is given its brief at each of its boundaries. After the brief, a SessionStart whose
+# source is `compact` adds the slot's digest that leaves out what the session last said, which
+# the compacted window holds (<slot>.digest.md), and one whose source is `clear` the digest that
+# shows it (<slot>.digest-said.md): the session's work, which the new window lacks, from the
+# edge's last pass over the spool. `startup`, `resume` (a window restored whole) and any other
+# source get the brief alone, as does a subagent. A digest last written over a day ago is old
+# work, and is left out.
+#
+# It needs bash, jq, sha1sum, find and timeout; never a JVM or the network. Any failure (no such
+# file, a read over a second, stdin that is no hook event, a tool missing) exits 0 and prints
+# nothing, so the session starts as it would without the hook; a digest that fails so leaves the
+# brief alone.
 
 briefs="${KALANDRA_BRIEFS:-${HOME:-}/.local/state/kalandra/briefs}"
 
@@ -42,6 +51,15 @@ fi
   brief="$(timeout 1 cat -- "$briefs/${name//\//__}.md" && printf x)" || exit 0
   brief="${brief%x}"
   [[ -n "$brief" ]] || exit 0
+  digest=""
+  case "$(jq -r '.source // empty' <<<"$input")" in
+    compact) digest="$briefs/${name//\//__}.digest.md" ;;
+    clear) digest="$briefs/${name//\//__}.digest-said.md" ;;
+  esac
+  if [[ -n "$digest" && -n "$(find "$digest" -maxdepth 0 -mmin -1440 2>/dev/null)" ]]; then
+    digested="$(timeout 1 cat -- "$digest")" && [[ -n "$digested" ]] &&
+      brief="$brief"$'\n'"$digested"
+  fi
   jq -n --arg e "$event" --arg c "$brief" \
     '{hookSpecificOutput: {hookEventName: $e, additionalContext: $c}}'
 } 2>/dev/null

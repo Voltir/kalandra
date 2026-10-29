@@ -4,6 +4,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.security.MessageDigest
 
+import grit.core.session.SessionDigest
+
 import kalandra.hooks.HookRun
 import utest.*
 
@@ -78,6 +80,34 @@ object BriefHookTests extends TestSuite {
       Vector("startup", "resume", "clear", "compact", "fork").map(source =>
         injected(hook(sessionStart(cwd, source), briefs, cwd))
       ) ==> Vector.fill(5)(Some("SessionStart" -> "# the session's brief\n"))
+    }
+
+    test("compact adds the digest, clear the digest with what was said; no other source does") {
+      val (briefs, cwd) = dirs()
+      val slot = sha1(cwd.toString)
+      brief(briefs, slot, "# the brief\n")
+      new BriefFiles(briefs)
+        .writeDigests(slot, w => s"## digest for $w")
+        .fold(sys.error, identity) ==> true
+      val sources = Vector("compact", "clear", "startup", "resume")
+      val fresh = sources.map(s => injected(hook(sessionStart(cwd, s), briefs, cwd)).map(_._2))
+      val old =
+        java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() - 25 * 3600000L)
+      SessionDigest.Window.values.foreach(w =>
+        Files.setLastModifiedTime(new BriefFiles(briefs).digest(slot, w), old)
+      )
+      val stale = Vector("compact", "clear").map(s =>
+        injected(hook(sessionStart(cwd, s), briefs, cwd)).map(_._2)
+      )
+      (fresh, stale) ==> (
+        Vector(
+          Some("# the brief\n\n## digest for HoldsLastSaid"),
+          Some("# the brief\n\n## digest for LacksLastSaid"),
+          Some("# the brief\n"),
+          Some("# the brief\n")
+        ),
+        Vector.fill(2)(Some("# the brief\n"))
+      )
     }
 
     test(

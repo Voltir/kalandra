@@ -89,11 +89,15 @@ w=~/Projects/kalandra/bin/kalandra
 $w claim "{\"key\":\"<key>\",\"role\":\"<role>\",\"for\":\"$($w slot coder-haiku)\"}"
 ```
 
-It needs bash, `jq`, `sha1sum` and `timeout`, never a JVM or the network, and it reads the file
-the edge wrote at the claim, so it works with serve down. A missing file, a read over a second, or
+It needs bash, `jq`, `sha1sum`, `find` and `timeout`, never a JVM or the network, and it reads
+the files the edge wrote, so it works with serve down. A missing file, a read over a second, or
 anything else that fails, and it exits 0 with no output: the session starts without a brief.
 SessionStart has no matcher, so the brief is injected at startup, on resume, after `/clear` and
-after `/compact` (each resume injects it again). What a test hook saw of these events is in
+after `/compact` (each resume injects it again). The edge writes a brief again after each keep or
+move of its project, and after each ingest pass a digest of the slot's session beside it; after
+`/compact` the digest follows the brief, and after `/clear` the digest with what the session last
+said (the hook's header says which file, and when it is left out). What a test hook saw of these
+events is in
 [`docs/claude-code-hooks.md`](docs/claude-code-hooks.md). To install it in grit's checkout, in
 `.claude/settings.local.json`:
 

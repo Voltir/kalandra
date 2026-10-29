@@ -67,7 +67,8 @@ object Spooled {
           Event.Shape
             .committed(at, d)
             .orElse(
-              Event.Shape.committed(at, ujson.Obj.from(d.value.toSeq.filterNot(_._1 == "subject")))
+              Event.Shape
+                .committed(at, ujson.Obj.from(d.value.toSeq.filterNot(_._1 == Event.Shape.Subject)))
             )
         case _ => Event.Shape.of(d)
       }

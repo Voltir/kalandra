@@ -9,19 +9,24 @@ import scala.util.Using
 import scala.util.control.NonFatal
 
 import grit.core.edge.EdgeSessions
+import grit.core.id.{ClaimHolder, SessionId}
 import grit.core.identity.Account
 import grit.core.place.Place
+import grit.core.session.Session
 import grit.core.store.StoreError
 
 /** The sessions `hooks/spool-hook.sh` spools in `dir`, recorded through `sessions` as `owner`
-  * in `room`; what went wrong told to `log`.
+  * in `room`; what went wrong told to `log`. After each pass, each session it recorded whose
+  * record works as a claim holder is handed to `digested` with what it did lately, which answers
+  * why not when it could not keep it.
   */
 final class Ingest(
     dir: Path,
     sessions: EdgeSessions,
     owner: Account,
     room: Place,
-    log: String => Unit
+    log: String => Unit,
+    digested: (ClaimHolder, Session.Lately) => Either[String, Unit]
 ) extends Runnable {
 
   /** One pass ([[once]]), for a scheduler: a pass that throws is said to `log`, not thrown, so
@@ -40,18 +45,20 @@ final class Ingest(
     * taken, so new lines wait in the hook's files, which the hook bounds. Otherwise each session
     * file the hook appends to is then taken, renamed for the next pass, so that an append begun
     * before the rename is in it before it is read. A spool that is no directory is a pass that
-    * records nothing.
+    * records nothing. Last, each session the pass recorded is read back
+    * ([[EdgeSessions.lately]]), and handed to `digested` when its record works as a claim holder;
+    * a read, or a digest not kept, is said.
     */
   def once(): Int =
     if (!Files.isDirectory(dir)) 0
     else {
-      val (recorded, unreachable) =
-        listed(dir, Ingest.Taken).foldLeft((0, Option.empty[StoreError])) {
-          case ((n, None), file) =>
+      val (recorded, ids, unreachable) =
+        listed(dir, Ingest.Taken).foldLeft((0, Vector.empty[SessionId], Option.empty[StoreError])) {
+          case ((n, ids, None), file) =>
             record(file) match {
-              case Ingest.Outcome.Recorded => (n + 1, None)
-              case Ingest.Outcome.Kept => (n, None)
-              case Ingest.Outcome.Unreachable(why) => (n, Some(why))
+              case Ingest.Outcome.Recorded(more) => (n + 1, ids ++ more, None)
+              case Ingest.Outcome.Kept => (n, ids, None)
+              case Ingest.Outcome.Unreachable(why) => (n, ids, Some(why))
             }
           case (ended, _) => ended
         }
@@ -60,6 +67,18 @@ final class Ingest(
           log(s"claude-code spool: the store is unreachable, the pass ended: $why")
         case None => listed(dir, ".jsonl").foreach(take)
       }
+      ids.distinct.foreach(id =>
+        sessions.lately(room, id) match {
+          case Right(lately) =>
+            for {
+              l <- lately
+              h <- l.session.holder
+              why <- digested(h, l).left.toOption
+            } log(s"claude-code spool: ${id.local}'s digest was not kept: $why")
+          case Left(why) =>
+            log(s"claude-code spool: ${id.local} was not read back for its digest: $why")
+        }
+      )
       recorded
     }
 
@@ -100,7 +119,7 @@ final class Ingest(
       sessions.record(owner, room, batches) match {
         case Right(_) =>
           attempt(s"delete $name")(Files.delete(file))
-          Ingest.Outcome.Recorded
+          Ingest.Outcome.Recorded(batches.map(_.id))
         // Only a refusal of what the file holds is the file's fault; any other failure is the
         // store out of reach, which no try of this file can mend.
         case Left(why) if !why.isInstanceOf[StoreError.Invalid] => Ingest.Outcome.Unreachable(why)
@@ -160,8 +179,8 @@ object Ingest {
   /** What one pass did with a taken file. */
   private enum Outcome {
 
-    /** Recorded, and deleted. */
-    case Recorded
+    /** Recorded, and deleted: the sessions `ids`. */
+    case Recorded(ids: Vector[SessionId])
 
     /** Left for a later pass, quarantined, or deleted with nothing in it to record. */
     case Kept

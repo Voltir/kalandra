@@ -3,15 +3,18 @@ package kalandra.capture
 import java.nio.charset.StandardCharsets
 import java.nio.file.attribute.FileTime
 import java.nio.file.{Files, Path}
-import java.util.concurrent.ConcurrentLinkedQueue
+import java.time.Instant
+import java.util.concurrent.{ConcurrentHashMap, ConcurrentLinkedQueue}
 
 import scala.jdk.CollectionConverters.*
 
 import grit.core.edge.EdgeSessions
-import grit.core.id.SessionId
-import grit.core.identity.Account
+import grit.core.id.{ClaimHolder, PrincipalId, SessionId}
+import grit.core.identity.{Account, Principal}
 import grit.core.place.{Namespace, Place}
+import grit.core.session.Session
 import grit.core.store.StoreError
+import grit.core.visibility.Label
 
 import utest.*
 
@@ -25,10 +28,13 @@ object IngestTests extends TestSuite {
   private val S = "faafcbf0-3592-4c99-8f14-21889a88798e"
 
   /** Keeps each call's batches, and answers `answers` in turn (how many lines it logged, or why
-    * not), the last again once they run out.
+    * not), the last again once they run out; reads each session's [[Session.Lately]] from
+    * `known`, none for a session it lacks, keeping each read's room and session.
     */
   private final class Recorder(answers: Either[StoreError, Int]*) extends EdgeSessions {
     val calls = new ConcurrentLinkedQueue[(Account, Place, Vector[EdgeSessions.Batch])]()
+    val reads = new ConcurrentLinkedQueue[(Place, SessionId)]()
+    val known = new ConcurrentHashMap[SessionId, Session.Lately]()
     def record(
         by: Account,
         room: Place,
@@ -37,7 +43,33 @@ object IngestTests extends TestSuite {
       calls.add((by, room, batches))
       answers.lift(calls.size - 1).getOrElse(answers.last)
     }
+    def lately(room: Place, id: SessionId): Either[StoreError, Option[Session.Lately]] = {
+      reads.add((room, id))
+      Right(Option(known.get(id)))
+    }
   }
+
+  /** What session `local` did lately, as the record keeps it, working as `holder`. */
+  private def did(local: String, holder: Option[ClaimHolder]): Session.Lately =
+    Session.Lately(
+      Session(
+        id(local),
+        None,
+        Principal.Person(PrincipalId.Local, Set.empty),
+        Label.Public,
+        Place.under(Namespace.Fs, Vector("/work/grit")),
+        Instant.EPOCH,
+        None,
+        Instant.EPOCH,
+        None,
+        Session.Counters.zero,
+        false,
+        holder
+      ),
+      Vector.empty,
+      Vector("A.scala"),
+      Vector.empty
+    )
 
   private def line(n: Long, k: String, more: (String, ujson.Value)*): String =
     ujson.write(
@@ -64,11 +96,39 @@ object IngestTests extends TestSuite {
   private def ingest(
       dir: Path,
       sessions: EdgeSessions,
-      said: ConcurrentLinkedQueue[String]
+      said: ConcurrentLinkedQueue[String],
+      handed: ConcurrentLinkedQueue[(ClaimHolder, Session.Lately)] = new ConcurrentLinkedQueue()
   ): Ingest^ =
-    new Ingest(dir, sessions, Owner, Room, s => { said.add(s); () })
+    new Ingest(
+      dir,
+      sessions,
+      Owner,
+      Room,
+      s => { said.add(s); () },
+      (h, l) => { handed.add((h, l)); Right(()) }
+    )
 
   val tests = Tests {
+
+    test("a pass hands each session it recorded whose row has a holder what it did lately, once") {
+      val dir = Files.createTempDirectory("spool")
+      val sessions = new Recorder(Right(3))
+      val holder = ClaimHolder.of("coder-opus/3f2a").fold(sys.error, identity)
+      val _ = sessions.known.put(id(S), did(S, Some(holder)))
+      val _ = sessions.known.put(id(s"$S/a1"), did(s"$S/a1", None))
+      val said = new ConcurrentLinkedQueue[String]()
+      val handed = new ConcurrentLinkedQueue[(ClaimHolder, Session.Lately)]()
+      val spool = ingest(dir, sessions, said, handed)
+      spooled(dir, s"$S.jsonl", line(1, "Edit"), line(2, "Edit"), line(3, "Edit", "a" -> "a1"))
+      val first = spool.once()
+      val second = spool.once()
+      assert(
+        (first, second) == ((0, 1)),
+        sessions.reads.asScala.toVector == Vector((Room, id(S)), (Room, id(s"$S/a1"))),
+        handed.asScala.toVector == Vector((holder, did(S, Some(holder)))),
+        said.isEmpty
+      )
+    }
 
     test("a spooled file is taken on one pass, then recorded and deleted on the next") {
       val dir = Files.createTempDirectory("spool")

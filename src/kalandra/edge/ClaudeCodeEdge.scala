@@ -8,9 +8,10 @@ import java.util.concurrent.{ExecutorService, Executors, ScheduledExecutorServic
 
 import grit.core.clock.Clock
 import grit.core.edge.{Asked, EdgeRefusal, EdgeStores, EdgeWatch, RealmSource, ServedEdge, Variable}
-import grit.core.id.{AttesterName, EdgeName}
+import grit.core.id.{AttesterName, ClaimHolder, EdgeName}
 import grit.core.identity.{Account, Realm, Standing}
 import grit.core.place.Place
+import grit.core.session.SessionDigest
 import grit.core.store.StoreError
 import grit.core.visibility.Integrity
 
@@ -80,9 +81,24 @@ final class ClaudeCodeEdge(owner: Account, realm: Realm, room: Place, believed: 
       // The ingest's one thread holds the session record, a shared capability, and `log` where
       // capture checking no longer tracks them, as the server holds `routes`: sound for the same
       // reason, `close` stopping it once before the edge's Open is gone. Only that thread runs
-      // the ingest, so its passes never overlap.
+      // the ingest, so its passes never overlap; the digests it writes each move a whole file
+      // into the briefs' directory, as a brief's writes do.
       val spool = Ingest.spool(env)
-      val ingest = new Ingest(spool, stores.sessions, owner, room, log)
+      val briefs = ClaudeCodeEdge.briefs(env)
+      val ingest = new Ingest(
+        spool,
+        stores.sessions,
+        owner,
+        room,
+        log,
+        (holder, lately) =>
+          briefs
+            .writeDigests(
+              ClaimHolder.value(holder),
+              SessionDigest.of(lately, _, BriefFiles.DigestChars)
+            )
+            .map(_ => ())
+      )
       val ingesting = Executors.newSingleThreadScheduledExecutor()
       val _ = ingesting.scheduleWithFixedDelay(
         ingest,

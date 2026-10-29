@@ -43,7 +43,8 @@ object Reply {
   * `project_brief` for its key and role, at most [[BriefFiles.BriefChars]] characters, is written
   * to that slot's file in `briefs`.
   * `project_release` takes its key alone and is passed on as given; once the release is done,
-  * the slot its answer names (`{"released","for"}` JSON) has its file deleted. Once a
+  * the slot its answer names (`{"released","for"}` JSON) has its brief and digests deleted
+  * ([[BriefFiles.delete]]). Once a
   * `project_keep` or `project_move` is done, each live claim on its artifact's project whose slot
   * has a brief file (`project_claims`) has that file written again from `project_brief`, whether
   * or not its brief shows the artifact: a session reads its file only at a start or a compaction,

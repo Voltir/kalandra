@@ -277,13 +277,14 @@ object RoutesTests extends TestSuite {
       commands.ran.map(r => ToolName.value(r.name)).toVector ==> Vector("project_keep")
     }
 
-    test("release deletes the file") {
+    test("release deletes the slot's brief and both its digests") {
       val dir = Files.createTempDirectory("briefs")
       val released = """{"released":"m17/s8","for":"coder-opus/3f2a"}"""
       val (routes, commands) =
         routedBy(Right(CommandOutcome.Done(released)), Vector("# brief\n"), dir)
       routes.ask("POST", "/command/project_claim", claim).status ==> 200
-      listed(dir) ==> Vector("coder-opus__3f2a.md")
+      new BriefFiles(dir).writeDigests("coder-opus/3f2a", _.toString) ==> Right(true)
+      listed(dir).size ==> 3
       routes.ask("POST", "/command/project_release", """{"key":"m17/s8"}""") ==> Reply(
         200,
         "Released m17/s8."
@@ -303,6 +304,34 @@ object RoutesTests extends TestSuite {
         "Released m17/s8.\nThe brief file stays: the release named no slot"
       )
       listed(dir) ==> Vector("coder-opus__3f2a.md")
+    }
+
+    test("a digest is written for each window beside a brief there is, and none without one") {
+      val dir = Files.createTempDirectory("briefs")
+      val files = new BriefFiles(dir)
+      val none = files.writeDigests("coder-opus/3f2a", _.toString)
+      val noneListed = listed(dir)
+      ok(files.write("coder-opus/3f2a", "# brief\n"))
+      val written = files.writeDigests("coder-opus/3f2a", _.toString)
+      (
+        none,
+        noneListed,
+        written,
+        listed(dir),
+        Files.readString(dir.resolve("coder-opus__3f2a.digest.md")),
+        Files.readString(dir.resolve("coder-opus__3f2a.digest-said.md"))
+      ) ==> (
+        Right(false),
+        Vector.empty[String],
+        Right(true),
+        Vector(
+          "coder-opus__3f2a.digest-said.md",
+          "coder-opus__3f2a.digest.md",
+          "coder-opus__3f2a.md"
+        ),
+        "HoldsLastSaid",
+        "LacksLastSaid"
+      )
     }
 
     test("the file is replaced whole, never half-written") {
