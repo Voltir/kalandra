@@ -32,11 +32,13 @@ build() {
   (cd "$root" && ./mill show assembly >/dev/null)
 }
 
-# serve's pids, one a line: a java process whose cwd is this checkout and whose argv holds the
-# exact argument `serve`. argv is read NUL-split, so no substring of a command line matches, and
-# the running shell (its exe is bash, not java) is never serve.
+# serve's pids, one a line: a java process whose cwd is this checkout, whose argv holds the exact
+# argument `serve`, and whose KALANDRA_LISTEN (unset or empty: the default 127.0.0.1:7317) is this
+# script's $listen, so stop never touches a serve this script does not talk to (a restore test's
+# copy on another port). argv and environ are read NUL-split, so no substring of either matches,
+# and the running shell (its exe is bash, not java) is never serve.
 serve_pids() {
-  local p pid exe arg found
+  local p pid exe arg found entry env_val
   for p in /proc/[0-9]*; do
     pid="${p#/proc/}"
     [[ "$pid" == "$$" || "$pid" == "${BASHPID-}" ]] && continue
@@ -45,9 +47,14 @@ serve_pids() {
     [[ "$exe" == */java ]] || continue
     found=0
     while IFS= read -r -d '' arg; do
-      [[ "$arg" == serve ]] && found=1
+      if [[ "$arg" == serve ]]; then found=1; fi
     done <"$p/cmdline" || continue
-    if [[ "$found" == 1 ]]; then echo "$pid"; fi
+    [[ "$found" == 1 ]] || continue
+    env_val=""
+    while IFS= read -r -d '' entry; do
+      if [[ "$entry" == KALANDRA_LISTEN=* ]]; then env_val="${entry#KALANDRA_LISTEN=}"; fi
+    done <"$p/environ" || continue
+    if [[ "${env_val:-127.0.0.1:7317}" == "$listen" ]]; then echo "$pid"; fi
   done
   return 0
 }
