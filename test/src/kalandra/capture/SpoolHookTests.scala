@@ -196,13 +196,6 @@ object SpoolHookTests extends TestSuite {
           "mcp__scout__file",
           ujson.Obj("target" -> "Ledger.scala"),
           "error" -> "no such file"
-        ),
-        tool(
-          "PostToolUse",
-          cwd,
-          "mcp__scout__find",
-          ujson.Obj("pattern" -> "*Shelf*"),
-          "tool_response" -> "two"
         )
       )
       val ran = stdins.map(hook(_, spool, cwd))
@@ -219,8 +212,57 @@ object SpoolHookTests extends TestSuite {
         lines == Vector(
           line("show", "Ledger.post", true, 6),
           line("tests", "S" * 120, true, 0),
-          line("file", "Ledger.scala", false, 0),
-          line("find", "*Shelf*", true, 3)
+          line("file", "Ledger.scala", false, 0)
+        )
+      )
+    }
+
+    test("a scout find names nothing: its tool, its success and its answer's bytes") {
+      val (root, cwd) = worktree()
+      val spool = Files.createTempDirectory("spool")
+      val stdin = tool(
+        "PostToolUse",
+        cwd,
+        "mcp__scout__find",
+        ujson.Obj("pattern" -> "*nded*"),
+        "tool_response" -> "three"
+      )
+      val ran = hook(stdin, spool, cwd)
+      val (lines, _) = spooled(spool)
+      assert(
+        ran.status == 0,
+        lines == Vector(
+          ujson.Obj(
+            "s" -> Session,
+            "k" -> "mcp__scout__find",
+            "w" -> root.toString,
+            "d" -> ujson.Obj("tool" -> "find", "ok" -> true, "bytes" -> 5)
+          )
+        )
+      )
+    }
+
+    test("a scout area names nothing: its tool, its success and its answer's bytes") {
+      val (root, cwd) = worktree()
+      val spool = Files.createTempDirectory("spool")
+      val stdin = tool(
+        "PostToolUse",
+        cwd,
+        "mcp__scout__area",
+        ujson.Obj("names" -> ujson.Arr("knowledge")),
+        "tool_response" -> "four"
+      )
+      val ran = hook(stdin, spool, cwd)
+      val (lines, _) = spooled(spool)
+      assert(
+        ran.status == 0,
+        lines == Vector(
+          ujson.Obj(
+            "s" -> Session,
+            "k" -> "mcp__scout__area",
+            "w" -> root.toString,
+            "d" -> ujson.Obj("tool" -> "area", "ok" -> true, "bytes" -> 4)
+          )
         )
       )
     }

@@ -39,7 +39,8 @@
 #   stays within grit's 300 bytes (kalandra.capture.Spooled drops one past them); whether the tool
 #   succeeded, a Read's bytes, a Bash command's program alone (after any leading `cd X &&` or
 #   `cd X;`); for a scout query, what it `named` (the first of its symbols, or its suite, target
-#   or pattern, cut to 120 characters), its
+#   or pattern, cut to 120 characters; none for `find` and `area`, whose answers list files or
+#   symbols rather than one thing read, so that a digest's reads list only what was shown), its
 #   `tool`, and its answer's UTF-8 `bytes` (0 for none); for a commit, its `sha`, its `subject`
 #   (cut to 100 characters), `child: true` when a subagent's Bash made it
 #   ($CLAUDE_CODE_CHILD_SESSION=1), and for a rewrite the first 4 commits it `replaces`, each by
@@ -223,11 +224,13 @@ fi
          ((.tool_input.file_path // .tool_input.notebook_path) | placed($cwd)) + {ok: $ok}
        elif $k == "Bash" then {program: (.tool_input.command | program), ok: $ok}
        elif ($k | type) == "string" and ($k | startswith("mcp__scout__")) then
-         {named: (.tool_input
+         ((if $k == "mcp__scout__find" or $k == "mcp__scout__area" then {}
+           else {named: (.tool_input
                   | [(.symbols | if type == "array" then .[0] else null end), .suite, .target, .pattern]
-                  | map(select(type == "string")) | (.[0] // "") | .[:120]),
-          tool: ($k | ltrimstr("mcp__scout__") | .[:40]), ok: $ok,
-          bytes: (.tool_response | answer | utf8bytelength)}
+                  | map(select(type == "string")) | (.[0] // "") | .[:120])}
+           end)
+          + {tool: ($k | ltrimstr("mcp__scout__") | .[:40]), ok: $ok,
+             bytes: (.tool_response | answer | utf8bytelength)})
        elif $k == "Stop" then {}
        elif $k == "PostCompact" then {trigger: (.trigger | cut(20))}
        elif $k == "SessionEnd" then {reason: (.reason | cut(40))}
