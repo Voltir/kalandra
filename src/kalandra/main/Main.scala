@@ -1,7 +1,7 @@
 package kalandra.main
 
 import grit.core.place.Directory
-import grit.kit.run.Kit
+import grit.kit.run.{Kit, KitFailure}
 
 import kalandra.deployment.Kalandra
 import kalandra.edge.CommandClient
@@ -13,8 +13,9 @@ import kalandra.importer.Imports
   * serve. It reads the environment alone: `GRIT_DATABASE_URL` (default
   * [[Main.DefaultDatabase]]; a URL naming another deployment's database, `grit`
   * or `grit_bort`, is refused) and `KALANDRA_CHECKOUT`, the grit checkout its
-  * room is (default `$HOME/Projects/grit`). No model's key is passed on, so
-  * nothing it runs can spend.
+  * room is (default `$HOME/Projects/grit`). `serve` runs turns: it needs
+  * `ANTHROPIC_API_KEY` and `JEV_API_KEY`, and is refused without either; OpenRouter's key is
+  * never passed on.
   */
 object Main {
 
@@ -29,9 +30,29 @@ object Main {
     */
   val Refused: Set[String] = Set("grit", "grit_bort")
 
-  /** The variables of model keys, removed before the kit reads the environment.
+  /** OpenRouter's key, removed before the kit reads the environment: every pair kalandra calls
+    * is at Anthropic's API.
     */
-  val Unread: Set[String] = Set("OPENROUTER_API_KEY", "JEV_API_KEY")
+  val Unread: Set[String] = Set("OPENROUTER_API_KEY")
+
+  /** What a refusal over a missing or malformed key ends with: where the key goes. */
+  val KeysHint: String = "kalandra reads its keys from .env in its checkout"
+
+  /** `env`, or why its turns cannot run: `ANTHROPIC_API_KEY` unset or blank. Without it the kit
+    * answers turns with the stub model, which a command meant to run turns must not.
+    */
+  def keyed(env: Map[String, String]): Either[String, Map[String, String]] =
+    Either.cond(
+      env.get("ANTHROPIC_API_KEY").exists(_.trim.nonEmpty),
+      env,
+      s"ANTHROPIC_API_KEY is not set, and kalandra's turns call Claude through it; $KeysHint"
+    )
+
+  /** `failure` for a person: its message, and [[KeysHint]] when a key was missing. */
+  def said(failure: KitFailure): String = failure match {
+    case KitFailure.Unconfigured(_) => s"${failure.message}; $KeysHint"
+    case _ => failure.message
+  }
 
   /** `env` as the kit is given it, or why not. */
   def environment(
@@ -91,9 +112,9 @@ object Main {
 
   private def serve(raw: Map[String, String]): Either[String, Unit] =
     for {
-      env <- environment(raw)
+      env <- environment(raw).flatMap(keyed)
       dir <- checkout(env)
       kalandra <- Kalandra.deployment(dir)
-      _ <- Kit.serve(kalandra, env).left.map(_.message)
+      _ <- Kit.serve(kalandra, env).left.map(said)
     } yield ()
 }

@@ -148,7 +148,19 @@ case "$1" in
   status)
     serve_status
     ;;
-  serve | export | import | verify)
+  serve)
+    # The deployment's keys (Anthropic's, Jev's), for the commands that run turns alone. A
+    # missing file or key is refused by the jar, saying so.
+    if [[ -f "$root/.env" ]]; then
+      set -a
+      # shellcheck disable=SC1091
+      . "$root/.env"
+      set +a
+    fi
+    [[ -f "$jar" ]] || build
+    exec "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"
+    ;;
+  export | import | verify)
     [[ -f "$jar" ]] || build
     exec "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"
     ;;
