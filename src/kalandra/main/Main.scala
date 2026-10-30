@@ -12,7 +12,6 @@ import grit.core.id.ConversationId
 import grit.core.model.ModelId
 import grit.core.place.Directory
 import grit.core.store.Origin
-import grit.core.tool.ToolName
 import grit.host.checkout.LocalInstructions
 import grit.kit.environment.Secrets
 import grit.kit.run.{Kit, KitFailure, LocalEdge, LocalTools}
@@ -162,7 +161,7 @@ object Main {
         new LocalInstructions(),
         LoggerFactory.getLogger("kalandra.chat")
       ) match {
-        case Left(twice) => Left(s"the coding tools offer ${ToolName.value(twice.name)} twice")
+        case Left(refused) => Left(s"the coding tools cannot be offered: ${refused.message}")
         case Right(here) =>
           val clock = Clock.system()
           Kit.console(kalandra, secrets, Duration.Zero, clock, here) match {

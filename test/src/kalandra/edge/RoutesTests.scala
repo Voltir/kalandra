@@ -254,7 +254,7 @@ object RoutesTests extends TestSuite {
       routes.ask("POST", "/command/project_keep", """{"key":"m17/plan","text":"x"}""") ==>
         Reply(200, "Done.")
       val kept = Files.readString(dir.resolve("coder-opus__3f2a.md"))
-      routes.ask("POST", "/command/project_move", """{"key":"m17/s9","to":"done"}""") ==>
+      routes.ask("POST", "/command/project_move", """{"key":"m17/s9","state":"done"}""") ==>
         Reply(200, "Done.")
       (kept, Files.readString(dir.resolve("coder-opus__3f2a.md")), listed(dir)) ==>
         ("# kept\n", "# moved\n", Vector("coder-opus__3f2a.md"))
@@ -262,7 +262,7 @@ object RoutesTests extends TestSuite {
         "project_keep" -> ujson.Obj("key" -> "m17/plan", "text" -> "x"),
         "project_claims" -> ujson.Obj("project" -> "m17"),
         "project_brief" -> ujson.Obj("key" -> "m17/s8", "role" -> "builder", "chars" -> 9500),
-        "project_move" -> ujson.Obj("key" -> "m17/s9", "to" -> "done"),
+        "project_move" -> ujson.Obj("key" -> "m17/s9", "state" -> "done"),
         "project_claims" -> ujson.Obj("project" -> "m17"),
         "project_brief" -> ujson.Obj("key" -> "m17/s8", "role" -> "builder", "chars" -> 9500)
       )

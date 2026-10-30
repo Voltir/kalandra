@@ -25,7 +25,7 @@ enum Write extends caps.Pure {
   /** The command's arguments. */
   def arguments: ujson.Obj = this match {
     case Keep(_, args) => args
-    case Move(key, to) => ujson.Obj("key" -> key.value, "to" -> StateName.value(to))
+    case Move(key, to) => ujson.Obj("key" -> key.value, "state" -> StateName.value(to))
   }
 }
 

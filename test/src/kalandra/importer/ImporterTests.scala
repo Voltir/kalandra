@@ -208,6 +208,19 @@ object ImporterTests extends TestSuite {
         }) ==> Right(Vector("keep note-email-edge"))
     }
 
+    test("a move's arguments read as the plugin's project_move reads them") {
+      val dir = grit.core.place.Directory.of("/home/someone/grit").fold(sys.error, identity)
+      val move = kalandra.deployment.Kalandra
+        .deployment(dir)
+        .fold(sys.error, identity)
+        .plugins
+        .flatMap(_.commands)
+        .filter(c => grit.core.tool.ToolName.value(c.spec.name) == "project_move")
+      val to = StateName.of("done").fold(sys.error, identity)
+      move.map(_.spec.args.read(Write.Move(key("slack-joins"), to).arguments).isRight) ==>
+        Vector(true)
+    }
+
     test("a re-import leaves an existing stage's stored state alone") {
       val held = restated(stored(imported.project), "plan-m3-s1-documents", "building")
       Sync.writes(imported.project, held, Fixture.method).map(_.writes) ==> Right(Vector.empty)
