@@ -8,6 +8,7 @@ import grit.assembly.estimate.CharEstimate
 import grit.chat.look.Theme
 import grit.chat.run.Chat
 import grit.core.clock.{Clock, Fresh}
+import grit.core.id.ConversationId
 import grit.core.model.ModelId
 import grit.core.place.Directory
 import grit.core.store.Origin
@@ -22,7 +23,9 @@ import kalandra.edge.CommandClient
 import kalandra.importer.Imports
 
 /** `kalandra serve`: serves the kalandra deployment until the process is
-  * stopped; `kalandra chat`, the chat on this terminal in its room; `kalandra export`, [[Export]]; `kalandra import <checkout> [--dry-run]` and
+  * stopped; `kalandra chat`, the chat on this terminal in its room; `kalandra cache-report
+  * [conversation-id]`, what a conversation's model calls read from and wrote to the cache
+  * (the chat's, with no id); `kalandra export`, [[Export]]; `kalandra import <checkout> [--dry-run]` and
   * `kalandra verify <checkout>`, [[Imports]] into the project [[Imported]], through a running
   * serve. It reads the environment alone: `GRIT_DATABASE_URL` (default
   * [[Main.DefaultDatabase]]; a URL naming another deployment's database, `grit`
@@ -96,6 +99,7 @@ object Main {
       case List("chat") =>
         // DBOS's threads are non-daemon: the process ends here, once the chat has closed.
         chat(sys.env).map(_ => sys.exit(0))
+      case "cache-report" :: id if id.sizeIs <= 1 => cacheReport(sys.env, id.headOption)
       case List("export", project, into) =>
         Export.run(sys.env, project, java.nio.file.Path.of(into)).map(n => println(s"$n files"))
       case "import" :: root :: flags if flags.forall(_ == "--dry-run") =>
@@ -117,7 +121,8 @@ object Main {
         } yield ()
       case _ =>
         Left(
-          "usage: kalandra serve | kalandra chat | kalandra export <project> <directory> | " +
+          "usage: kalandra serve | kalandra chat | kalandra cache-report [conversation-id] | " +
+            "kalandra export <project> <directory> | " +
             "kalandra import <grit checkout> [--dry-run] | kalandra verify <grit checkout>"
         )
     }
@@ -179,6 +184,35 @@ object Main {
                 )
               )
           }
+      }
+    }
+  }
+
+  /** The cache report of the conversation `id`, or, with none, of the one `kalandra chat` holds
+    * in the checkout, printed a line at a time. Its log goes to `cache-report.log` under
+    * [[logs]]. No engine is started, and no conversation created.
+    */
+  private def cacheReport(raw: Map[String, String], id: Option[String]): Either[String, Unit] = {
+    val _ = System.setProperty(
+      "org.slf4j.simpleLogger.logFile",
+      logs(raw).resolve("cache-report.log").toString
+    )
+    val read = for {
+      env <- environment(raw)
+      dir <- checkout(env)
+      kalandra <- Kalandra.deployment(dir)
+      secrets <- Secrets.of(env, kalandra).left.map(r => said(KitFailure.Unconfigured(r)))
+    } yield (dir, kalandra, secrets)
+    read.flatMap { (dir, kalandra, secrets) =>
+      val clock = Clock.system()
+      val conversation = id match {
+        case Some(named) => Right(Some(ConversationId(named)))
+        case None => Kit.find(kalandra, secrets, ChatOrigin(dir), clock).left.map(said)
+      }
+      conversation.flatMap {
+        case None => Left(s"no chat has been held in ${Directory.value(dir)} yet")
+        case Some(c) =>
+          Kit.cacheReport(kalandra, secrets, c, clock).left.map(said).map(_.foreach(println))
       }
     }
   }
