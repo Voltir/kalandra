@@ -394,7 +394,9 @@ object RoutesTests extends TestSuite {
       commands.ran.size ==> 0
     }
 
-    test("initialize answers the protocol version asked for, or the latest, and offers tools") {
+    test(
+      "initialize answers the protocol version asked for, or the latest, offers tools, and says a project artifact is not a claude.ai Artifact"
+    ) {
       val (routes, commands) = offering(Vector.empty)
       def initialize(version: String) =
         rpc(
@@ -417,7 +419,9 @@ object RoutesTests extends TestSuite {
           ujson.Obj(
             "protocolVersion" -> version,
             "capabilities" -> ujson.Obj("tools" -> ujson.Obj("listChanged" -> false)),
-            "serverInfo" -> ujson.Obj("name" -> "kalandra", "version" -> "1")
+            "serverInfo" -> ujson.Obj("name" -> "kalandra", "version" -> "1"),
+            "instructions" -> ("kalandra keeps grit's projects. An artifact here is a project " +
+              "artifact, a versioned record of a grit project, not a claude.ai Artifact.")
           )
         )
       )

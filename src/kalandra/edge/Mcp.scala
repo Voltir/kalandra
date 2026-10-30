@@ -41,7 +41,14 @@ object Mcp {
       case Some(_) => Left(invalid)
     }
 
-  /** The answer to `initialize` asking for `params`' protocol version. */
+  /** What the server tells a client once, at `initialize`: a project artifact is not a
+    * claude.ai Artifact, which a client offering both would otherwise confuse.
+    */
+  val Instructions: String =
+    "kalandra keeps grit's projects. An artifact here is a project artifact, a versioned " +
+      "record of a grit project, not a claude.ai Artifact."
+
+  /** The answer to `initialize` asking for `params`' protocol version, with [[Instructions]]. */
   def initialized(id: ujson.Value, params: ujson.Obj): Reply = {
     val asked = params.value.get("protocolVersion").flatMap(_.strOpt)
     result(
@@ -49,7 +56,8 @@ object Mcp {
       ujson.Obj(
         "protocolVersion" -> asked.filter(Versions.contains).getOrElse(Versions.last),
         "capabilities" -> ujson.Obj("tools" -> ujson.Obj("listChanged" -> false)),
-        "serverInfo" -> ujson.Obj("name" -> "kalandra", "version" -> "1")
+        "serverInfo" -> ujson.Obj("name" -> "kalandra", "version" -> "1"),
+        "instructions" -> Instructions
       )
     )
   }
