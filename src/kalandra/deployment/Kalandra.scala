@@ -7,12 +7,14 @@ import scala.concurrent.duration.DurationInt
 import grit.core.files.Formats
 import grit.core.identity.{Account, Identities, Realm, Vouching}
 import grit.core.message.Tokens
+import grit.core.model.{Assignment, ModelId, ModelRef, Policy, Upstream}
 import grit.core.period.LifecycleSettings
 import grit.core.persona.Persona
 import grit.core.place.{Directory, Place}
 import grit.core.speech.Speaking
-import grit.core.spend.Budget
+import grit.core.spend.{Budget, DailyCap}
 import grit.core.visibility.{
+  Cleared,
   Compartments,
   DeclaredLabel,
   Grant,
@@ -22,10 +24,11 @@ import grit.core.visibility.{
   Label,
   Labelled,
   Level,
+  Party,
   RoomLabels,
   Visibility
 }
-import grit.kit.deployment.{Assembly, Deployment, Offer, Offered, Placer, Rounds, Seed}
+import grit.kit.deployment.{Assembly, Deployment, Offer, Offered, Placer, Rounds}
 import grit.projects.method.{Example, Method}
 import grit.projects.plugin.Projects
 
@@ -34,8 +37,8 @@ import kalandra.method.GritMethod
 
 /** kalandra: grit's own projects, kept by the projects plugin (ADR 0049) under
   * [[GritMethod]], for one person, its [[Owner]], working in one room, the grit
-  * checkout's directory. Its conversations call no model: it reads no model's
-  * key, so a turn would get the stub.
+  * checkout's directory. Its turns run on [[Models]] through Anthropic's API, each message
+  * placed by Jev, a day's spend capped at [[DailyLimit]].
   */
 object Kalandra {
 
@@ -71,7 +74,39 @@ object Kalandra {
       .left
       .map(p => s"the room ${p.written} is labelled twice")
 
-  /** [[rooms]], and [[Owner]] alone cleared for [[Kept]]. */
+  /** Turns' model: Claude Sonnet 5.5 through Anthropic's API, a reply at most 4,096 tokens, at
+    * the model's own effort.
+    */
+  val TurnModel: Assignment = Assignment(direct("anthropic/claude-sonnet-5-5"), 4_096, None)
+
+  /** The summary's model, and the nightly dream's: Claude Haiku 5.5 through Anthropic's API,
+    * the least a model reading others' text may be, 4,096 tokens, no effort asked.
+    */
+  val SummaryModel: Assignment = Assignment(direct("anthropic/claude-haiku-5-5"), 4_096, None)
+
+  /** The search query's model: Claude Haiku 5.5, 1,024 tokens, as short as a query is. */
+  val QueryModel: Assignment = Assignment(direct("anthropic/claude-haiku-5-5"), 1_024, None)
+
+  /** The model closing a period grit only heard: Claude Haiku 5.5, 4,096 tokens. */
+  val HeardModel: Assignment = Assignment(direct("anthropic/claude-haiku-5-5"), 4_096, None)
+
+  /** Which model does each job; every pair is reached at Anthropic's API, so no OpenRouter key
+    * is read.
+    */
+  val Models: Policy = Policy.one(TurnModel, SummaryModel, QueryModel, HeardModel)
+
+  /** A turn's window: 32,000 tokens, which holds a triage conversation and bounds what a
+    * window's first call writes to the cache (about 8¢ at Sonnet's write rate).
+    */
+  val TurnBudget: Tokens = Tokens(32_000)
+
+  /** The most a day spends on model calls: $1. */
+  val DailyLimit: DailyCap =
+    DailyCap.of("1").fold(why => throw new IllegalStateException(why), identity)
+
+  /** [[rooms]], [[Owner]] and whoever runs its chat here cleared for [[Kept]], and so are the
+    * models [[Models]] pins and Jev, which places each message.
+    */
   def visibility(checkout: Directory): Either[String, Visibility] =
     for {
       compartments <- Compartments
@@ -84,17 +119,32 @@ object Kalandra {
         .of(
           compartments,
           labels,
-          Vector(Group(owners, Set(Owner))),
-          Vector(Grant(owners, Kept))
+          // Account.Local stands for whoever runs `kalandra chat` on this machine, a stopgap
+          // until a chat asks as its own person (artifact grit/note-chat-asker-is-a-person).
+          Vector(Group(owners, Set(Owner, Account.Local))),
+          Vector(Grant(owners, Kept)),
+          clearances = cleared.map(Cleared(_, Kept))
         )
         .left
         .map(_.toString)
     } yield v
 
+  /** The parties a turn sends the room's content to: each pair [[Models]] pins, and Jev. */
+  private def cleared: Vector[Party] =
+    (Models.ladders
+      .flatMap(_.rungs)
+      .flatMap(r => Party.of(r.assignment.ref)) :+ Party.Service(Placer.JevService)).distinct
+
+  /** `model` at Anthropic's API. */
+  private def direct(model: String): ModelRef =
+    ModelRef(
+      ModelId.of(model).getOrElse(throw new IllegalStateException(s"no model id: $model")),
+      Some(Upstream.AnthropicApi)
+    )
+
   /** kalandra over the checkout `checkout`. */
   def deployment(checkout: Directory): Either[String, Deployment] =
     for {
-      catalog <- Seed.catalog
       rounds <- Rounds.of(4)
       methods <- GritMethod.all.left.map(_.mkString("; "))
       projects <- Projects
@@ -111,14 +161,12 @@ object Kalandra {
         .of(
           edges = Vector(new ClaudeCodeEdge(Owner, Local, room(checkout), Believed)),
           plugins = Vector(projects),
-          policy = catalog.policy,
+          policy = Models,
           offer = Offer(Offered.Read, rounds),
-          assembly = Assembly.Linear(Tokens(8_000)),
-          placer = Placer.Off(
-            "kalandra's room is worked in through commands, not conversations"
-          ),
+          assembly = Assembly.Linear(TurnBudget),
+          placer = Placer.Jev,
           lifecycle = LifecycleSettings.Default,
-          budget = Budget(ZoneOffset.UTC, None),
+          budget = Budget(ZoneOffset.UTC, Some(DailyLimit)),
           speaking = Speaking.Off,
           sweep = 30.seconds,
           persona = persona,
