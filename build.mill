@@ -28,6 +28,7 @@ object `package` extends ScalaModule {
 
   def mvnDeps = Seq(
     mvn"dev.grit::grit-kit:0.1.0-SNAPSHOT",
+    mvn"dev.grit::grit-chat:0.1.0-SNAPSHOT",
     mvn"dev.grit::grit-projects:0.1.0-SNAPSHOT"
   )
 

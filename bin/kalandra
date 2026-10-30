@@ -2,6 +2,7 @@
 # kalandra's command line.
 #
 #   bin/kalandra serve                      serve the deployment (blocks; stop it with SIGTERM)
+#   bin/kalandra chat                       the chat on this terminal, in the grit checkout's room
 #   bin/kalandra export <project> <dir>     write a project's export files under <dir>
 #   bin/kalandra import <grit> [--dry-run]  import grit's planning tree into the project `grit`
 #   bin/kalandra verify <grit>              check the project `grit` holds that tree whole
@@ -28,8 +29,19 @@ java="${GRIT_JDK_HOME:-/home/nickchilders/.jdks/jdk-26.0.2}/bin/java"
 listen="${KALANDRA_LISTEN:-127.0.0.1:7317}"
 
 usage() {
-  sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 64
+}
+
+# The deployment's keys (Anthropic's, Jev's), for the commands that run turns alone. A missing
+# file or key is refused by the jar, saying so.
+load_keys() {
+  if [[ -f "$root/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$root/.env"
+    set +a
+  fi
 }
 
 build() {
@@ -149,16 +161,18 @@ case "$1" in
     serve_status
     ;;
   serve)
-    # The deployment's keys (Anthropic's, Jev's), for the commands that run turns alone. A
-    # missing file or key is refused by the jar, saying so.
-    if [[ -f "$root/.env" ]]; then
-      set -a
-      # shellcheck disable=SC1091
-      . "$root/.env"
-      set +a
-    fi
+    load_keys
     [[ -f "$jar" ]] || build
     exec "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"
+    ;;
+  chat)
+    load_keys
+    export KALANDRA_LOGS="$root/logs"
+    mkdir -p "$KALANDRA_LOGS"
+    [[ -f "$jar" ]] || build
+    # The terminal library calls native code.
+    exec "$java" --sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED \
+      -jar "$jar" "$@"
     ;;
   export | import | verify)
     [[ -f "$jar" ]] || build

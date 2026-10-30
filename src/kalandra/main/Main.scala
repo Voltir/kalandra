@@ -1,19 +1,33 @@
 package kalandra.main
 
-import grit.core.place.Directory
-import grit.kit.run.{Kit, KitFailure}
+import java.nio.file.Path
 
+import scala.concurrent.duration.Duration
+
+import grit.assembly.estimate.CharEstimate
+import grit.chat.look.Theme
+import grit.chat.run.Chat
+import grit.core.clock.{Clock, Fresh}
+import grit.core.model.ModelId
+import grit.core.place.Directory
+import grit.core.store.Origin
+import grit.core.tool.ToolName
+import grit.host.checkout.LocalInstructions
+import grit.kit.environment.Secrets
+import grit.kit.run.{Kit, KitFailure, LocalEdge, LocalTools}
+
+import org.slf4j.LoggerFactory
 import kalandra.deployment.Kalandra
 import kalandra.edge.CommandClient
 import kalandra.importer.Imports
 
 /** `kalandra serve`: serves the kalandra deployment until the process is
-  * stopped; `kalandra export`, [[Export]]; `kalandra import <checkout> [--dry-run]` and
+  * stopped; `kalandra chat`, the chat on this terminal in its room; `kalandra export`, [[Export]]; `kalandra import <checkout> [--dry-run]` and
   * `kalandra verify <checkout>`, [[Imports]] into the project [[Imported]], through a running
   * serve. It reads the environment alone: `GRIT_DATABASE_URL` (default
   * [[Main.DefaultDatabase]]; a URL naming another deployment's database, `grit`
   * or `grit_bort`, is refused) and `KALANDRA_CHECKOUT`, the grit checkout its
-  * room is (default `$HOME/Projects/grit`). `serve` runs turns: it needs
+  * room is (default `$HOME/Projects/grit`). `serve` and `chat` run turns: each needs
   * `ANTHROPIC_API_KEY` and `JEV_API_KEY`, and is refused without either; OpenRouter's key is
   * never passed on.
   */
@@ -79,6 +93,9 @@ object Main {
   def main(args: Array[String]): Unit = {
     val ran: Either[String, Unit] = args.toList match {
       case List("serve") => serve(sys.env)
+      case List("chat") =>
+        // DBOS's threads are non-daemon: the process ends here, once the chat has closed.
+        chat(sys.env).map(_ => sys.exit(0))
       case List("export", project, into) =>
         Export.run(sys.env, project, java.nio.file.Path.of(into)).map(n => println(s"$n files"))
       case "import" :: root :: flags if flags.forall(_ == "--dry-run") =>
@@ -100,7 +117,7 @@ object Main {
         } yield ()
       case _ =>
         Left(
-          "usage: kalandra serve | kalandra export <project> <directory> | " +
+          "usage: kalandra serve | kalandra chat | kalandra export <project> <directory> | " +
             "kalandra import <grit checkout> [--dry-run] | kalandra verify <grit checkout>"
         )
     }
@@ -117,4 +134,58 @@ object Main {
       kalandra <- Kalandra.deployment(dir)
       _ <- Kit.serve(kalandra, env).left.map(said)
     } yield ()
+
+  /** The chat on this terminal, in the checkout's room, until the person quits: on the engine
+    * serve holds, attached, or on one it starts here when none runs. Its log goes to
+    * `chat.log` under [[logs]], never to the screen.
+    */
+  private def chat(raw: Map[String, String]): Either[String, Unit] = {
+    // Before anything loads slf4j (DBOS does): a log line on stderr would paint over the screen.
+    val log = logs(raw).resolve("chat.log")
+    val _ = System.setProperty("org.slf4j.simpleLogger.logFile", log.toString)
+    val read = for {
+      env <- environment(raw).flatMap(keyed)
+      dir <- checkout(env)
+      kalandra <- Kalandra.deployment(dir)
+      secrets <- Secrets.of(env, kalandra).left.map(r => said(KitFailure.Unconfigured(r)))
+    } yield (dir, kalandra, secrets)
+    // The capabilities are opened in matches, not a for: a for's closures would capture them.
+    read.flatMap { (dir, kalandra, secrets) =>
+      LocalEdge.over(
+        dir,
+        new LocalTools(kalandra.offer.tools),
+        new LocalInstructions(),
+        LoggerFactory.getLogger("kalandra.chat")
+      ) match {
+        case Left(twice) => Left(s"the coding tools offer ${ToolName.value(twice.name)} twice")
+        case Right(here) =>
+          val clock = Clock.system()
+          Kit.console(kalandra, secrets, Duration.Zero, clock, here) match {
+            case Left(failure) => Left(said(failure))
+            case Right(opener) =>
+              Right(
+                Chat.run(
+                  opener,
+                  ChatOrigin(dir),
+                  model = ModelId.value(kalandra.policy.turn.first.assignment.ref.model),
+                  session = s"kalandra · ${Directory.value(dir)}",
+                  Theme.Default,
+                  Kalandra.TurnBudget,
+                  CharEstimate,
+                  prefs = None,
+                  log = Some(log),
+                  clock,
+                  Fresh.random()
+                )
+              )
+          }
+      }
+    }
+  }
+
+  /** The conversation `kalandra chat` holds in the checkout `checkout`. */
+  def ChatOrigin(checkout: Directory): Origin = Origin.Tui(checkout, "chat")
+
+  /** Where `env`'s logs go: `KALANDRA_LOGS`, or `logs` under the working directory. */
+  def logs(env: Map[String, String]): Path = Path.of(env.getOrElse("KALANDRA_LOGS", "logs"))
 }
