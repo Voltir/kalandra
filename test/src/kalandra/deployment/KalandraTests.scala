@@ -84,6 +84,12 @@ object KalandraTests extends TestSuite {
     }
 
     test(
+      "a turn makes at most 12 model calls, and its tool results may add about 40,000 tokens before it is told to act"
+    ) {
+      (kalandra.offer.rounds.calls, kalandra.offer.rounds.growth) ==> (12, Some(Tokens(40_000)))
+    }
+
+    test(
       "a turn is offered the projects plugin's reads, keep, move and new, and not withdraw, migrate, claim or release"
     ) {
       kalandra.plugins

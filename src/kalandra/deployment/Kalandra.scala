@@ -100,6 +100,15 @@ object Kalandra {
     */
   val TurnBudget: Tokens = Tokens(32_000)
 
+  /** A turn's model calls: 12, enough for triage to read the store short and then act. */
+  val TurnCalls: Int = 12
+
+  /** What a turn's own tool results may add to its input: 40,000 tokens, about the window
+    * again. Past it the turn's next call is its last with tools, and it is told so; a turn can
+    * pass it by one round's results (`TurnLoop.Rounds`).
+    */
+  val TurnGrowth: Tokens = Tokens(40_000)
+
   /** The most a day spends on model calls: $1. */
   val DailyLimit: DailyCap =
     DailyCap.of("1").fold(why => throw new IllegalStateException(why), identity)
@@ -145,7 +154,7 @@ object Kalandra {
   /** kalandra over the checkout `checkout`. */
   def deployment(checkout: Directory): Either[String, Deployment] =
     for {
-      rounds <- Rounds.of(4)
+      rounds <- Rounds.of(TurnCalls).flatMap(_.within(TurnGrowth))
       methods <- GritMethod.all.left.map(_.mkString("; "))
       projects <- Projects
         .of(methods.map((m: Method) => (m, Vector.empty[Example])), GritMethod.Name)
