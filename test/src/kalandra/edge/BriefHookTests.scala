@@ -123,7 +123,7 @@ object BriefHookTests extends TestSuite {
         types.map(t => Some("SubagentStart" -> s"# $t\n"))
     }
 
-    test("--slot prints the slot a claim's `for` names, for the directory it runs in") {
+    test("--slot prints the slot a claim's `holder` names, for the directory it runs in") {
       val (briefs, cwd) = dirs()
       Vector(
         hook("", briefs, cwd, "--slot").out,

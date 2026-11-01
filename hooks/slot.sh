@@ -1,4 +1,4 @@
-# The slot a claim's `for` names, sourced by brief-hook.sh and spool-hook.sh so both compute it
+# The slot a claim's `holder` names, sourced by brief-hook.sh and spool-hook.sh so both compute it
 # alike: the sha1 of a session's cwd for a session, `<agent_type>/<sha1 of cwd>` for a subagent
 # (a subagent's cwd is its session's), normalised as the edge's BriefFiles.slot does: per
 # character, A-Z lower-cased, a-z, 0-9, `-` and `/` kept, any other written `-`; then each part's

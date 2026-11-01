@@ -214,7 +214,7 @@ object RoutesTests extends TestSuite {
       routes.answer(method, path, None, Some("127.0.0.1:7317"), body)
   }
 
-  private val claim = """{"key":"m17/s8","role":"builder","for":"Coder_Opus/3F2A"}"""
+  private val claim = """{"key":"m17/s8","role":"builder","holder":"Coder_Opus/3F2A"}"""
 
   val tests = Tests {
     test("a claim that is Done writes the slot's brief file, a refused one writes none") {
@@ -226,7 +226,7 @@ object RoutesTests extends TestSuite {
       Files.readString(dir.resolve("coder-opus__3f2a.md")) ==> "# m17/s8\n"
       commands.ran.map(r => (ToolName.value(r.name), r.args)).toVector ==> Vector(
         "project_claim" -> ujson
-          .Obj("key" -> "m17/s8", "role" -> "builder", "for" -> "coder-opus/3f2a"),
+          .Obj("key" -> "m17/s8", "role" -> "builder", "holder" -> "coder-opus/3f2a"),
         "project_brief" -> ujson.Obj("key" -> "m17/s8", "role" -> "builder", "chars" -> 9500)
       )
       val refusedDir = Files.createTempDirectory("briefs")
@@ -240,7 +240,7 @@ object RoutesTests extends TestSuite {
     test("a keep or move that is Done rewrites each live claim's brief file there is") {
       val dir = Files.createTempDirectory("briefs")
       def held(key: String, slot: String): ujson.Value =
-        ujson.Obj("key" -> key, "role" -> "builder", "for" -> slot, "by" -> "someone")
+        ujson.Obj("key" -> key, "role" -> "builder", "holder" -> slot, "by" -> "someone")
       val live = ujson.Obj(
         "claims" -> ujson.Arr(held("m17/s8", "coder-opus/3f2a"), held("m17/s9", "elsewhere"))
       )
@@ -279,7 +279,7 @@ object RoutesTests extends TestSuite {
 
     test("release deletes the slot's brief and both its digests") {
       val dir = Files.createTempDirectory("briefs")
-      val released = """{"released":"m17/s8","for":"coder-opus/3f2a"}"""
+      val released = """{"released":"m17/s8","holder":"coder-opus/3f2a"}"""
       val (routes, commands) =
         routedBy(Right(CommandOutcome.Done(released)), Vector("# brief\n"), dir)
       routes.ask("POST", "/command/project_claim", claim).status ==> 200

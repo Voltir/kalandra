@@ -25,8 +25,7 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   member (the integrity the deployment declares for its room, which grit meets with the room's
   cap). It answers the command's text with 200, a refusal with 409, and an error with its own
   status. `POST /mcp` serves the same commands as MCP tools (streamable HTTP, one JSON reply per
-  message, no session): `initialize`, `ping`, `tools/list` (`project_release` taking `for` there
-  too) and `tools/call`, run as `/command` runs it; a command that did not answer 200 is a tool
+  message, no session): `initialize`, `ping`, `tools/list` and `tools/call`, run as `/command` runs it; a command that did not answer 200 is a tool
   error carrying its text. `POST /wait` (`bin/kalandra wait`) holds the request until an
   artifact reaches one of some states, or a commit is made in a worktree, as grit's `EdgeWatch`
   waits (grit's ADR 0051), and answers what met it, or 408 once it lapses. The edge also vouches for the account, the one member of its realm `workshop:local` (stored; kept from the earlier name),
@@ -34,9 +33,9 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 - **Brief files.** A `project_claim` that is done through the edge also writes its brief
   (`project_brief` for the claim's key and role) to a file a session hook reads:
   `${KALANDRA_BRIEFS:-$HOME/.local/state/kalandra/briefs}/<slot>.md`, the slot being the
-  claim's `for` with `A`-`Z` lower-cased and every other character outside a slug part written `-`, and each `/`
+  claim's `holder` with `A`-`Z` lower-cased and every other character outside a slug part written `-`, and each `/`
   written `__` in the file's name. It is replaced whole, through a file beside it. A
-  `project_release` through the edge takes `for` too, and once done deletes that file.
+  `project_release` through the edge, once done, deletes the file of the holder its answer names.
 - **Session capture** (`kalandra.capture`). The edge records each Claude Code session that
   `hooks/spool-hook.sh` spools in grit's session record (grit's ADR 0050), as the account, at
   its room's label, each session placed at its worktree. Every 2 s it records the files the
@@ -82,13 +81,13 @@ A command through `bin/kalandra` fails loud, exit 2, when serve is not running. 
 subagent's: as a SessionStart and a SubagentStart hook it reads the event on stdin and prints
 the brief file of its slot as `additionalContext`. A session's slot is the sha1 of its working
 directory; a subagent's is `<agent type>/<sha1 of the session's working directory>`, normalised as
-`BriefFiles.slot` normalises a claim's `for` (`BriefHookTests` holds the two to one rule);
-`hooks/slot.sh` computes it for both hooks. `bin/kalandra slot [agent-type]`, run in the session's directory, prints it, for a claim's `for`:
+`BriefFiles.slot` normalises a claim's `holder` (`BriefHookTests` holds the two to one rule);
+`hooks/slot.sh` computes it for both hooks. `bin/kalandra slot [agent-type]`, run in the session's directory, prints it, for a claim's `holder`:
 
 ```bash
 cd ~/Projects/grit
 w=~/Projects/kalandra/bin/kalandra
-$w claim "{\"key\":\"<key>\",\"role\":\"<role>\",\"for\":\"$($w slot coder-haiku)\"}"
+$w claim "{\"key\":\"<key>\",\"role\":\"<role>\",\"holder\":\"$($w slot coder-haiku)\"}"
 ```
 
 It needs bash, `jq`, `sha1sum`, `find` and `timeout`, never a JVM or the network, and it reads

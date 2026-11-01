@@ -39,11 +39,11 @@ object Reply {
   * `/command/<name>` would, its text the content, an error unless that answered 200. `POST /wait`
   * waits on `watch` as [[Routes.watchOf]] reads its body. Nothing else runs anything.
   *
-  * `project_claim`'s `for` is passed on as [[BriefFiles.slot]] maps it; once the claim is done,
+  * `project_claim`'s `holder` is passed on as [[BriefFiles.slot]] maps it; once the claim is done,
   * `project_brief` for its key and role, at most [[BriefFiles.BriefChars]] characters, is written
   * to that slot's file in `briefs`.
   * `project_release` takes its key alone and is passed on as given; once the release is done,
-  * the slot its answer names (`{"released","for"}` JSON) has its brief and digests deleted
+  * the slot its answer names (`{"released","holder"}` JSON) has its brief and digests deleted
   * ([[BriefFiles.delete]]). Once a
   * `project_keep` or `project_move` is done, each live claim on its artifact's project whose slot
   * has a brief file (`project_claims`) has that file written again from `project_brief`, whether
@@ -152,8 +152,8 @@ final class Routes(
   /** `name` run with `args`, keeping the brief file of a claim or release that is done. */
   private def routed(name: ToolName, args: ujson.Obj): Reply = ToolName.value(name) match {
     case Routes.Claim =>
-      val slot = text(args, "for").map(BriefFiles.slot)
-      val claimed = ran(name, slot.fold(args)(s => replaced(args, "for", Some(s))))
+      val slot = text(args, "holder").map(BriefFiles.slot)
+      val claimed = ran(name, slot.fold(args)(s => replaced(args, "holder", Some(s))))
       (claimed.status, slot, text(args, "key"), text(args, "role")) match {
         case (200, Some(s), Some(key), Some(role)) =>
           briefed(s, key, role)
@@ -360,7 +360,7 @@ object Routes {
   /** A live claim, from the claims' answer: its artifact's key, its role, and the slot it is for. */
   private final case class Held(key: String, role: String, slot: String)
 
-  /** The live claims a `project_claims` answer lists (`{"claims":[{"key","role","for"}]}`), each
+  /** The live claims a `project_claims` answer lists (`{"claims":[{"key","role","holder"}]}`), each
     * slot as [[BriefFiles.slot]] maps it; none for any other text.
     */
   private def held(text: String): Option[Vector[Held]] =
@@ -376,20 +376,20 @@ object Routes {
             o <- c.objOpt
             key <- o.get("key").flatMap(_.strOpt)
             role <- o.get("role").flatMap(_.strOpt)
-            slot <- o.get("for").flatMap(_.strOpt)
+            slot <- o.get("holder").flatMap(_.strOpt)
           } yield Held(key, role, BriefFiles.slot(slot))
         )
       )
 
   /** The key released and the slot it was for, from a release's answer: a JSON object with
-    * string `released` and `for`. None for any other text.
+    * string `released` and `holder`. None for any other text.
     */
   private def releasedSlot(text: String): Option[(String, String)] =
     scala.util.Try(ujson.read(text)).toOption match {
       case Some(o: ujson.Obj) =>
         for {
           key <- o.value.get("released").flatMap(_.strOpt)
-          slot <- o.value.get("for").flatMap(_.strOpt)
+          slot <- o.value.get("holder").flatMap(_.strOpt)
         } yield (key, BriefFiles.slot(slot))
       case _ => None
     }

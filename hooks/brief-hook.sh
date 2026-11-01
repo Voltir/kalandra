@@ -5,7 +5,7 @@
 #                                  stdin; prints the hook JSON whose additionalContext is the brief
 #   brief-hook.sh --digest         as a second SessionStart hook: the same, its additionalContext
 #                                  the slot's digest instead
-#   brief-hook.sh --slot [type]    the slot a claim's `for` names for this directory: the
+#   brief-hook.sh --slot [type]    the slot a claim's `holder` names for this directory: the
 #                                  session's, or the subagent type's
 #
 # The slot is hooks/slot.sh's, for the event's cwd and, in a subagent, its agent type. Its brief
