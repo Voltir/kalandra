@@ -11,8 +11,10 @@ system prompt, one custom agent), 2026-10-27. The model was asked which codeword
 - **Payload:** `session_id` (the parent's), `prompt_id` (the parent's prompt), `agent_id`,
   `agent_type` (the agent's name as defined, e.g. `probe`), `cwd`, `transcript_path`,
   `hook_event_name`. **No prompt:** the subagent's task text is not in the payload, so a hook
-  cannot pick a brief by what the subagent was asked; it picks by `agent_type` and `cwd` alone.
-- `cwd` is the parent session's working directory.
+  cannot pick a brief by what the subagent was asked; it picks by `agent_type`, `cwd` and
+  `session_id` alone.
+- `cwd` is the parent session's working directory, so two sessions in one directory differ only
+  by `session_id`, which a resume keeps (SessionStart, below).
 - A subagent that runs in the background reports back through a `<task-notification>` that the
   parent receives as a user prompt: **UserPromptSubmit fires for it**, with that text as `prompt`.
 

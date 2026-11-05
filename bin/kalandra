@@ -10,7 +10,8 @@
 #   bin/kalandra <command> [json]           run a projects command through a running serve:
 #                                           `keep` or `project_keep`, its arguments a JSON object
 #   bin/kalandra build                      build the jar serve and export run from
-#   bin/kalandra slot [agent-type]          the slot a claim's `holder` names here (hooks/brief-hook.sh)
+#   bin/kalandra slot [agent-type]          the slot a claim's `holder` names here, for an agent type
+#                                           in the session whose Bash runs it (hooks/brief-hook.sh)
 #   bin/kalandra wait '<json>'              wait until an artifact reaches a state, or a commit is made
 #                                           ({"artifact":"<key>","state":["review"]} or
 #                                           {"commit":{"worktree":"<path>"}}; "within" seconds,

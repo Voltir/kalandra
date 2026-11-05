@@ -6,9 +6,12 @@
 #   brief-hook.sh --digest         as a second SessionStart hook: the same, its additionalContext
 #                                  the slot's digest instead
 #   brief-hook.sh --slot [type]    the slot a claim's `holder` names for this directory: the
-#                                  session's, or the subagent type's
+#                                  session's, or that of a subagent of the type the session
+#                                  whose Bash runs it ($CLAUDE_CODE_SESSION_ID) starts; with a
+#                                  type and no session id, exit 2, saying so on stderr
 #
-# The slot is hooks/slot.sh's, for the event's cwd and, in a subagent, its agent type. Its brief
+# The slot is hooks/slot.sh's, for the event's cwd and, in a subagent, its agent type and its
+# session's id (the event's session_id, the parent's). Its brief
 # is ${KALANDRA_BRIEFS:-$HOME/.local/state/kalandra/briefs}/<slot, each / written __>.md, the file
 # the edge writes when a claim for that slot is done (kalandra.edge.BriefFiles).
 #
@@ -31,7 +34,11 @@ briefs="${KALANDRA_BRIEFS:-${HOME:-}/.local/state/kalandra/briefs}"
 . "$(dirname -- "${BASH_SOURCE[0]}")/slot.sh" 2>/dev/null || exit 0
 
 if [[ "${1-}" == "--slot" ]]; then
-  slot "$PWD" "${2-}"
+  if [[ -n "${2-}" && -z "${CLAUDE_CODE_SESSION_ID-}" ]]; then
+    printf '%s\n' "brief-hook.sh --slot $2: CLAUDE_CODE_SESSION_ID is not set; run it in the Bash of the Claude Code session that starts the agent" >&2
+    exit 2
+  fi
+  slot "$PWD" "${2-}" "${CLAUDE_CODE_SESSION_ID-}"
   exit $?
 fi
 
@@ -41,14 +48,15 @@ fi
   cwd="$(jq -r '.cwd // empty' <<<"$input")" || exit 0
   [[ -n "$cwd" ]] || exit 0
   case "$event" in
-    SessionStart) type="" ;;
+    SessionStart) type="" session="" ;;
     SubagentStart)
       type="$(jq -r '.agent_type // empty' <<<"$input")" || exit 0
-      [[ -n "$type" ]] || exit 0
+      session="$(jq -r '.session_id // empty | tostring' <<<"$input")" || exit 0
+      [[ -n "$type" && -n "$session" ]] || exit 0
       ;;
     *) exit 0 ;;
   esac
-  name="$(slot "$cwd" "$type")" || exit 0
+  name="$(slot "$cwd" "$type" "$session")" || exit 0
   file="$briefs/${name//\//__}.md"
   if [[ "${1-}" == "--digest" ]]; then
     [[ "$event" == SessionStart ]] || exit 0

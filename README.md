@@ -80,9 +80,16 @@ A command through `bin/kalandra` fails loud, exit 2, when serve is not running. 
 `hooks/brief-hook.sh` puts a claimed brief in a Claude Code session's context, or in a
 subagent's: as a SessionStart and a SubagentStart hook it reads the event on stdin and prints
 the brief file of its slot as `additionalContext`. A session's slot is the sha1 of its working
-directory; a subagent's is `<agent type>/<sha1 of the session's working directory>`, normalised as
-`BriefFiles.slot` normalises a claim's `holder` (`BriefHookTests` holds the two to one rule);
-`hooks/slot.sh` computes it for both hooks. `bin/kalandra slot [agent-type]`, run in the session's directory, prints it, for a claim's `holder`:
+directory; a subagent's is `<agent type>/<sha1 of the session's working directory>/<session id>`,
+normalised as `BriefFiles.slot` normalises a claim's `holder` (`BriefHookTests` holds the two to
+one rule); `hooks/slot.sh` computes it for both hooks. The session id is the one that starts the
+subagent, so two sessions in one directory never share a subagent's slot, and since a session
+keeps its id across `claude --resume`, a session resumed after a crash gives its subagents the
+slots, and so the claims, they had (a fork or a `/clear` starts a new id, and new slots). Two
+sessions in one directory do share the session slot, which is how a manager's claim carries
+from one session to the next there; run two at once in two worktrees. `bin/kalandra slot
+[agent-type]`, run in the session's Bash in its directory, prints it, for a claim's `holder`; with
+an agent type it reads the session's id from `CLAUDE_CODE_SESSION_ID`, and exits 2 without one:
 
 ```bash
 cd ~/Projects/grit

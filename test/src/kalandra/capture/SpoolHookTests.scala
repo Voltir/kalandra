@@ -81,7 +81,7 @@ object SpoolHookTests extends TestSuite {
         HookRun.script("brief-hook.sh"),
         "",
         cwd,
-        Map.empty,
+        Map("CLAUDE_CODE_SESSION_ID" -> Session),
         (Vector("--slot") ++ Option.when(`type`.nonEmpty)(`type`))*
       )
       .out
@@ -282,6 +282,31 @@ object SpoolHookTests extends TestSuite {
         h == Vector(Some(slot(cwd)), Some(slot(cwd, "coder-opus"))),
         slot(cwd) != slot(root)
       )
+    }
+
+    test("a resumed session's subagents, on later prompts, spool the `h` naming that session") {
+      val (_, cwd) = worktree()
+      val spool = Files.createTempDirectory("spool")
+      Vector(("p1", "a1"), ("p2", "a2")).foreach((prompt, agent) =>
+        hook(
+          event(
+            "SubagentStart",
+            cwd,
+            "prompt_id" -> prompt,
+            "agent_id" -> agent,
+            "agent_type" -> "coder-opus"
+          ),
+          spool,
+          cwd
+        )
+      )
+      val (lines, _) = spooled(spool)
+      val sha1 = java.security.MessageDigest
+        .getInstance("SHA-1")
+        .digest(cwd.toString.getBytes(StandardCharsets.UTF_8))
+        .map(b => f"${b & 0xff}%02x")
+        .mkString
+      lines.map(_.obj.get("h").map(_.str)) ==> Vector.fill(2)(Some(s"coder-opus/$sha1/$Session"))
     }
 
     test("a commit in a Claude Code session spools its sha and subject; outside one, nothing") {

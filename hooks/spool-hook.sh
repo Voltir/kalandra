@@ -46,8 +46,9 @@
 #   ($CLAUDE_CODE_CHILD_SESSION=1), and for a rewrite the first 4 commits it `replaces`, each by
 #   its sha's first 12 characters (grit's Event.Shape.ReplacedChars); one past them stays listed.
 # - `h`, on a SessionStart or SubagentStart only, is the slot the session works as, hooks/slot.sh's
-#   for the event's own cwd (not `w`) and, in a subagent, its agent type: the brief hook's slot,
-#   whose claims the session's work keeps from lapsing. Without slot.sh, no line has one.
+#   for the event's own cwd (not `w`) and, in a subagent, its agent type and session id (the
+#   parent's): the brief hook's slot, whose claims the session's work keeps from lapsing. Without
+#   slot.sh, no line has one.
 # - `t` is the text of a Stop (its last reply) or a PostCompact (its summary), cut to 2,000
 #   characters; a Stop with none spools nothing. Such a line can pass 4 KB, past which an append
 #   is no longer one write, so one that meets a concurrent append can be torn; serve drops a line
@@ -181,7 +182,7 @@ fi
   if declare -F slot >/dev/null; then
     case "$event" in
       SessionStart) h="$(slot "$cwd")" || h="" ;;
-      SubagentStart) [[ -z "$type" ]] || h="$(slot "$cwd" "$type")" || h="" ;;
+      SubagentStart) [[ -z "$type" ]] || h="$(slot "$cwd" "$type" "$session")" || h="" ;;
     esac
   fi
   w="$(where "$cwd")"

@@ -345,10 +345,12 @@ object RoutesTests extends TestSuite {
     }
 
     test("a slot is lower-cased, each character outside a slug part becoming -") {
-      Vector("Explore", "coder-opus/3F2A", "Coder_Opus/3f2a", "_x", "a.b:c").map(
+      val subagent =
+        "coder-opus/051b9d0bda5b1cb78812ed53b34b66581629b8dd/faafcbf0-3592-4c99-8f14-21889a88798e"
+      Vector("Explore", "coder-opus/3F2A", "Coder_Opus/3f2a", "_x", "a.b:c", subagent).map(
         BriefFiles.slot
       ) ==>
-        Vector("explore", "coder-opus/3f2a", "coder-opus/3f2a", "x", "a-b-c")
+        Vector("explore", "coder-opus/3f2a", "coder-opus/3f2a", "x", "a-b-c", subagent)
     }
 
     test(
