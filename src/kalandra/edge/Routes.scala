@@ -7,6 +7,7 @@ import java.time.Instant
 import scala.concurrent.duration.*
 
 import grit.core.clock.Clock
+import grit.core.document.DocRef
 import grit.core.edge.{CommandError, EdgeWatch, PluginCommands, WatchError, WatchFor, Watched}
 import grit.core.id.ClaimHolder
 import grit.core.identity.Account
@@ -40,12 +41,14 @@ object Reply {
   * waits on `watch` as [[Routes.watchOf]] reads its body. Nothing else runs anything.
   *
   * `project_claim`'s `holder` is passed on as [[BriefFiles.slot]] maps it; once the claim is done,
-  * `project_brief` for its key and role, at most [[BriefFiles.BriefChars]] characters, is written
-  * to that slot's file in `briefs`.
+  * `project_brief` for its key and role, at most [[DocRef.BriefChars]] characters (what Claude
+  * Code injects from one hook whole, with room for the hook's JSON), is written to that slot's
+  * file in `briefs`.
   * `project_release` takes its key alone and is passed on as given; once the release is done,
   * the slot its answer names (`{"released","holder"}` JSON) has its brief and digests deleted
   * ([[BriefFiles.delete]]). Once a
-  * `project_keep` or `project_move` is done, each live claim on its artifact's project whose slot
+  * `project_keep`, `project_move` or `project_batch` (not a dry one) is done, each live claim on
+  * its artifact's project whose slot
   * has a brief file (`project_claims`) has that file written again from `project_brief`, whether
   * or not its brief shows the artifact: a session reads its file only at a start or a compaction,
   * so a brief rewritten mid-session reaches its window at the next one, by design. A file that
@@ -185,6 +188,14 @@ final class Routes(
           rewritten(key.project).fold(changed)(why => Reply(200, s"${changed.text}\n$why"))
         case _ => changed
       }
+    case Routes.Batch =>
+      val batched = ran(name, args)
+      val dry = args.value.get("dry").flatMap(_.boolOpt).getOrElse(false)
+      text(args, "project").flatMap(ProjectKey.of(_).toOption) match {
+        case Some(project) if batched.status == 200 && !dry =>
+          rewritten(project).fold(batched)(why => Reply(200, s"${batched.text}\n$why"))
+        case _ => batched
+      }
     case _ => ran(name, args)
   }
 
@@ -206,12 +217,12 @@ final class Routes(
     Option.when(failed.nonEmpty)(s"Brief files not written again: ${failed.mkString("; ")}")
   }
 
-  /** `project_brief` for `key` and `role`, at most [[BriefFiles.BriefChars]] characters, written
+  /** `project_brief` for `key` and `role`, at most [[DocRef.BriefChars]] characters, written
     * as `slot`'s brief; or why not: the brief refused, or the file not written.
     */
   private def briefed(slot: String, key: String, role: String): Either[String, Unit] = {
     val brief =
-      ran(Routes.Brief, ujson.Obj("key" -> key, "role" -> role, "chars" -> BriefFiles.BriefChars))
+      ran(Routes.Brief, ujson.Obj("key" -> key, "role" -> role, "chars" -> DocRef.BriefChars))
     if (brief.status == 200) briefs.write(slot, brief.text) else Left(brief.text)
   }
 
@@ -354,6 +365,7 @@ object Routes {
   private[edge] val Release = "project_release"
   private val Keep = "project_keep"
   private val Move = "project_move"
+  private val Batch = "project_batch"
   private val Brief = ToolName("project_brief")
   private val Claims = ToolName("project_claims")
 

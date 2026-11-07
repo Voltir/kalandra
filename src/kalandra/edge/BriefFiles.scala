@@ -83,12 +83,6 @@ final class BriefFiles(dir: Path) {
 
 object BriefFiles {
 
-  /** 9,500: the most characters a brief file holds. Claude Code takes at most 10,000 characters
-    * from each hook on its own, past which it injects a 2,000-character preview; a brief, its
-    * hook's alone, stays under that with room for the hook's JSON.
-    */
-  val BriefChars: Int = 9500
-
   /** 2,500: the most characters a digest file holds. It is its own hook's output, so a digest
     * costs a compacted or cleared window this much at most beside its brief.
     */

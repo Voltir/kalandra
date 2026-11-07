@@ -277,6 +277,35 @@ object RoutesTests extends TestSuite {
       commands.ran.map(r => ToolName.value(r.name)).toVector ==> Vector("project_keep")
     }
 
+    test("a batch that is Done rewrites its project's brief files; a dry one rewrites none") {
+      val dir = Files.createTempDirectory("briefs")
+      val live = ujson.Obj(
+        "claims" -> ujson.Arr(
+          ujson.Obj("key" -> "m17/s8", "role" -> "builder", "holder" -> "coder-opus/3f2a")
+        )
+      )
+      val (routes, commands) = routedBy(
+        Right(CommandOutcome.Done("Done.")),
+        Vector("# claimed\n", "# batched\n"),
+        dir,
+        live.render()
+      )
+      routes.ask("POST", "/command/project_claim", claim).status ==> 200
+      val steps = """[{"command":"move","key":"m17/s9","state":"done"}]"""
+      routes.ask("POST", "/command/project_batch", s"""{"project":"m17","steps":$steps,"dry":true}""") ==>
+        Reply(200, "Done.")
+      val dry = Files.readString(dir.resolve("coder-opus__3f2a.md"))
+      routes.ask("POST", "/command/project_batch", s"""{"project":"m17","steps":$steps}""") ==>
+        Reply(200, "Done.")
+      (dry, Files.readString(dir.resolve("coder-opus__3f2a.md"))) ==> ("# claimed\n", "# batched\n")
+      commands.ran.map(r => ToolName.value(r.name)).toVector.drop(2) ==> Vector(
+        "project_batch",
+        "project_batch",
+        "project_claims",
+        "project_brief"
+      )
+    }
+
     test("release deletes the slot's brief and both its digests") {
       val dir = Files.createTempDirectory("briefs")
       val released = """{"released":"m17/s8","holder":"coder-opus/3f2a"}"""
