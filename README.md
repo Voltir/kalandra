@@ -123,6 +123,16 @@ it is a hook of its own). What a test hook saw of these events is in
 }
 ```
 
+## The serve hook
+
+`hooks/serve-hook.sh`, a SessionStart hook beside the brief hook, starts serve when none is
+running, detached so the hook returns at once, and says so in the session's context. Claude
+Code connects an HTTP MCP server only at session start (three retries, then `/mcp`), so a
+session that connected before serve answered is told to ask for `/mcp`. Its header says what it
+reports when serve runs but does not answer. Installed as
+`{ "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/serve-hook.sh", "timeout": 5 }] }`
+in `SessionStart`.
+
 ## The spool hook
 
 `hooks/spool-hook.sh` appends one line per session event to the spool serve records from
