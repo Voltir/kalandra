@@ -29,9 +29,10 @@ object Spooled {
   /** The event a spool line says, or why not: no JSON object, over [[Longest]] bytes, a kind
     * no hook writes, an ordinal not above 0, no absolute worktree to place it at, an id
     * [[SessionId.of]] refuses, a holder [[ClaimHolder.of]] refuses, a closing with no text, or a
-    * shape [[Event.Shape.of]] refuses. A commit's shape names the worktree it was made in
-    * ([[Event.Shape.committed]]), its subject cut to fit, ending `…`, when the shape would be
-    * too long with it whole, and left out when even one character of it would not fit.
+    * shape [[Event.Shape.of]] refuses. A commit's shape is every key its line gave, with the
+    * worktree it was made in under [[Event.Shape.Worktree]], its subject cut to fit, ending `…`,
+    * when the shape would be too long with it whole, and left out when even one character of it
+    * would not fit.
     * Any other shape's [[Event.Shape.Worktree]], an edit's or a read's path's own worktree, is
     * written as a place; a line whose worktree is no absolute path is refused.
     */
@@ -67,11 +68,10 @@ object Spooled {
       kind <- kindOf(k, d, o.get("t").flatMap(_.strOpt))
       shape <- kind match {
         case Event.Kind.Commit =>
-          def subjected(s: Option[String]) = Event.Shape.committed(
-            at,
+          def subjected(s: Option[String]) = Event.Shape.of(
             ujson.Obj.from(d.value.toSeq.flatMap { (k, v) =>
               if (k == Event.Shape.Subject) s.map(k -> ujson.Str(_)) else Some(k -> v)
-            })
+            } :+ (Event.Shape.Worktree -> ujson.Str(at.written)))
           )
           val subject = d.value.get(Event.Shape.Subject).flatMap(_.strOpt)
           val cuts = subject.fold(Iterator.empty[String])(s =>

@@ -172,7 +172,7 @@ object RoutesTests extends TestSuite {
   private val committed = Watched.Committed(
     ok(SessionId.of(Spooled.Harness, "s-1")),
     at,
-    ok(Event.Shape.committed(fixer, ujson.Obj("sha" -> "abc123", "subject" -> "the subject")))
+    ok(Event.Shape.committed(fixer, "abc123", Some("the subject")))
   )
 
   /** A JSON-RPC request to `method` with `params`, as `id` 7. */

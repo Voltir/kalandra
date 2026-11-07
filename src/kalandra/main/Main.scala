@@ -12,7 +12,7 @@ import grit.core.id.ConversationId
 import grit.core.model.ModelId
 import grit.core.place.Directory
 import grit.core.store.Origin
-import grit.host.checkout.LocalInstructions
+import grit.host.checkout.{LocalInstructions, Redaction}
 import grit.kit.environment.Secrets
 import grit.kit.run.{Kit, KitFailure, LocalEdge, LocalTools}
 
@@ -155,35 +155,41 @@ object Main {
     } yield (dir, kalandra, secrets)
     // The capabilities are opened in matches, not a for: a for's closures would capture them.
     read.flatMap { (dir, kalandra, secrets) =>
-      LocalEdge.over(
-        dir,
-        new LocalTools(kalandra.offer.tools),
-        new LocalInstructions(),
-        LoggerFactory.getLogger("kalandra.chat")
-      ) match {
-        case Left(refused) => Left(s"the coding tools cannot be offered: ${refused.message}")
-        case Right(here) =>
-          val clock = Clock.system()
-          Kit.console(kalandra, secrets, Duration.Zero, clock, here) match {
-            case Left(failure) => Left(said(failure))
-            case Right(opener) =>
-              Right(
-                Chat.run(
-                  opener,
-                  ChatOrigin(dir),
-                  model = ModelId.value(kalandra.policy.turn.first.assignment.ref.model),
-                  session = s"kalandra · ${Directory.value(dir)}",
-                  Theme.Default,
-                  Kalandra.TurnBudget,
-                  CharEstimate,
-                  prefs = None,
-                  log = Some(log),
-                  clock,
-                  Fresh.random()
+      val clock = Clock.system()
+      val fresh = Fresh.random()
+      // grit.app's redaction: every secret the process holds, OpenRouter's key among them, since
+      // a command the tools run sees the process's own environment.
+      val tools = new LocalTools(kalandra.offer.tools, Redaction.of(raw), clock, fresh)
+      try
+        LocalEdge.over(
+          dir,
+          tools,
+          new LocalInstructions(),
+          LoggerFactory.getLogger("kalandra.chat")
+        ) match {
+          case Left(refused) => Left(refused.refusing("the coding tools"))
+          case Right(here) =>
+            Kit.console(kalandra, secrets, Duration.Zero, clock, here) match {
+              case Left(failure) => Left(said(failure))
+              case Right(opener) =>
+                Right(
+                  Chat.run(
+                    opener,
+                    ChatOrigin(dir),
+                    model = ModelId.value(kalandra.policy.turn.first.assignment.ref.model),
+                    session = s"kalandra · ${Directory.value(dir)}",
+                    Theme.Default,
+                    Kalandra.TurnBudget,
+                    CharEstimate,
+                    prefs = None,
+                    log = Some(log),
+                    clock,
+                    fresh
+                  )
                 )
-              )
-          }
-      }
+            }
+        }
+      finally tools.close()
     }
   }
 
