@@ -126,8 +126,31 @@ serve_start() {
   return 1
 }
 
+# Whether the systemd user unit (ops/systemd/kalandra-serve.service) owns serve: then start, stop
+# and restart go through it, so a serve started by hand never races the unit for the port.
+unit=kalandra-serve.service
+managed() {
+  [[ "$listen" == 127.0.0.1:7317 ]] && systemctl --user is-enabled --quiet "$unit" 2>/dev/null
+}
+
+# serve's unit told to `$1`, then, but for a stop, waited on until commands answer.
+unit_do() {
+  systemctl --user "$1" "$unit" || return 1
+  [[ "$1" == stop ]] && { echo "Stopped serve ($unit)."; return 0; }
+  for _ in $(seq 60); do
+    if serve_answers; then
+      echo "serve ${1}ed by $unit (pid $(serve_pids | head -n 1))"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "serve did not answer within 120 s; see journalctl --user -u $unit and $root/logs/serve.log" >&2
+  return 1
+}
+
 serve_status() {
   local ps
+  if managed; then echo "managed by $unit: $(systemctl --user is-active "$unit")"; fi
   ps="$(serve_pids)"
   if [[ -z "$ps" ]]; then
     echo "serve pids: none"
@@ -151,13 +174,13 @@ case "$1" in
     exec "$root/hooks/brief-hook.sh" --slot "${2-}"
     ;;
   stop)
-    serve_stop
+    if managed; then unit_do stop; else serve_stop; fi
     ;;
   start)
-    serve_start
+    if managed; then unit_do start; else serve_start; fi
     ;;
   restart)
-    serve_stop && serve_start
+    if managed; then unit_do restart; else serve_stop && serve_start; fi
     ;;
   status)
     serve_status

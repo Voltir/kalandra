@@ -75,6 +75,19 @@ bin/kalandra export m17 /tmp/m17        # the project's export files, through a 
 A command through `bin/kalandra` fails loud, exit 2, when serve is not running. Use `start` and
 `stop` rather than signalling serve by hand: a pattern kill matches its own shell.
 
+**Kept up by systemd.** Where systemd runs (on WSL, `[boot] systemd=true` in `/etc/wsl.conf`),
+`ops/systemd/kalandra-serve.service` runs serve at boot and starts it again 10 s after it exits,
+including while Postgres, under Docker Desktop, is not yet up. Once the unit is enabled, `start`,
+`stop` and `restart` go through it and `status` says so. Installed, with the nightly backup, by:
+
+```bash
+for u in kalandra-serve.service kalandra-backup.service kalandra-backup.timer; do
+  systemctl --user link "$PWD/ops/systemd/$u"
+done
+systemctl --user enable --now kalandra-serve.service kalandra-backup.timer
+loginctl enable-linger "$USER"   # user units run without a login session
+```
+
 ## The brief hook
 
 `hooks/brief-hook.sh` puts a claimed brief in a Claude Code session's context, or in a
