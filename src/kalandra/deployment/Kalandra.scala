@@ -103,13 +103,13 @@ object Kalandra {
   /** A turn's model calls: 12, enough for triage to read the store short and then act. */
   val TurnCalls: Int = 12
 
-  /** The input a turn's request may reach, as its provider counts it: the window
-    * ([[TurnBudget]]) plus 40,000 tokens, the growth a turn was allowed over its first request
-    * before grit's limit became absolute (grit 8c5bb1c3). Once a reply's input plus the largest
-    * growth of a round so far meets it, the turn's next call is its last with tools, and it is
-    * told so; a turn can pass it by one round's results (`TurnLoop.Rounds`).
+  /** The input a turn's request may reach, as its provider counts it: 200,000 tokens, so a
+    * long planning session's turn grows from its [[TurnBudget]] window without being cut. Once
+    * a reply's input plus the largest growth of a round so far meets it, the turn's next call
+    * is its last with tools, and it is told so; a turn can pass it by one round's results
+    * (`TurnLoop.Rounds`).
     */
-  val TurnLimit: Tokens = TurnBudget + Tokens(40_000)
+  val TurnLimit: Tokens = Tokens(200_000)
 
   /** The most a day spends on model calls: $1. */
   val DailyLimit: DailyCap =
