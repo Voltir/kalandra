@@ -104,6 +104,18 @@ object AdoptionTests extends TestSuite {
         Right((key, version(7), Vector(Replace("A.", "B.\n\nC."), Replace("D.", ""))))
     }
 
+    test("a diff's section is the artifact its Against line cites, whatever its title holds") {
+      val kept = Body.markdown(
+        right(
+          Body.read(
+            "## Diff\n\nAgainst [How a coder works [draft] (v2)](artifact:p/standing) at version 7." +
+              "\n\n" + block("old", "A.") + "\n\n" + block("new", "B.")
+          )
+        )
+      )
+      Diff.read(kept).map(d => (d.section, d.against)) ==> Right((key, version(7)))
+    }
+
     test(
       "a diff with no Against line, no old block, or an unpaired block is refused, saying which"
     ) {

@@ -61,13 +61,14 @@ object Diff {
 
   /** The diff `markdown` (an amendment's body as [[Body.markdown]] writes it) holds, wherever in
     * it its lines and blocks sit, or why not, in words: no line `Against [<title>](artifact:<key>)
-    * at version <n>.`, or more than one; no code block tagged `old`; an `old` block not followed
-    * at once by one tagged `new`, or a `new` block after no `old`. An empty `new` block deletes
-    * its `old` text.
+    * at version <n>.`, or more than one; one citing no artifact, or several, or what
+    * [[Body.read]] refuses of it; no code block tagged `old`; an `old` block not followed at once
+    * by one tagged `new`, or a `new` block after no `old`. An empty `new` block deletes its `old`
+    * text.
     */
   def read(markdown: String): Either[String, Diff] = {
-    val against = markdown.split("\n", -1).toVector.flatMap(Against.unapplySeq(_)).collect {
-      case List(key, version) => (key, version)
+    val against = markdown.split("\n", -1).toVector.flatMap { line =>
+      Against.unapplySeq(line).collect { case List(version) => (line, version) }
     }
     val tagged = Markdown.parse(markdown, Markdown.Newline.Space).blocks.collect {
       case Block.Code(Some(tag), lines) if tag == "old" || tag == "new" =>
@@ -80,7 +81,14 @@ object Diff {
           Left("it has no line `Against [<title>](artifact:<key>) at version <n>.`")
         case several => Left(s"it has ${several.size} lines `Against … at version …`, not one")
       }
-      section <- ArtifactKey.read(named._1)
+      section <- Body
+        .read(named._1)
+        .flatMap(line =>
+          Body.cites(line) match {
+            case Vector(one) => Right(one)
+            case several => Left(s"its line `Against …` cites ${several.size} artifacts, not one")
+          }
+        )
       version <- named._2.toLongOption
         .flatMap(DocumentVersionId.of)
         .toRight(s"version ${named._2} is no version")
@@ -88,7 +96,8 @@ object Diff {
     } yield Diff(section, version, edits)
   }
 
-  private val Against = raw"Against \[[^\]]*\]\(artifact:([^)\s]+)\) at version ([0-9]+)\.".r
+  /** A line naming the version a diff is against, its section the artifact the rest cites. */
+  private val Against = raw"Against .+ at version ([0-9]+)\.".r
 
   /** `blocks`, tagged `old` or `new`, read as replacements after `done`. */
   @annotation.tailrec
