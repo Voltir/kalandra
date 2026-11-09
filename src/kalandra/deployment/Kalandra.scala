@@ -29,7 +29,7 @@ import grit.core.visibility.{
   Visibility
 }
 import grit.kit.deployment.{Assembly, Deployment, Offer, Offered, Placer, Rounds}
-import grit.projects.plugin.Projects
+import grit.projects.plugin.{Projects, TurnCommands}
 
 import kalandra.edge.ClaudeCodeEdge
 import kalandra.method.GritMethod
@@ -110,6 +110,13 @@ object Kalandra {
     */
   val TurnLimit: Tokens = Tokens(200_000)
 
+  /** What serve's turns are offered of the projects plugin: its shipped commands, a move of an
+    * amendment to adopted refused ([[Projects.guardedMove]]), which only a person makes, through
+    * the edge's `project_adopt`.
+    */
+  val ServeTurns: TurnCommands =
+    TurnCommands.Shipped(Set(GritMethod.Amendment -> GritMethod.Adopted))
+
   /** The most a day spends on model calls: $1. */
   val DailyLimit: DailyCap =
     DailyCap.of("1").fold(why => throw new IllegalStateException(why), identity)
@@ -157,7 +164,7 @@ object Kalandra {
     for {
       rounds <- Rounds.of(TurnCalls).flatMap(_.within(TurnLimit))
       methods <- GritMethod.declared.left.map(_.mkString("; "))
-      projects <- Projects.of(methods, GritMethod.Name).left.map(_.toString)
+      projects <- Projects.of(methods, GritMethod.Name, ServeTurns).left.map(_.toString)
       visible <- visibility(checkout)
       persona <- Persona.of("Kalandra")
       identities <- Identities

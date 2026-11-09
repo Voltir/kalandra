@@ -386,6 +386,21 @@ object RoutesTests extends TestSuite {
       ) ==> (409, 409, 0, 200)
     }
 
+    test(
+      "a move or a batch step to adopted is refused with the plugin's wording for a turn's, then the way a person adopts"
+    ) {
+      val (routes, _) = amending(100)
+      val key = ArtifactKey.read("m17/amend").fold(e => sys.error(e.toString), identity)
+      val said = Projects.guardedMove(key, GritMethod.Amendment, GritMethod.Adopted)
+      val steps = """[{"command":"move","key":"m17/amend","state":"adopted"}]"""
+      (
+        routes
+          .ask("POST", "/command/project_move", """{"key":"m17/amend","state":"adopted"}""")
+          .text,
+        routes.ask("POST", "/command/project_batch", s"""{"project":"m17","steps":$steps}""").text
+      ) ==> (s"$said ${Routes.Adopting}", s"$said ${Routes.Adopting}")
+    }
+
     test("project_adopt of an amendment whose section is missing is refused 409, nothing batched") {
       val (routes, commands) = routedBy(
         Right(CommandOutcome.Done("Kept. Moved.")),

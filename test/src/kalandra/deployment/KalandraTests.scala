@@ -8,7 +8,10 @@ import grit.core.spend.DailyCap
 import grit.core.tool.ToolName
 import grit.core.visibility.{Labelled, Party, Room}
 import grit.kit.deployment.{Assembly, Placer}
+import grit.projects.name.{KindName, StateName}
+import grit.projects.plugin.{Projects, TurnCommands}
 
+import kalandra.method.GritMethod
 import utest.*
 
 object KalandraTests extends TestSuite {
@@ -87,6 +90,33 @@ object KalandraTests extends TestSuite {
       "a turn makes at most 12 model calls, and its input may reach 200,000 tokens before it is told to act"
     ) {
       (kalandra.offer.rounds.calls, kalandra.offer.rounds.limit) ==> (12, Some(Tokens(200_000)))
+    }
+
+    test(
+      "serve's turns may not move an amendment to adopted, and its plugin is built with that guard"
+    ) {
+      // A turn's refused move is the plugin's (grit's ProjectCommandsTests); a Tx cannot be opened
+      // outside grit, so what is pinned here is that serve's plugin holds the guard, a state
+      // Projects.of refuses unless the method has it.
+      (
+        Kalandra.ServeTurns,
+        Projects
+          .of(
+            GritMethod.declared.fold(e => sys.error(e.mkString), identity),
+            GritMethod.Name,
+            Kalandra.ServeTurns
+          )
+          .isRight
+      ) ==> (
+        TurnCommands.Shipped(
+          Set(
+            KindName
+              .of("amendment")
+              .fold(sys.error, identity) -> StateName.of("adopted").fold(sys.error, identity)
+          )
+        ),
+        true
+      )
     }
 
     test(

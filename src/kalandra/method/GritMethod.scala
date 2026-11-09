@@ -61,6 +61,12 @@ object GritMethod {
   /** `grit`: the method's name, the deployment's default. */
   val Name: MethodName = name(MethodName.of("grit"))
 
+  /** `amendment`: version 4's kind of an edit proposed to a section's standing text. */
+  val Amendment: KindName = kind(KindName.of("amendment"))
+
+  /** `adopted`: the state an amendment is adopted in, which only a person moves it to. */
+  val Adopted: StateName = state(StateName.of("adopted"))
+
   /** Version 1, which the project `restore-check` holds to. */
   def v1: Either[Vector[String], Method] = method(1, declaredV1)
 
@@ -433,5 +439,11 @@ object GritMethod {
 
   // A literal the name's constructor accepts.
   private def name(n: Either[String, MethodName]): MethodName =
+    n.fold(why => throw new IllegalStateException(why), identity)
+
+  private def kind(n: Either[String, KindName]): KindName =
+    n.fold(why => throw new IllegalStateException(why), identity)
+
+  private def state(n: Either[String, StateName]): StateName =
     n.fold(why => throw new IllegalStateException(why), identity)
 }

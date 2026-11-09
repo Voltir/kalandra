@@ -22,6 +22,7 @@ import grit.projects.render.ProjectMarkdown
 
 import kalandra.amend.{AdoptRefusal, Adoption, Candidate, Diff, StandingSection}
 import kalandra.capture.Spooled
+import kalandra.method.GritMethod
 
 /** What the edge answers one request: an HTTP status, its text, and that text's content type. */
 final case class Reply(status: Int, text: String, contentType: String = Reply.PlainText)
@@ -200,8 +201,9 @@ final class Routes(
               )
         }
     case Routes.Move if text(args, "state").contains(Routes.Adopted) =>
-      Reply(409, Routes.AdoptedOnly)
-    case Routes.Batch if Routes.adopts(args) => Reply(409, Routes.AdoptedOnly)
+      Reply(409, Routes.adoptedOnly(text(args, "key")))
+    case Routes.Batch if Routes.adopts(args).nonEmpty =>
+      Reply(409, Routes.adoptedOnly(Routes.adopts(args).flatten))
     case Routes.Keep | Routes.Move =>
       val changed = ran(name, args)
       text(args, "key").flatMap(ArtifactKey.read(_).toOption) match {
@@ -485,25 +487,43 @@ object Routes {
   private val Amendment = "amendment"
 
   /** `adopted`: the state only `project_adopt` moves an amendment to. */
-  private val Adopted = "adopted"
+  private val Adopted = StateName.value(GritMethod.Adopted)
 
-  private val AdoptedOnly =
-    "an amendment is adopted only through project_adopt, which keeps its section's next " +
-      "version under the section's cap: run that with the amendment's key"
+  /** Why a move of the artifact `key` names to adopted is refused: [[Projects.guardedMove]]'s
+    * wording, the plugin's own for a turn's such move, then [[Adopting]]; [[Adopting]] alone
+    * when `key` is none or no artifact's key.
+    */
+  private def adoptedOnly(key: Option[String]): String =
+    key
+      .flatMap(ArtifactKey.read(_).toOption)
+      .fold(Adopting)(k =>
+        s"${Projects.guardedMove(k, GritMethod.Amendment, GritMethod.Adopted)} $Adopting"
+      )
+
+  /** What follows [[Projects.guardedMove]] when the edge refuses a move to adopted: how a person
+    * adopts an amendment.
+    */
+  val Adopting: String =
+    "A person adopts an amendment through project_adopt, which keeps its section's next " +
+      "version under the section's cap: run that with the amendment's key."
 
   private val KeyAlone = "give key, an amendment's or a standing section's, alone"
 
-  /** Whether `args`, a `project_batch`'s, holds a step moving an artifact to [[Adopted]]. */
-  private def adopts(args: ujson.Obj): Boolean =
+  /** The first step of `args`, a `project_batch`'s, moving an artifact to [[Adopted]]: the key
+    * it names, when it names one; none when no step does.
+    */
+  private def adopts(args: ujson.Obj): Option[Option[String]] =
     args.value
       .get("steps")
       .flatMap(_.arrOpt)
-      .exists(_.exists { s =>
-        s.objOpt.exists(o =>
-          o.get("command").flatMap(_.strOpt).contains("move") &&
-            o.get("state").flatMap(_.strOpt).contains(Adopted)
-        )
-      })
+      .flatMap(_.collectFirst(Function.unlift { (s: ujson.Value) =>
+        s.objOpt.collect {
+          case o
+              if o.get("command").flatMap(_.strOpt).contains("move") &&
+                o.get("state").flatMap(_.strOpt).contains(Adopted) =>
+            o.get("key").flatMap(_.strOpt)
+        }
+      }))
 
   /** A live claim, from the claims' answer: its artifact's key, its role, and the slot it is for. */
   private final case class Held(key: String, role: String, slot: String)
