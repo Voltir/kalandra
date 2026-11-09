@@ -15,7 +15,8 @@ object AdoptionTests extends TestSuite {
   private val key = right(ArtifactKey.read("p/standing"))
   private def version(n: Long) = DocumentVersionId.of(n).getOrElse(sys.error("no version"))
 
-  private val below = "You make one change, café.\n\n## Rules\n\n- Stay in scope.\n- Never push."
+  /** A standing text with a character outside the BMP, two UTF-16 units and one code point. */
+  private val below = "You make one change, café𝄞.\n\n## Rules\n\n- Stay in scope.\n- Never push."
 
   /** A standing section as it is kept, its cap as `cap` writes it. */
   private def section(cap: String, text: String = below): Artifact =
@@ -64,7 +65,7 @@ object AdoptionTests extends TestSuite {
       (
         standing(section("100")).map(s => (s.cap, s.text, s.size, s.file)),
         standing(section("3,550")).map(_.cap)
-      ) ==> (Right((100, below, 68, below + "\n")), Right(3550))
+      ) ==> (Right((100, below, 69, below + "\n")), Right(3550))
     }
 
     test("no cap, two caps, no rule, or a blank text below it is no standing section") {
@@ -145,7 +146,7 @@ object AdoptionTests extends TestSuite {
 
     test("a candidate over its cap is refused, saying by how much") {
       Adoption.candidate(redFirst, section("80"), version(7)).left.map(_.message) ==>
-        Left("p/standing's standing text would be 89 characters, over its cap of 80: cut 9")
+        Left("p/standing's standing text would be 90 characters, over its cap of 80: cut 10")
     }
 
     test("a diff against another version of its section is refused, naming both") {
