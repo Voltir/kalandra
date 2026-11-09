@@ -40,10 +40,9 @@ object RoutesTests extends TestSuite {
 
   /** Records each run and answers `answer`, as [[PluginCommands.run]] would for a command it
     * ran or refused; but `project_brief`, which answers each of `briefs` in turn as done,
-    * `project_claims`, which answers `claims` as done, and `project_show` when `shows` holds any
-    * artifact: it answers the text `shows` holds for its key as done, and refuses a key it does
-    * not hold as [[grit.projects.plugin.ProjectCommands]] does. With `shows` empty, `project_show`
-    * stands in for any command, answering `answer`.
+    * `project_claims`, which answers `claims` as done, and `project_show`, which answers the text
+    * `shows` holds for its key as done, and refuses a key it does not hold as
+    * [[grit.projects.plugin.ProjectCommands]] does.
     */
   private final class Recording(
       answer: Either[CommandError, CommandOutcome],
@@ -68,7 +67,7 @@ object RoutesTests extends TestSuite {
       else if (ToolName.value(name) == "project_claims") Right(CommandOutcome.Done(claims))
       else if (ToolName.value(name) == "project_show")
         args.obj.get("key").flatMap(_.strOpt) match {
-          case Some(key) if shows.nonEmpty =>
+          case Some(key) =>
             shows.get(key) match {
               case Some(text) => Right(CommandOutcome.Done(text))
               case None =>
@@ -85,7 +84,7 @@ object RoutesTests extends TestSuite {
 
   /** What [[Recording]] offers unless told otherwise: the commands these tests run. */
   private def Offered: Vector[ToolSchema] =
-    Vector("project_show", "project_claim").map(n => ToolSchema(n, s"$n.", keyed()))
+    Vector("project_list", "project_claim").map(n => ToolSchema(n, s"$n.", keyed()))
 
   private val at = Instant.parse("2026-10-27T12:00:00Z")
 
@@ -602,13 +601,13 @@ object RoutesTests extends TestSuite {
       "POST /command/<name> runs it as the owner in the room, believed as given, its body as arguments"
     ) {
       val (routes, commands) = routed(Right(CommandOutcome.Done("shown")))
-      routes.ask("POST", "/command/project_show", """{"key":"m17/s6"}""") ==> Reply(200, "shown")
+      routes.ask("POST", "/command/project_list", """{"key":"m17/s6"}""") ==> Reply(200, "shown")
       commands.ran.toVector ==> Vector(
         Ran(
           owner,
           room,
           Integrity.Member,
-          ToolName("project_show"),
+          ToolName("project_list"),
           ujson.Obj("key" -> "m17/s6"),
           at
         )
@@ -690,7 +689,7 @@ object RoutesTests extends TestSuite {
     test("tools/list lists each offered command, each taking its key alone") {
       val (routes, _) = offering(
         Vector(
-          ToolSchema("project_show", "Shows an artifact.", keyed()),
+          ToolSchema("project_list", "Lists artifacts.", keyed()),
           ToolSchema("project_release", "Releases a claim.", keyed())
         )
       )
@@ -701,8 +700,8 @@ object RoutesTests extends TestSuite {
           ujson.Obj(
             "tools" -> ujson.Arr(
               ujson.Obj(
-                "name" -> "project_show",
-                "description" -> "Shows an artifact.",
+                "name" -> "project_list",
+                "description" -> "Lists artifacts.",
                 "inputSchema" -> keyed()
               ),
               ujson.Obj(
@@ -724,7 +723,7 @@ object RoutesTests extends TestSuite {
           "/mcp",
           request(
             "tools/call",
-            ujson.Obj("name" -> "project_show", "arguments" -> ujson.Obj("key" -> "m17/s6"))
+            ujson.Obj("name" -> "project_list", "arguments" -> ujson.Obj("key" -> "m17/s6"))
           )
         )
       ) ==> (
@@ -741,7 +740,7 @@ object RoutesTests extends TestSuite {
           owner,
           room,
           Integrity.Member,
-          ToolName("project_show"),
+          ToolName("project_list"),
           ujson.Obj("key" -> "m17/s6"),
           at
         )
@@ -791,7 +790,7 @@ object RoutesTests extends TestSuite {
         routes.ask(
           "POST",
           "/mcp",
-          request("tools/call", ujson.Obj("name" -> "project_show", "arguments" -> ujson.Arr()))
+          request("tools/call", ujson.Obj("name" -> "project_list", "arguments" -> ujson.Arr()))
         ),
         routes.ask("POST", "/mcp", "{not json"),
         routes.ask("POST", "/mcp", """[{"jsonrpc":"2.0","id":1,"method":"ping"}]""")
@@ -819,7 +818,7 @@ object RoutesTests extends TestSuite {
       )
         .flatMap(o =>
           Vector(
-            routes.answer("POST", "/command/project_show", Some(o), Some("127.0.0.1:7317"), show),
+            routes.answer("POST", "/command/project_list", Some(o), Some("127.0.0.1:7317"), show),
             routes.answer("POST", "/mcp", Some(o), Some("127.0.0.1:7317"), list)
           )
         )
@@ -833,7 +832,7 @@ object RoutesTests extends TestSuite {
       Vector(Some("evil.example:7317"), Some("127.0.0.1:80"), Some("localhost"), None)
         .flatMap(h =>
           Vector(
-            routes.answer("POST", "/command/project_show", None, h, show),
+            routes.answer("POST", "/command/project_list", None, h, show),
             routes.answer(
               "POST",
               "/mcp",
@@ -851,11 +850,11 @@ object RoutesTests extends TestSuite {
       val (routes, commands) = routed(Right(CommandOutcome.Done("shown")))
       val show = """{"key":"m17/s6"}"""
       Vector(
-        routes.answer("POST", "/command/project_show", None, Some("127.0.0.1:7317"), show),
-        routes.answer("POST", "/command/project_show", None, Some("LocalHost:7317"), show),
+        routes.answer("POST", "/command/project_list", None, Some("127.0.0.1:7317"), show),
+        routes.answer("POST", "/command/project_list", None, Some("LocalHost:7317"), show),
         routes.answer(
           "POST",
-          "/command/project_show",
+          "/command/project_list",
           Some("http://[::1]:5173"),
           Some("localhost:7317"),
           show
