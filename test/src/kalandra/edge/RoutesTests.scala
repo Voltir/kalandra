@@ -292,7 +292,11 @@ object RoutesTests extends TestSuite {
       )
       routes.ask("POST", "/command/project_claim", claim).status ==> 200
       val steps = """[{"command":"move","key":"m17/s9","state":"done"}]"""
-      routes.ask("POST", "/command/project_batch", s"""{"project":"m17","steps":$steps,"dry":true}""") ==>
+      routes.ask(
+        "POST",
+        "/command/project_batch",
+        s"""{"project":"m17","steps":$steps,"dry":true}"""
+      ) ==>
         Reply(200, "Done.")
       val dry = Files.readString(dir.resolve("coder-opus__3f2a.md"))
       routes.ask("POST", "/command/project_batch", s"""{"project":"m17","steps":$steps}""") ==>

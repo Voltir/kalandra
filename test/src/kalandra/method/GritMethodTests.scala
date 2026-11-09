@@ -42,6 +42,12 @@ object GritMethodTests extends TestSuite {
         Right("b08f7ac5f0a18cdfffcec83468e48295d3f2e1bb11dc49cf31b8869457c80a1f")
     }
 
+    test("version 3 keeps the digest the project grit pins") {
+      // The pin grit_kalandra's project grit holds; its brief headers show cdae558df99d.
+      GritMethod.v3.map(_.digest) ==>
+        Right("cdae558df99dfaeb924b1eb863a10004196e1bab2cdb65e90d49a42cdfb74f47")
+    }
+
     test("version 2's milestone sits later, next, now or parallel and ends done or dropped") {
       val milestone =
         version(2).kinds
