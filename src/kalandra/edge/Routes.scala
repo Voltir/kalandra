@@ -9,15 +9,18 @@ import scala.concurrent.duration.*
 import grit.core.clock.Clock
 import grit.core.document.DocRef
 import grit.core.edge.{CommandError, EdgeWatch, PluginCommands, WatchError, WatchFor, Watched}
-import grit.core.id.ClaimHolder
+import grit.core.id.{ClaimHolder, DocumentVersionId}
 import grit.core.identity.Account
 import grit.core.place.Place
 import grit.core.plugin.CommandOutcome
 import grit.core.tool.ToolName
 import grit.core.visibility.Integrity
-import grit.projects.name.{ArtifactKey, ProjectKey, StateName}
+import grit.projects.artifact.{Artifact, Body}
+import grit.projects.name.{ArtifactKey, KindName, ProjectKey, StateName}
 import grit.projects.plugin.Projects
+import grit.projects.render.ProjectMarkdown
 
+import kalandra.amend.{AdoptRefusal, Adoption, Candidate, Diff, StandingSection}
 import kalandra.capture.Spooled
 
 /** What the edge answers one request: an HTTP status, its text, and that text's content type. */
@@ -54,6 +57,21 @@ object Reply {
   * so a brief rewritten mid-session reaches its window at the next one, by design. A file that
   * cannot be written or deleted, a brief or the claims refused, or a release answer naming no
   * slot, is said after the command's text; the command stays done.
+  *
+  * Two commands are the edge's own, neither offered as a tool, so only a person reaches them
+  * (`bin/kalandra standing|adopt`); each takes `key` alone and answers a refusal 409, keeping
+  * nothing:
+  *   - `project_standing`: a standing section's text ([[kalandra.amend.StandingSection.file]]),
+  *     or, for an amendment, its candidate's ([[kalandra.amend.Adoption.candidate]]), the
+  *     section it amends shown as it is now;
+  *   - `project_adopt`: an amendment's candidate kept as its section's next version, at the
+  *     version the diff is against, and the amendment moved to `adopted`, in one
+  *     `project_batch`, which refuses both unless its checks hold; brief files then written
+  *     again as after a batch.
+  *
+  * A `project_move` to `adopted`, or a `project_batch` with a step moving to it, is refused 409
+  * and runs nothing: an amendment is adopted only through `project_adopt`, under its section's
+  * cap. A keep of the section is not refused: that is how a cap is changed.
   *
   * Every request is first checked as coming from this machine, since a web page can send one
   * too (through DNS rebinding, with its own name as `Host`): see [[answer]].
@@ -181,6 +199,9 @@ final class Routes(
                 _ => Reply(200, s"Released $key.")
               )
         }
+    case Routes.Move if text(args, "state").contains(Routes.Adopted) =>
+      Reply(409, Routes.AdoptedOnly)
+    case Routes.Batch if Routes.adopts(args) => Reply(409, Routes.AdoptedOnly)
     case Routes.Keep | Routes.Move =>
       val changed = ran(name, args)
       text(args, "key").flatMap(ArtifactKey.read(_).toOption) match {
@@ -188,15 +209,100 @@ final class Routes(
           rewritten(key.project).fold(changed)(why => Reply(200, s"${changed.text}\n$why"))
         case _ => changed
       }
-    case Routes.Batch =>
-      val batched = ran(name, args)
-      val dry = args.value.get("dry").flatMap(_.boolOpt).getOrElse(false)
-      text(args, "project").flatMap(ProjectKey.of(_).toOption) match {
-        case Some(project) if batched.status == 200 && !dry =>
-          rewritten(project).fold(batched)(why => Reply(200, s"${batched.text}\n$why"))
-        case _ => batched
-      }
+    case Routes.Batch => batched(args)
+    case Routes.Standing => standing(args)
+    case Routes.Adopt => adopted(args)
     case _ => ran(name, args)
+  }
+
+  /** `project_batch` run with `args`, then, when it was done and not dry, its project's brief
+    * files written again.
+    */
+  private def batched(args: ujson.Obj): Reply = {
+    val done = ran(Routes.Batching, args)
+    val dry = args.value.get("dry").flatMap(_.boolOpt).getOrElse(false)
+    text(args, "project").flatMap(ProjectKey.of(_).toOption) match {
+      case Some(project) if done.status == 200 && !dry =>
+        rewritten(project).fold(done)(why => Reply(200, s"${done.text}\n$why"))
+      case _ => done
+    }
+  }
+
+  /** `project_standing`: the standing text of the section `key`, or of an amendment's
+    * candidate.
+    */
+  private def standing(args: ujson.Obj): Reply =
+    (for {
+      key <- text(args, "key").toRight(Reply(400, Routes.KeyAlone))
+      shown <- this.shown(key)
+      text <-
+        if (KindName.value(shown._1.head.kind) == Routes.Amendment)
+          candidate(shown._1).map(_._3.standing.file)
+        else
+          StandingSection
+            .of(shown._1.head.key, Body.markdown(shown._1.body))
+            .map(_.file)
+            .left
+            .map(r => Reply(409, r.message))
+    } yield Reply(200, text)).merge
+
+  /** `project_adopt`: the amendment `key`'s candidate kept, and the amendment adopted, in one
+    * batch.
+    */
+  private def adopted(args: ujson.Obj): Reply =
+    (for {
+      key <- text(args, "key").toRight(Reply(400, Routes.KeyAlone))
+      amendment <- shown(key)
+      made <- candidate(amendment._1)
+      (section, version, candidate) = made
+      steps = ujson.Arr(
+        ujson.Obj(
+          "command" -> "keep",
+          "key" -> section.head.key.value,
+          "title" -> section.head.title,
+          "body" -> Body.markdown(candidate.body),
+          "version" -> DocumentVersionId.value(version).toDouble
+        ),
+        ujson.Obj("command" -> "move", "key" -> key, "state" -> Routes.Adopted)
+      )
+      done = batched(
+        ujson.Obj("project" -> ProjectKey.value(amendment._1.head.key.project), "steps" -> steps)
+      )
+      _ <- Either.cond(done.status == 200, (), done)
+    } yield Reply(
+      200,
+      s"Adopted $key: ${section.head.key.value} kept again, its standing text " +
+        f"${candidate.standing.size}%,d characters of its cap ${candidate.standing.cap}%,d.\n" +
+        done.text
+    )).merge
+
+  /** The section `amendment`'s diff names, as it is now, the version it is at, and the diff's
+    * candidate over it; or the reply refusing it.
+    */
+  private def candidate(
+      amendment: Artifact
+  ): Either[Reply, (Artifact, DocumentVersionId, Candidate)] =
+    for {
+      diff <- Diff
+        .read(Body.markdown(amendment.body))
+        .left
+        .map(why => Reply(409, AdoptRefusal.NotADiff(amendment.head.key, why).message))
+      section <- shown(diff.section.value)
+      made <- Adoption
+        .candidate(diff, section._1, section._2)
+        .left
+        .map(r => Reply(409, r.message))
+    } yield (section._1, section._2, made)
+
+  /** The artifact `key` as `project_show` gives it, read back, or the reply refusing it. */
+  private def shown(key: String): Either[Reply, (Artifact, DocumentVersionId)] = {
+    val answered = ran(Routes.Show, ujson.Obj("key" -> key))
+    if (answered.status != 200) Left(answered)
+    else
+      ProjectMarkdown
+        .readShown(answered.text)
+        .left
+        .map(why => Reply(500, s"$key as project_show gave it was not read: $why"))
   }
 
   /** Writes again the brief file of each live claim on `project` whose slot has one; what failed,
@@ -368,6 +474,36 @@ object Routes {
   private val Batch = "project_batch"
   private val Brief = ToolName("project_brief")
   private val Claims = ToolName("project_claims")
+  private val Show = ToolName("project_show")
+  private val Batching = ToolName("project_batch")
+
+  /** `project_standing` and `project_adopt`: the edge's own commands, which no plugin has. */
+  private[edge] val Standing = "project_standing"
+  private[edge] val Adopt = "project_adopt"
+
+  /** `amendment`: the kind whose diff a standing section is amended by. */
+  private val Amendment = "amendment"
+
+  /** `adopted`: the state only `project_adopt` moves an amendment to. */
+  private val Adopted = "adopted"
+
+  private val AdoptedOnly =
+    "an amendment is adopted only through project_adopt, which keeps its section's next " +
+      "version under the section's cap: run that with the amendment's key"
+
+  private val KeyAlone = "give key, an amendment's or a standing section's, alone"
+
+  /** Whether `args`, a `project_batch`'s, holds a step moving an artifact to [[Adopted]]. */
+  private def adopts(args: ujson.Obj): Boolean =
+    args.value
+      .get("steps")
+      .flatMap(_.arrOpt)
+      .exists(_.exists { s =>
+        s.objOpt.exists(o =>
+          o.get("command").flatMap(_.strOpt).contains("move") &&
+            o.get("state").flatMap(_.strOpt).contains(Adopted)
+        )
+      })
 
   /** A live claim, from the claims' answer: its artifact's key, its role, and the slot it is for. */
   private final case class Held(key: String, role: String, slot: String)

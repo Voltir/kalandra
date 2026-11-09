@@ -17,11 +17,13 @@ import grit.core.session.Event
 import grit.core.store.StoreError
 import grit.core.tool.ToolName
 import grit.core.visibility.Integrity
-import grit.projects.artifact.ArtifactJson
-import grit.projects.name.{ArtifactKey, StateName}
+import grit.projects.artifact.{Artifact, ArtifactHead, ArtifactJson, Body}
+import grit.projects.name.{ArtifactKey, KindName, StateName}
 import grit.projects.plugin.Projects
+import grit.projects.render.ProjectMarkdown
 
 import kalandra.capture.Spooled
+import kalandra.method.GritMethod
 import utest.*
 
 object RoutesTests extends TestSuite {
@@ -37,14 +39,16 @@ object RoutesTests extends TestSuite {
   )
 
   /** Records each run and answers `answer`, as [[PluginCommands.run]] would for a command it
-    * ran or refused; but `project_brief`, which answers each of `briefs` in turn as done, and
-    * `project_claims`, which answers `claims` as done.
+    * ran or refused; but `project_brief`, which answers each of `briefs` in turn as done,
+    * `project_claims`, which answers `claims` as done, and `project_show` of a key `shows` holds,
+    * which answers its text as done.
     */
   private final class Recording(
       answer: Either[CommandError, CommandOutcome],
       briefs: Vector[String] = Vector.empty,
       tools: Vector[ToolSchema] = Offered,
-      claims: String = """{"claims":[]}"""
+      claims: String = """{"claims":[]}""",
+      shows: Map[String, String] = Map.empty
   ) extends PluginCommands {
     val ran = scala.collection.mutable.ArrayBuffer.empty[Ran]
     def offered: Vector[ToolSchema] = tools
@@ -60,6 +64,11 @@ object RoutesTests extends TestSuite {
       if (name == Brief)
         Right(CommandOutcome.Done(briefs.lift(ran.count(_.name == Brief) - 1).getOrElse("")))
       else if (ToolName.value(name) == "project_claims") Right(CommandOutcome.Done(claims))
+      else if (ToolName.value(name) == "project_show")
+        args.obj.get("key").flatMap(_.strOpt).flatMap(shows.get) match {
+          case Some(text) => Right(CommandOutcome.Done(text))
+          case None => answer
+        }
       else answer
     }
   }
@@ -90,9 +99,10 @@ object RoutesTests extends TestSuite {
       answer: Either[CommandError, CommandOutcome],
       briefs: Vector[String],
       dir: Path,
-      claims: String = """{"claims":[]}"""
+      claims: String = """{"claims":[]}""",
+      shows: Map[String, String] = Map.empty
   ): (Routes^, Recording^) = {
-    val commands = new Recording(answer, briefs, claims = claims)
+    val commands = new Recording(answer, briefs, claims = claims, shows = shows)
     (
       new Routes(
         commands,
@@ -216,7 +226,169 @@ object RoutesTests extends TestSuite {
 
   private val claim = """{"key":"m17/s8","role":"builder","holder":"Coder_Opus/3F2A"}"""
 
+  private def version(n: Long) = DocumentVersionId.of(n).getOrElse(sys.error("no version"))
+
+  /** An artifact of the project `m17`, as `project_show` gives it kept as version `n`. */
+  private def shownAs(local: String, kind: String, state: String, body: String, n: Long): String =
+    ProjectMarkdown.shown(
+      Artifact(
+        ArtifactHead(
+          ok(ArtifactKey.read(s"m17/$local")),
+          ok(KindName.of(kind)),
+          ok(StateName.of(state)),
+          s"The $local",
+          None,
+          Vector.empty,
+          None
+        ),
+        ok(Body.read(body))
+      ),
+      version(n)
+    )
+
+  private val below = "You make one change.\n\n## Rules\n\n- Never push."
+
+  /** The section `m17/standing`, kept as version 7, its cap `cap` characters. */
+  private def section(cap: Int): String =
+    shownAs(
+      "standing",
+      "section",
+      "current",
+      s"**Cap: $cap characters** below.\n\n***\n\n$below",
+      7
+    )
+
+  /** The amendment `m17/amend`, benched: its diff adds a rule, against version 7. */
+  private val amendment = shownAs(
+    "amend",
+    "amendment",
+    "benched",
+    "## Diff\n\nAgainst [the standing](artifact:m17/standing) at version 7.\n\n" +
+      "```old\n- Never push.\n```\n\n```new\n- Never push.\n- Red first.\n```",
+    3
+  )
+
+  private def amending(
+      cap: Int,
+      answer: String = "Kept. Moved.",
+      dir: Path = Files.createTempDirectory("briefs")
+  ) =
+    routedBy(
+      Right(CommandOutcome.Done(answer)),
+      Vector("# adopted\n"),
+      dir,
+      ujson
+        .Obj(
+          "claims" -> ujson.Arr(
+            ujson.Obj("key" -> "m17/s9", "role" -> "grit-coder", "holder" -> "grit/7")
+          )
+        )
+        .render(),
+      Map("m17/amend" -> amendment, "m17/standing" -> section(cap))
+    )
+
   val tests = Tests {
+    test(
+      "project_adopt batches the section kept at the version shown and the amendment adopted, " +
+        "then writes brief files again"
+    ) {
+      val dir = Files.createTempDirectory("briefs")
+      Files.writeString(dir.resolve("grit__7.md"), "# before\n")
+      val (routes, commands) = amending(100, dir = dir)
+      routes.ask("POST", "/command/project_adopt", """{"key":"m17/amend"}""") ==> Reply(
+        200,
+        "Adopted m17/amend: m17/standing kept again, its standing text 58 characters of its " +
+          "cap 100.\nKept. Moved."
+      )
+      val batch = commands.ran.find(r => ToolName.value(r.name) == "project_batch").map(_.args)
+      (
+        commands.ran.map(r => ToolName.value(r.name)).toVector,
+        batch,
+        Files.readString(dir.resolve("grit__7.md"))
+      ) ==> (
+        Vector("project_show", "project_show", "project_batch", "project_claims", "project_brief"),
+        Some(
+          ujson.Obj(
+            "project" -> "m17",
+            "steps" -> ujson.Arr(
+              ujson.Obj(
+                "command" -> "keep",
+                "key" -> "m17/standing",
+                "title" -> "The standing",
+                "body" -> s"**Cap: 100 characters** below.\n\n***\n\n$below\n- Red first.",
+                "version" -> 7
+              ),
+              ujson.Obj("command" -> "move", "key" -> "m17/amend", "state" -> "adopted")
+            )
+          )
+        ),
+        "# adopted\n"
+      )
+    }
+
+    test("an amendment over its section's cap is refused 409, and nothing is batched") {
+      val (routes, commands) = amending(50)
+      (
+        routes.ask("POST", "/command/project_adopt", """{"key":"m17/amend"}"""),
+        commands.ran.map(r => ToolName.value(r.name)).toVector
+      ) ==> (
+        Reply(
+          409,
+          "m17/standing's standing text would be 58 characters, over its cap of 50: cut 8"
+        ),
+        Vector("project_show", "project_show")
+      )
+    }
+
+    test(
+      "project_standing answers a section's text, or an amendment's candidate's, and keeps nothing"
+    ) {
+      val (routes, commands) = amending(100)
+      (
+        routes.ask("POST", "/command/project_standing", """{"key":"m17/standing"}"""),
+        routes.ask("POST", "/command/project_standing", """{"key":"m17/amend"}"""),
+        commands.ran.map(r => ToolName.value(r.name)).toSet
+      ) ==> (
+        Reply(200, below + "\n"),
+        Reply(200, below + "\n- Red first.\n"),
+        Set("project_show")
+      )
+    }
+
+    test("a move or a batch step to adopted is refused 409 and runs nothing; a keep still runs") {
+      val (routes, commands) = amending(100)
+      val steps = """[{"command":"move","key":"m17/amend","state":"adopted"}]"""
+      (
+        routes
+          .ask("POST", "/command/project_move", """{"key":"m17/amend","state":"adopted"}""")
+          .status,
+        routes
+          .ask("POST", "/command/project_batch", s"""{"project":"m17","steps":$steps}""")
+          .status,
+        commands.ran.size,
+        routes
+          .ask(
+            "POST",
+            "/command/project_keep",
+            """{"key":"m17/standing","title":"S","body":"B."}"""
+          )
+          .status
+      ) ==> (409, 409, 0, 200)
+    }
+
+    test("no projects command has the edge's own commands' names") {
+      GritMethod.declared.left
+        .map(_.mkString)
+        .flatMap(Projects.of(_, GritMethod.Name).left.map(_.toString))
+        .map(
+          _.commands.map(c => ToolName.value(c.spec.name)).toSet & Set(
+            Routes.Standing,
+            Routes.Adopt
+          )
+        ) ==>
+        Right(Set())
+    }
+
     test("a claim that is Done writes the slot's brief file, a refused one writes none") {
       val dir = Files.createTempDirectory("briefs")
       val (routes, commands) =

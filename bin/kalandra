@@ -9,6 +9,10 @@
 #   bin/kalandra verify <grit>              check the project `grit` holds that tree whole
 #   bin/kalandra <command> [json]           run a projects command through a running serve:
 #                                           `keep` or `project_keep`, its arguments a JSON object
+#   bin/kalandra standing '{"key":"<key>"}'  a standing section's text, or an amendment's candidate's,
+#                                           as a bench's --standing file holds it; keeps nothing
+#   bin/kalandra adopt '{"key":"<key>"}'     keep an amendment's candidate as its section's next
+#                                           version, under the section's cap, and adopt it
 #   bin/kalandra build                      build the jar serve and export run from
 #   bin/kalandra slot [agent-type]          the slot a claim's `holder` names here, for an agent type
 #                                           in the session whose Bash runs it (hooks/brief-hook.sh)

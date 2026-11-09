@@ -88,6 +88,21 @@ systemctl --user enable --now kalandra-serve.service kalandra-backup.timer
 loginctl enable-linger "$USER"   # user units run without a login session
 ```
 
+## Amending a standing section
+
+A section that states a cap above its rule (`**Cap: N characters**`, then `***`) holds a
+standing text, which an `amendment` (GritMethod version 4) proposes to edit: its `## Diff`
+names the section and the version it is against, then `old` and `new` code blocks, exact
+replacements as a coder's edits are.
+
+```bash
+bin/kalandra standing '{"key":"grit/amend-…"}' > standing.md   # the candidate a bench runs under
+bin/kalandra adopt '{"key":"grit/amend-…"}'                    # keep it as the section, adopt the amendment
+```
+
+Both are the edge's own commands, not tools, and `adopt` is the only way an amendment reaches
+`adopted`: what each refuses is in `Routes`' and `Adoption.candidate`'s docs.
+
 ## The brief hook
 
 `hooks/brief-hook.sh` puts a claimed brief in a Claude Code session's context, or in a
