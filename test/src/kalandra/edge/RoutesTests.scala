@@ -357,7 +357,10 @@ object RoutesTests extends TestSuite {
 
     test("a move or a batch step to adopted is refused 409 and runs nothing; a keep still runs") {
       val (routes, commands) = amending(100)
-      val steps = """[{"command":"move","key":"m17/amend","state":"adopted"}]"""
+      // A harmless keep first, so a check of the first step alone lets the move through.
+      val steps =
+        """[{"command":"keep","key":"m17/note","title":"N","body":"B."},""" +
+          """{"command":"move","key":"m17/amend","state":"adopted"}]"""
       (
         routes
           .ask("POST", "/command/project_move", """{"key":"m17/amend","state":"adopted"}""")
