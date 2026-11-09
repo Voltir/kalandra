@@ -29,7 +29,6 @@ import grit.core.visibility.{
   Visibility
 }
 import grit.kit.deployment.{Assembly, Deployment, Offer, Offered, Placer, Rounds}
-import grit.projects.method.{Example, Method}
 import grit.projects.plugin.Projects
 
 import kalandra.edge.ClaudeCodeEdge
@@ -157,11 +156,8 @@ object Kalandra {
   def deployment(checkout: Directory): Either[String, Deployment] =
     for {
       rounds <- Rounds.of(TurnCalls).flatMap(_.within(TurnLimit))
-      methods <- GritMethod.all.left.map(_.mkString("; "))
-      projects <- Projects
-        .of(methods.map((m: Method) => (m, Vector.empty[Example])), GritMethod.Name)
-        .left
-        .map(_.toString)
+      methods <- GritMethod.declared.left.map(_.mkString("; "))
+      projects <- Projects.of(methods, GritMethod.Name).left.map(_.toString)
       visible <- visibility(checkout)
       persona <- Persona.of("Kalandra")
       identities <- Identities

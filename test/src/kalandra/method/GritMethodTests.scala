@@ -1,8 +1,17 @@
 package kalandra.method
 
 import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project}
-import grit.projects.method.{Method, Migrated, Remap}
-import grit.projects.name.{ArtifactKey, KindName, LocalKey, Pin, ProjectKey, RoleName, StateName}
+import grit.projects.method.{Method, MethodBench, Migrated, Remap}
+import grit.projects.name.{
+  ArtifactKey,
+  CheckName,
+  KindName,
+  LocalKey,
+  Pin,
+  ProjectKey,
+  RoleName,
+  StateName
+}
 
 import utest.*
 
@@ -60,10 +69,7 @@ object GritMethodTests extends TestSuite {
       kinds(version(2)) ==> Set("milestone", "plan", "stage", "section", "mechanism", "note")
     }
 
-    test(
-      "version 3 is the latest: stage is checkpoint, and a backlog item is taken, folded or dropped"
-    ) {
-      methods.map(_.version) ==> Vector(1, 2, 3)
+    test("version 3: stage is checkpoint, and a backlog item is taken, folded or dropped") {
       val v3 = version(3)
       kinds(v3) ==> Set(
         "milestone",
@@ -104,6 +110,74 @@ object GritMethodTests extends TestSuite {
         ("manager", 1, kinds(version(3)), Set("roadmap-update-protocol")),
         ("reviewer", 2, kinds(version(3)), Set[String]())
       )
+    }
+
+    test(
+      "version 4 is the latest: an amendment is proposed, benched, then adopted, rejected or dropped"
+    ) {
+      methods.map(_.version) ==> Vector(1, 2, 3, 4)
+      val v4 = version(4)
+      kinds(v4) ==> kinds(version(3)) + "amendment"
+      val amendment =
+        v4.kinds.find(k => KindName.value(k.name) == "amendment").getOrElse(sys.error("none"))
+      (
+        amendment.all.map(StateName.value),
+        amendment.ends.map(StateName.value),
+        amendment.sections
+      ) ==> (
+        Vector("proposed", "benched", "adopted", "rejected", "dropped"),
+        Set("adopted", "rejected", "dropped"),
+        Vector("Diff", "Moments", "Cue", "Lesson", "Confidence", "Observable")
+      )
+      v4.transitions
+        .filter(t => KindName.value(t.kind) == "amendment")
+        .map(t =>
+          (StateName.value(t.from), StateName.value(t.to), t.checks.map(CheckName.value))
+        ) ==>
+        Vector(
+          ("proposed", "benched", Vector("sections-present")),
+          ("benched", "adopted", Vector("decided-adopt")),
+          ("benched", "rejected", Vector("decided-reject")),
+          ("proposed", "dropped", Vector()),
+          ("benched", "dropped", Vector())
+        )
+    }
+
+    test(
+      "version 4's views: a grit coder sees a coder's kinds and carries its standing section; " +
+        "only managers and reviewers see amendments"
+    ) {
+      version(4).views
+        .map(v =>
+          (
+            RoleName.value(v.role),
+            v.depth,
+            v.kinds.map(KindName.value),
+            v.carried.map(LocalKey.value)
+          )
+        )
+        .sortBy(_._1) ==> Vector(
+        (
+          "coder",
+          2,
+          Set("milestone", "plan", "checkpoint", "section", "mechanism"),
+          Set("roadmap-coder-rules")
+        ),
+        (
+          "grit-coder",
+          2,
+          Set("milestone", "plan", "checkpoint", "section", "mechanism"),
+          Set("roadmap-grit-coder")
+        ),
+        ("manager", 1, kinds(version(4)), Set("roadmap-update-protocol")),
+        ("reviewer", 2, kinds(version(4)), Set[String]())
+      )
+    }
+
+    test("version 4's worked examples come out as declared, and it alone has any") {
+      val declared = GritMethod.declared.fold(why => sys.error(why.mkString("; ")), identity)
+      declared.map((m, ex) => m.version -> ex.size) ==> Vector(1 -> 0, 2 -> 0, 3 -> 0, 4 -> 5)
+      declared.flatMap((m, ex) => MethodBench.failures(m, ex)) ==> Vector()
     }
 
     test("a version 3 milestone cannot end done while it parents an open backlog item") {

@@ -1,7 +1,10 @@
 package kalandra.method
 
+import grit.core.id.Sha256
+import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project}
 import grit.projects.method.{
   ArtifactKind,
+  Example,
   Method,
   RoleView,
   Transition,
@@ -9,7 +12,16 @@ import grit.projects.method.{
   TransitionCheck,
   TransitionChecks
 }
-import grit.projects.name.{KindName, LocalKey, MethodName, RoleName, StateName}
+import grit.projects.name.{
+  ArtifactKey,
+  KindName,
+  LocalKey,
+  MethodName,
+  Pin,
+  ProjectKey,
+  RoleName,
+  StateName
+}
 
 /** How grit itself is built, as a method (ADR 0049), in two versions.
   *
@@ -35,6 +47,14 @@ import grit.projects.name.{KindName, LocalKey, MethodName, RoleName, StateName}
   * carries the coder rules (`roadmap-coder-rules`); a `manager` every kind, one link deep, always
   * carrying the update protocol (`roadmap-update-protocol`); a `reviewer` every kind, two links
   * deep.
+  *
+  * Version 4, version 3 and an `amendment`: an edit proposed to a section's standing text
+  * (`kalandra.amend`), `proposed`, then `benched` once it holds every section its kind lists
+  * (Diff, Moments, Cue, Lesson, Confidence, Observable), then `adopted` or `rejected` only once
+  * decided so ([[AmendmentChecks]]), or `dropped` from either before. A `manager` and a
+  * `reviewer` are shown amendments too, a `coder` none; a `grit-coder` (grit's own coding turn)
+  * is shown what a coder is and always carries the grit coder's standing section
+  * (`roadmap-grit-coder`).
   */
 object GritMethod {
 
@@ -47,17 +67,32 @@ object GritMethod {
   /** Version 2, which grit's planning tree was imported into. */
   def v2: Either[Vector[String], Method] = method(2, declaredV2)
 
-  /** Version 3, the latest: what a new project holds to. */
+  /** Version 3, which the project `grit` holds to until it is migrated. */
   def v3: Either[Vector[String], Method] = method(3, declaredV3)
+
+  /** Version 4, the latest: what a new project holds to. */
+  def v4: Either[Vector[String], Method] = method(4, declaredV4)
 
   /** Every version, oldest first, or every reason one is not a method. */
   def all: Either[Vector[String], Vector[Method]] =
-    Vector(v1, v2, v3).partitionMap(identity) match {
+    Vector(v1, v2, v3, v4).partitionMap(identity) match {
       case (Vector(), methods) => Right(methods)
       case (why, _) => Left(why.flatten)
     }
 
+  /** Every version with the worked examples it is declared with (version 4's, of an
+    * amendment's moves; none before it), oldest first, or every reason one is not a method.
+    */
+  def declared: Either[Vector[String], Vector[(Method, Vector[Example])]] =
+    for {
+      methods <- all
+      worked <- amendments.left.map(Vector(_))
+    } yield methods.map(m => m -> (if (m.version == 4) worked else Vector.empty))
+
   private type Parts = (Vector[ArtifactKind], Vector[Transition], Vector[RoleView])
+
+  /** The checks the versions' transitions may name: grit's and kalandra's. */
+  private val Compiled: Vector[TransitionCheck] = TransitionChecks.all ++ AmendmentChecks.all
 
   private def method(
       version: Int,
@@ -66,7 +101,7 @@ object GritMethod {
     for {
       parts <- declared.left.map(Vector(_))
       method <- Method
-        .of(Name, version, parts._1, parts._2, parts._3, TransitionChecks.all)
+        .of(Name, version, parts._1, parts._2, parts._3, Compiled)
         .left
         .map(_.map(_.toString))
     } yield method
@@ -277,6 +312,124 @@ object GritMethod {
       p.transitions ++ Vector(taken, folded, dropped).map(move(backlog, open, _)),
       Vector(coding, managing, reviewing)
     )
+
+  private def declaredV4: Either[String, Parts] =
+    for {
+      v3 <- declaredV3
+      views: Vector[RoleView] = v3._3
+      amendment <- KindName.of("amendment")
+      proposed <- StateName.of("proposed")
+      benched <- StateName.of("benched")
+      adopted <- StateName.of("adopted")
+      rejected <- StateName.of("rejected")
+      dropped <- StateName.of("dropped")
+      coder <- RoleName.of("coder")
+      gritCoder <- RoleName.of("grit-coder")
+      standing <- LocalKey.of("roadmap-grit-coder")
+      coding <- views.find(_.role == coder).toRight("version 3 has no coder's view")
+      grit <- RoleView.of(gritCoder, coding.kinds, coding.depth, Set(standing))
+      widened <- views
+        .map(v =>
+          if (v.role == coder) Right(v)
+          else RoleView.of(v.role, v.kinds + amendment, v.depth, v.carried)
+        )
+        .partitionMap(identity) match {
+        case (Vector(), done) => Right(done)
+        case (why, _) => Left(why.mkString("; "))
+      }
+    } yield (
+      v3._1 :+ ArtifactKind(
+        amendment,
+        proposed,
+        Vector(benched, adopted, rejected, dropped),
+        Set(adopted, rejected, dropped),
+        AmendmentSections
+      ),
+      v3._2 ++ Vector(
+        move(amendment, proposed, benched, TransitionChecks.SectionsPresent),
+        move(amendment, benched, adopted, AmendmentChecks.DecidedAdopt),
+        move(amendment, benched, rejected, AmendmentChecks.DecidedReject),
+        move(amendment, proposed, dropped),
+        move(amendment, benched, dropped)
+      ),
+      widened :+ grit
+    )
+
+  /** The sections an amendment holds before it is benched. */
+  private val AmendmentSections: Vector[String] =
+    Vector("Diff", "Moments", "Cue", "Lesson", "Confidence", "Observable")
+
+  /** Version 4's worked examples, each one amendment's moves from `proposed`. */
+  private def amendments: Either[String, Vector[Example]] = {
+    import Example.Expect.{Allowed, RefusedBy}
+    val proposal = AmendmentSections.map(s => s"## $s\n\nWhat its $s says.").mkString("\n\n")
+    def decided(verb: String, features: Vector[String]): String =
+      proposal + "\n\n## Contrast\n\nkept -> amendment -> moment.\n\n## Verdict: confounded\n\n" +
+        s"One run each way.\n\n## Decision: $verb\n\n" + features
+          .map(f => s"- $f: noted.")
+          .mkString("\n")
+    for {
+      project <- ProjectKey.of("p")
+      pin <- Pin.of(Name, 4, Sha256.text("examples"))
+      kind <- KindName.of("amendment")
+      proposed <- StateName.of("proposed")
+      benched <- StateName.of("benched")
+      adopted <- StateName.of("adopted")
+      rejected <- StateName.of("rejected")
+      sections = TransitionChecks.SectionsPresent.name
+      adopt = AmendmentChecks.DecidedAdopt.name
+      reject = AmendmentChecks.DecidedReject.name
+      // Each example one amendment, `amend-<i>`, starting `proposed`, moved in turn.
+      example = (i: Int, named: String, body: String, moves: Vector[Example.Move]) =>
+        for {
+          key <- ArtifactKey.of(project, s"amend-$i")
+          read <- Body.read(body)
+          head = ArtifactHead(key, kind, proposed, named, None, Vector.empty, None)
+          start <- Project.of(project, pin, Vector(Artifact(head, read)))
+        } yield Example(named, start, moves.map(m => m.copy(key = key)))
+      placeholder <- ArtifactKey.of(project, "amend")
+      to = (state: StateName, expect: Example.Expect) => Example.Move(placeholder, state, expect)
+      examples <- Vector(
+        example(
+          0,
+          "an amendment lacking a section of its kind is not benched",
+          proposal.replace("## Lesson", "## Lessons"),
+          Vector(to(benched, RefusedBy(sections)))
+        ),
+        example(
+          1,
+          "an undecided amendment is benched, then neither adopted nor rejected",
+          proposal,
+          Vector(
+            to(benched, Allowed),
+            to(adopted, RefusedBy(adopt)),
+            to(rejected, RefusedBy(reject))
+          )
+        ),
+        example(
+          2,
+          "an amendment decided reject is rejected, never adopted",
+          decided("reject", AmendmentChecks.Features),
+          Vector(to(benched, Allowed), to(adopted, RefusedBy(adopt)), to(rejected, Allowed))
+        ),
+        example(
+          3,
+          "an amendment decided adopt, each feature named, is adopted",
+          decided("adopt", AmendmentChecks.Features),
+          Vector(to(benched, Allowed), to(adopted, Allowed))
+        ),
+        example(
+          4,
+          "an amendment decided adopt without its cost is not adopted",
+          decided("adopt", AmendmentChecks.Features.filterNot(_ == "Cost")),
+          Vector(to(benched, Allowed), to(adopted, RefusedBy(adopt)))
+        )
+      ).partitionMap(identity) match {
+        case (Vector(), done) => Right(done)
+        case (why, _) => Left(why.mkString("; "))
+      }
+    } yield examples
+  }
 
   // A literal the name's constructor accepts.
   private def name(n: Either[String, MethodName]): MethodName =
