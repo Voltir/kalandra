@@ -6,8 +6,8 @@ import grit.core.model.{ModelId, ModelRef, Upstream}
 import grit.core.place.{Directory, Place}
 import grit.core.spend.DailyCap
 import grit.core.tool.ToolName
-import grit.core.visibility.{Labelled, Party, Room}
-import grit.kit.deployment.{Assembly, Placer}
+import grit.core.visibility.{Label, Labelled, Party, Room}
+import grit.kit.deployment.{Assembly, DeploymentVersion, Offered, Placer}
 import grit.projects.name.{KindName, StateName}
 import grit.projects.plugin.{Projects, TurnCommands}
 
@@ -24,7 +24,63 @@ object KalandraTests extends TestSuite {
   private def direct(model: String): ModelRef =
     ModelRef(ModelId.of(model).getOrElse(sys.error(model)), Some(Upstream.AnthropicApi))
 
+  private val evidence: Directory =
+    Directory.of("/home/someone/.cache/grit-propose").fold(sys.error, identity)
+
+  private lazy val proposer = Kalandra.proposing(checkout, evidence).fold(sys.error, identity)
+
   val tests = Tests {
+    test(
+      "a proposer's turns are offered the coding tools' reads and project_propose alone"
+    ) {
+      (
+        proposer.offer.tools,
+        proposer.plugins
+          .flatMap(_.commands)
+          .filter(_.offeredToTurns)
+          .map(c => ToolName.value(c.spec.name))
+      ) ==> (Offered.Read, Vector("project_propose"))
+    }
+
+    test(
+      "a proposer's evidence checkouts, under its evidence root, are rooms at kalandra's label, as the checkout is"
+    ) {
+      val checkout0 =
+        Place.read("fs:/home/someone/.cache/grit-propose/propose-1").fold(sys.error, identity)
+      val rooms = proposer.visibility.rooms
+      (
+        rooms.label(Room(checkout0, None)),
+        rooms.label(Room(Kalandra.room(checkout), None)),
+        rooms.label(Room(Place.read("fs:/home/someone").fold(sys.error, identity), None))
+      ) ==> (
+        Labelled.Mapped(Kalandra.Kept),
+        Labelled.Mapped(Kalandra.Kept),
+        Labelled.Unmapped(Label.Public)
+      )
+    }
+
+    test(
+      "a proposer runs on Claude Opus 5.5 at 8,192 tokens a reply, 15 calls a turn within 200,000 tokens, under the version proposer, a day at most $6"
+    ) {
+      (
+        proposer.policy.turn.rungs.map(r => (r.assignment.ref, r.assignment.maxTokens)),
+        (proposer.offer.rounds.calls, proposer.offer.rounds.limit),
+        DeploymentVersion.value(proposer.version),
+        proposer.budget.cap,
+        proposer.placer
+      ) ==> (
+        Vector((direct("anthropic/claude-opus-5-5"), 8_192)),
+        (15, Some(Tokens(200_000))),
+        "proposer",
+        DailyCap.of("6").toOption,
+        Kalandra.ProposerPlacer
+      )
+    }
+
+    test("a proposer declares no schedules, no jobs and no edge") {
+      (proposer.schedules.size, proposer.jobs.size, proposer.edges.size) ==> (0, 0, 0)
+    }
+
     test(
       "the checkout's room is declared internal, so a command there reads internal rows"
     ) {

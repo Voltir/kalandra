@@ -28,7 +28,7 @@ import grit.core.visibility.{
   RoomLabels,
   Visibility
 }
-import grit.kit.deployment.{Assembly, Deployment, Offer, Offered, Placer, Rounds}
+import grit.kit.deployment.{Assembly, Deployment, DeploymentVersion, Offer, Offered, Placer, Rounds}
 import grit.projects.plugin.{Projects, TurnCommands}
 
 import kalandra.edge.ClaudeCodeEdge
@@ -67,9 +67,14 @@ object Kalandra {
   /** Its rooms' labels: [[room]] declared at [[Kept]], every other room
     * unmapped, so a command there reads public rows alone.
     */
-  def rooms(checkout: Directory): Either[String, RoomLabels] =
+  def rooms(checkout: Directory): Either[String, RoomLabels] = labelled(
+    Vector(room(checkout) -> Kept)
+  )
+
+  /** `declared`, every other room unmapped; or the room declared twice. */
+  private def labelled(declared: Vector[(Place, DeclaredLabel)]): Either[String, RoomLabels] =
     RoomLabels
-      .of(Vector(room(checkout) -> Kept), Labelled.Unmapped(Label.Public))
+      .of(declared, Labelled.Unmapped(Label.Public))
       .left
       .map(p => s"the room ${p.written} is labelled twice")
 
@@ -125,12 +130,23 @@ object Kalandra {
     * models [[Models]] pins and Jev, which places each message.
     */
   def visibility(checkout: Directory): Either[String, Visibility] =
+    visible(Vector(room(checkout) -> Kept), Models, Placer.Jev)
+
+  /** `declared` the rooms' labels, every other room unmapped; [[Owner]] and whoever runs its chat
+    * here cleared for [[Kept]], and so are the models `policy` pins and, when `placer` is Jev,
+    * Jev.
+    */
+  private def visible(
+      declared: Vector[(Place, DeclaredLabel)],
+      policy: Policy,
+      placer: Placer
+  ): Either[String, Visibility] =
     for {
       compartments <- Compartments
         .of(Vector.empty)
         .left
         .map(c => s"$c is declared twice")
-      labels <- rooms(checkout)
+      labels <- labelled(declared)
       owners <- GroupName.of("owners")
       v <- Visibility
         .of(
@@ -140,17 +156,20 @@ object Kalandra {
           // until a chat asks as its own person (artifact grit/note-chat-asker-is-a-person).
           Vector(Group(owners, Set(Owner, Account.Local))),
           Vector(Grant(owners, Kept)),
-          clearances = cleared.map(Cleared(_, Kept))
+          clearances = cleared(policy, placer).map(Cleared(_, Kept))
         )
         .left
         .map(_.toString)
     } yield v
 
-  /** The parties a turn sends the room's content to: each pair [[Models]] pins, and Jev. */
-  private def cleared: Vector[Party] =
-    (Models.ladders
+  /** The parties a turn sends the room's content to: each pair `policy` pins, and Jev when
+    * `placer` is.
+    */
+  private def cleared(policy: Policy, placer: Placer): Vector[Party] =
+    (policy.ladders
       .flatMap(_.rungs)
-      .flatMap(r => Party.of(r.assignment.ref)) :+ Party.Service(Placer.JevService)).distinct
+      .flatMap(r => Party.of(r.assignment.ref)) ++
+      Option.when(placer == Placer.Jev)(Party.Service(Placer.JevService))).distinct
 
   /** `model` at Anthropic's API. */
   private def direct(model: String): ModelRef =
@@ -158,6 +177,82 @@ object Kalandra {
       ModelId.of(model).getOrElse(throw new IllegalStateException(s"no model id: $model")),
       Some(Upstream.AnthropicApi)
     )
+
+  /** The proposer's placer: none, since a proposal is one text said once in its own session. */
+  val ProposerPlacer: Placer = Placer.Off("a proposal is one text said once, in its own session")
+
+  /** The proposer's turns' model: Claude Opus 5.5 through Anthropic's API, a reply at most 8,192
+    * tokens, at the model's own effort.
+    */
+  val ProposerModel: Assignment = Assignment(direct("anthropic/claude-opus-5-5"), 8_192, None)
+
+  /** A proposer's turn's model calls: 15. A trajectory as shown is read in parts, `read` showing at
+    * most 50 KB (about 12,500 tokens) at a time, so a window reaching [[TurnLimit]] holds about 14
+    * reads beside its system prompt, tools and brief; the 15th call keeps or answers.
+    */
+  val ProposerCalls: Int = 15
+
+  /** The most turns one `work` gives a proposal: 2, about 300¢ at Opus 5.5's rates (each turn
+    * about 150¢: 185,000 tokens written to the cache, 1.3 million read from it, 14,000 written
+    * out). `GRIT_WORK_TURNS` is not read: a person raises it here, in a change, not by a variable.
+    */
+  val ProposerTurns: Int = 2
+
+  /** The most a day of proposals spends on model calls: $6, two proposals' worth, counted on the
+    * database's one ledger with serve's.
+    */
+  val ProposerLimit: DailyCap =
+    DailyCap.of("6").fold(why => throw new IllegalStateException(why), identity)
+
+  /** The proposer's deployment's own version, `proposer`, so neither it nor serve resumes the
+    * other's workflows.
+    */
+  val ProposerVersion: String = "proposer"
+
+  /** The proposer over the checkout `checkout`: one person's turns, said by `bin/kalandra work` in
+    * an evidence checkout under `evidence`, which is a room at [[Kept]] as the checkout is,
+    * offered the coding tools' reads ([[Offered.Read]]) and, of the projects plugin,
+    * `project_propose` alone, keeping a new amendment ([[GritMethod.Amendment]]) in its first
+    * state. It serves no edge and declares no schedules and no jobs; its turns run on
+    * [[ProposerModel]], [[ProposerCalls]] calls each within [[TurnLimit]], a day's spend capped
+    * at [[ProposerLimit]], under [[ProposerVersion]]. Why not: the two directories are one room,
+    * or as [[deployment]]'s parts refuse.
+    */
+  def proposing(checkout: Directory, evidence: Directory): Either[String, Deployment] =
+    for {
+      rounds <- Rounds.of(ProposerCalls).flatMap(_.within(TurnLimit))
+      methods <- GritMethod.declared.left.map(_.mkString("; "))
+      projects <- Projects
+        .of(methods, GritMethod.Name, TurnCommands.Proposing(GritMethod.Amendment))
+        .left
+        .map(_.toString)
+      policy = Policy.one(ProposerModel, SummaryModel, QueryModel, HeardModel)
+      visible <- visible(
+        Vector(room(checkout) -> Kept, Place.of(evidence) -> Kept),
+        policy,
+        ProposerPlacer
+      )
+      persona <- Persona.of("Kalandra")
+      version <- DeploymentVersion.of(ProposerVersion).left.map(_.message)
+      made <- Deployment
+        .of(
+          plugins = Vector(projects),
+          policy = policy,
+          offer = Offer(Offered.Read, rounds),
+          assembly = Assembly.Linear(TurnBudget),
+          placer = ProposerPlacer,
+          lifecycle = LifecycleSettings.Default,
+          budget = Budget(ZoneOffset.UTC, Some(ProposerLimit)),
+          speaking = Speaking.Off,
+          sweep = 30.seconds,
+          persona = persona,
+          visibility = visible,
+          version = version,
+          formats = Formats(_ => Vector.empty)
+        )
+        .left
+        .map(_.message)
+    } yield made
 
   /** kalandra over the checkout `checkout`. */
   def deployment(checkout: Directory): Either[String, Deployment] =
