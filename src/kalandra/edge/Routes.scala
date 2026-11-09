@@ -240,7 +240,7 @@ final class Routes(
           candidate(shown._1).map(_._3.standing.file)
         else
           StandingSection
-            .of(shown._1.head.key, Body.markdown(shown._1.body))
+            .of(shown._1.head.key, shown._1.body)
             .map(_.file)
             .left
             .map(r => Reply(409, r.message))

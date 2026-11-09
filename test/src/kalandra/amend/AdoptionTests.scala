@@ -36,7 +36,10 @@ object AdoptionTests extends TestSuite {
       )
     )
 
-  private def standing(a: Artifact) = StandingSection.of(key, Body.markdown(a.body))
+  private def standing(a: Artifact) = StandingSection.of(key, a.body)
+
+  /** `markdown` read as a body, then as a standing section. */
+  private def standing(markdown: String) = StandingSection.of(key, right(Body.read(markdown)))
 
   /** An amendment's body, its diff against version 7 of `p/standing` the blocks given. */
   private def amendment(blocks: String*): String =
@@ -64,16 +67,23 @@ object AdoptionTests extends TestSuite {
       ) ==> (Right((100, below, 68, below + "\n")), Right(3550))
     }
 
-    test("no cap, two caps, or no rule is no standing section") {
+    test("no cap, two caps, no rule, or a blank text below it is no standing section") {
       (
-        StandingSection.of(key, "Top.\n\n***\n\nBelow."),
-        StandingSection.of(key, "**Cap: 9 characters** or **Cap: 8 characters**\n\n***\n\nB."),
-        StandingSection.of(key, "**Cap: 9 characters**\n\nNo rule.")
+        standing("Top.\n\n***\n\nBelow."),
+        standing("**Cap: 9 characters** or **Cap: 8 characters**\n\n***\n\nB."),
+        standing("**Cap: 9 characters**\n\nNo rule."),
+        standing("**Cap: 9 characters**\n\n***\n\n  \n")
       ) ==> (
         Left(AdoptRefusal.NoCap(key)),
         Left(AdoptRefusal.Caps(key, Vector(9, 8))),
-        Left(AdoptRefusal.NoRule(key))
+        Left(AdoptRefusal.NoRule(key)),
+        Left(AdoptRefusal.Blank(key))
       )
+    }
+
+    test("a standing section's rule is a thematic break, not a `***` line in a code block") {
+      standing("**Cap: 9 characters**\n\n```\n***\n```\n\n***\n\nBelow.").map(_.text) ==>
+        Right("Below.")
     }
 
     test("a diff reads its section, version and replacements in order; an empty new deletes") {

@@ -7,10 +7,10 @@ import grit.projects.name.ArtifactKey
 import grit.prose.form.Block
 import grit.prose.markdown.Markdown
 
-/** A section a standing text is kept in: its header, the markdown above its first rule line
-  * (`***`), stating its cap as `**Cap: N characters**` (`N` with or without thousands commas);
-  * and its standing text, the markdown below that line, surrounding whitespace trimmed. It may
-  * be over its cap.
+/** A section a standing text is kept in: its header, the markdown above its first rule
+  * ([[Body.aroundRule]]), stating its cap as `**Cap: N characters**` (`N` with or without
+  * thousands commas); and its standing text, the markdown below that rule, surrounding
+  * whitespace trimmed, never blank. It may be over its cap.
   */
 final case class StandingSection private (header: String, text: String, cap: Int)
     extends caps.Pure {
@@ -26,27 +26,23 @@ final case class StandingSection private (header: String, text: String, cap: Int
 
 object StandingSection {
 
-  /** `markdown`, the body of the artifact `section` as [[Body.markdown]] writes it, as a standing
-    * section, or why not: no rule line ([[AdoptRefusal.NoRule]]), or a header stating no cap or
-    * more than one ([[AdoptRefusal.NoCap]], [[AdoptRefusal.Caps]]).
+  /** `body`, the body of the artifact `section`, as a standing section, or why not: no rule
+    * ([[AdoptRefusal.NoRule]]), a header stating no cap or more than one ([[AdoptRefusal.NoCap]],
+    * [[AdoptRefusal.Caps]]), or a blank standing text ([[AdoptRefusal.Blank]]), which a bench
+    * refuses to run under.
     */
-  def of(section: ArtifactKey, markdown: String): Either[AdoptRefusal, StandingSection] = {
-    val lines = markdown.split("\n", -1).toVector
-    lines.indexOf(Rule) match {
-      case -1 => Left(AdoptRefusal.NoRule(section))
-      case at =>
-        val header = lines.take(at).mkString("\n")
-        val text = lines.drop(at + 1).mkString("\n").trim
+  def of(section: ArtifactKey, body: Body): Either[AdoptRefusal, StandingSection] =
+    Body.aroundRule(body) match {
+      case None => Left(AdoptRefusal.NoRule(section))
+      case Some((header, below)) =>
+        val text = below.trim
         Cap.findAllMatchIn(header).map(_.group(1).replace(",", "").toInt).toVector match {
+          case Vector(_) if text.isEmpty => Left(AdoptRefusal.Blank(section))
           case Vector(cap) => Right(StandingSection(header, text, cap))
           case Vector() => Left(AdoptRefusal.NoCap(section))
           case several => Left(AdoptRefusal.Caps(section, several))
         }
     }
-  }
-
-  /** The rule line, as [[Body.markdown]] writes a thematic break. */
-  private val Rule = "***"
 
   private val Cap = raw"\*\*Cap: ([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,9}) characters\*\*".r
 }
@@ -123,6 +119,7 @@ enum AdoptRefusal extends caps.Pure {
   case NoRule(section: ArtifactKey)
   case NoCap(section: ArtifactKey)
   case Caps(section: ArtifactKey, caps: Vector[Int])
+  case Blank(section: ArtifactKey)
   case Moved(section: ArtifactKey, against: DocumentVersionId, now: DocumentVersionId)
   case Unapplied(section: ArtifactKey, why: String)
   case AboveTheRule(section: ArtifactKey)
@@ -134,6 +131,7 @@ enum AdoptRefusal extends caps.Pure {
     case NoRule(s) => s"${s.value} has no rule line (***) below which its standing text sits"
     case NoCap(s) => s"${s.value} states no cap above its rule (**Cap: N characters**)"
     case Caps(s, cs) => s"${s.value} states ${cs.size} caps above its rule, not one"
+    case Blank(s) => s"${s.value}'s standing text, below its rule, is blank"
     case Moved(s, a, n) =>
       s"${s.value} is at version ${DocumentVersionId.value(n)}, not " +
         s"${DocumentVersionId.value(a)} as the diff is against: bench the amendment again " +
@@ -168,7 +166,7 @@ object Adoption {
     val text = Body.markdown(section.body)
     for {
       _ <- Either.cond(version == diff.against, (), AdoptRefusal.Moved(key, diff.against, version))
-      before <- StandingSection.of(key, text)
+      before <- StandingSection.of(key, section.body)
       path <- RelPath.of(key.value).left.map(e => AdoptRefusal.Unapplied(key, e.toString))
       edited <- Replace
         .onto(path, text, diff.edits)
@@ -176,7 +174,7 @@ object Adoption {
         .map(e => AdoptRefusal.Unapplied(key, e.message))
       body <- Body.read(edited._1).left.map(AdoptRefusal.Unkept(key, _))
       after <- StandingSection
-        .of(key, Body.markdown(body))
+        .of(key, body)
         .filterOrElse(_.header == before.header, AdoptRefusal.AboveTheRule(key))
         .left
         .map {
