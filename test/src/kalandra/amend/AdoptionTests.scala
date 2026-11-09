@@ -118,18 +118,26 @@ object AdoptionTests extends TestSuite {
     }
 
     test(
-      "a diff with no Against line, no old block, or an unpaired block is refused, saying which"
+      "a diff with no Against line or two, no old block, or an unpaired block is refused, saying which"
     ) {
       (
         Diff.read("## Diff\n\n" + block("old", "A.") + "\n\n" + block("new", "B.")),
         Diff.read(amendment()),
         Diff.read(amendment(block("old", "A."), block("old", "B."), block("new", "C."))),
-        Diff.read(amendment(block("new", "C.")))
+        Diff.read(amendment(block("new", "C."))),
+        Diff.read(
+          amendment(
+            "Against [How a coder works](artifact:p/standing) at version 8.",
+            block("old", "A."),
+            block("new", "B.")
+          )
+        )
       ) ==> (
         Left("it has no line `Against [<title>](artifact:<key>) at version <n>.`"),
         Left("it has no code block tagged `old`"),
         Left("its `old` block 1 is not followed at once by a `new` block"),
-        Left("its `new` block 1 follows no `old` block")
+        Left("its `new` block 1 follows no `old` block"),
+        Left("it has 2 lines `Against … at version …`, not one")
       )
     }
 
