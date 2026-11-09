@@ -18,8 +18,43 @@ object MainTests extends TestSuite {
 
   private def dir(s: String): Directory = Directory.of(s).fold(sys.error, identity)
 
+  /** An exported artifact's file: its path and its text, as `project_export` writes it. */
+  private def exported(key: String, kind: String, state: String): (String, String) =
+    s"$key.md" ->
+      s"""---
+         |key: $key
+         |kind: $kind
+         |state: $state
+         |title: "T"
+         |parent: null
+         |cites: []
+         |by: "workshop:local/nick"
+         |---
+         |
+         |Its body.
+         |""".stripMargin
+
   val tests = Tests {
-    test("a proposal that is not dry runs only on an engine this process starts, refused while serve holds it") {
+    test(
+      "every amendment, an ended one among them, is written as exported at its key's name, and nothing else"
+    ) {
+      val index = "project.md" ->
+        s"""---
+           |key: m17
+           |method: grit
+           |version: 4
+           |digest: ${"0" * 64}
+           |---
+           |""".stripMargin
+      val rejected = exported("m17/amend-a", "amendment", "rejected")
+      val proposed = exported("m17/amend-b", "amendment", "proposed")
+      Amendments.of(Vector(index, exported("m17/note", "note", "open"), proposed, rejected)) ==>
+        Right(Vector("amend-a.md" -> rejected._2, "amend-b.md" -> proposed._2))
+    }
+
+    test(
+      "a proposal that is not dry runs only on an engine this process starts, refused while serve holds it"
+    ) {
       (
         Proposer.admit(Console.Runner.Here),
         Proposer.admit(Console.Runner.Elsewhere(None)).left.map(_.startsWith("serve runs"))
@@ -28,7 +63,11 @@ object MainTests extends TestSuite {
 
     test("work refuses a directory outside the evidence root, and a sibling whose name it begins") {
       val root = dir("/home/someone/.cache/grit-propose")
-      Vector("/home/someone/.cache/grit-propose/propose-1", "/home/someone/grit", "/home/someone/.cache/grit-propose-old")
+      Vector(
+        "/home/someone/.cache/grit-propose/propose-1",
+        "/home/someone/grit",
+        "/home/someone/.cache/grit-propose-old"
+      )
         .map(d => Proposer.within(root, dir(d)).isRight) ==> Vector(true, false, false)
     }
 

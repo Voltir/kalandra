@@ -23,7 +23,11 @@ object Export {
       }
     } yield files.size
   }
-  private def write(into: Path, path: String, text: String): Either[String, Unit] = {
+
+  /** `text` written at `path` under `into`, replacing a file there; why not: `path` would leave
+    * `into`, or the write fails.
+    */
+  private[main] def write(into: Path, path: String, text: String): Either[String, Unit] = {
     val file = into.resolve(path).normalize
     if (!file.startsWith(into) || file == into) Left(s"the export path $path leaves $into")
     else
