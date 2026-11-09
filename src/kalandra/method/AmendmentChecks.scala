@@ -3,6 +3,7 @@ package kalandra.method
 import grit.projects.artifact.{Artifact, ArtifactHead, Body}
 import grit.projects.method.{ArtifactKind, TransitionCheck}
 import grit.projects.name.CheckName
+import grit.prose.form.Block
 
 /** What a benched amendment's verdict says the bench saw. */
 enum Verdict(val word: String) extends caps.Pure {
@@ -54,13 +55,19 @@ object AmendmentChecks {
       val verdicts = titles.filter(_.startsWith(VerdictTitle)).map(_.drop(VerdictTitle.length))
       val decisions = titles.filter(_.startsWith(DecisionTitle)).map(_.drop(DecisionTitle.length))
       val decided = s"## $DecisionTitle$verb"
+      // Each bullet's text up to the decision's first heading of any rank.
       val under = Body
-        .markdown(judged.body)
-        .split("\n", -1)
-        .toVector
-        .dropWhile(_ != decided)
-        .drop(1)
-        .takeWhile(!_.startsWith("#"))
+        .section(judged.body, s"$DecisionTitle$verb")
+        .getOrElse(Vector.empty)
+        .takeWhile {
+          case Block.Heading(_, _) => false
+          case _ => true
+        }
+        .flatMap {
+          case Block.Bullets(items) => items.flatMap(_.blocks.headOption)
+          case _ => Vector.empty
+        }
+        .collect { case Block.Paragraph(text) => text.plain }
       val failed =
         Option.when(!titles.contains("Contrast"))("its body lacks ## Contrast").toVector ++
           (verdicts match {
@@ -75,7 +82,7 @@ object AmendmentChecks {
           (decisions match {
             case Vector(v) if v == verb =>
               Features
-                .filterNot(f => under.exists(_.startsWith(s"- $f:")))
+                .filterNot(f => under.exists(_.startsWith(s"$f:")))
                 .map(f => s"its decision lacks a line `- $f: …`")
             case Vector() => Vector(s"its body lacks $decided")
             case Vector(other) => Vector(s"its decision is $other, not $verb")

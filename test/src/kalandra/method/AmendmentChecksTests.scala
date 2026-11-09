@@ -82,6 +82,12 @@ object AmendmentChecksTests extends TestSuite {
         Left("its decision lacks a line `- Cost: …`")
     }
 
+    test(
+      "a decision's features are its bullets, a `#` line in a code block above them no heading"
+    ) {
+      adopt(decided("helped", "adopt", "```\n# the run\n```\n\n" + features)) ==> Right(())
+    }
+
     test("two verdicts or two decisions are refused") {
       adopt(decided("hurt", "adopt") + "\n\n## Verdict: helped\n\n## Decision: adopt") ==>
         Left("it holds 2 verdicts, not one; it holds 2 decisions, not one")
