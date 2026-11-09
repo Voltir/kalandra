@@ -16,7 +16,8 @@
 #   bin/kalandra <command> [json]           run a projects command through a running serve:
 #                                           `keep` or `project_keep`, its arguments a JSON object
 #   bin/kalandra standing '{"key":"<key>"}'  a standing section's text, or an amendment's candidate's,
-#                                           as a bench's --standing file holds it; keeps nothing
+#                                           as a bench's --standing file holds it; keeps nothing;
+#                                           for a section, its version on stderr (propose --against)
 #   bin/kalandra adopt '{"key":"<key>"}'     keep an amendment's candidate as its section's next
 #                                           version, under the section's cap, and adopt it
 #   bin/kalandra build                      build the jar serve and export run from
@@ -41,7 +42,7 @@ java="${GRIT_JDK_HOME:-/home/nickchilders/.jdks/jdk-26.0.2}/bin/java"
 listen="${KALANDRA_LISTEN:-127.0.0.1:7317}"
 
 usage() {
-  sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 
@@ -299,6 +300,15 @@ case "$1" in
     if [[ "$status" != 200 ]]; then
       echo "kalandra: $name answered $status" >&2
       exit 1
+    fi
+    # A section's version, for scripts/eval propose --against, on stderr so the text stays the
+    # file a bench reads. An amendment's candidate is no version of its section, so none is said.
+    if [[ "$name" == project_standing ]]; then
+      shown="$(curl -sS -X POST -H 'Content-Type: application/json' --data-binary "$body" \
+        "http://$listen/command/project_show" 2>/dev/null || true)"
+      if grep -qx 'kind: section' <<<"$shown"; then
+        echo "$(grep -m1 '^key: ' <<<"$shown" | cut -c6-) at version $(grep -m1 '^version: ' <<<"$shown" | cut -c10-)" >&2
+      fi
     fi
     ;;
 esac

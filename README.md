@@ -100,7 +100,8 @@ bin/kalandra standing '{"key":"grit/amend-…"}' > standing.md   # the candidate
 bin/kalandra adopt '{"key":"grit/amend-…"}'                    # keep it as the section, adopt the amendment
 ```
 
-Both are the edge's own commands, not tools, and `adopt` is the only way an amendment reaches
+For a section, `standing` also says its version on stderr, which `scripts/eval propose
+--against` takes. Both are the edge's own commands, not tools, and `adopt` is the only way an amendment reaches
 `adopted`: what each refuses is in `Routes`' and `Adoption.candidate`'s docs.
 
 ## The proposer
