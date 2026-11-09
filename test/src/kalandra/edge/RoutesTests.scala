@@ -40,8 +40,10 @@ object RoutesTests extends TestSuite {
 
   /** Records each run and answers `answer`, as [[PluginCommands.run]] would for a command it
     * ran or refused; but `project_brief`, which answers each of `briefs` in turn as done,
-    * `project_claims`, which answers `claims` as done, and `project_show` of a key `shows` holds,
-    * which answers its text as done.
+    * `project_claims`, which answers `claims` as done, and `project_show` when `shows` holds any
+    * artifact: it answers the text `shows` holds for its key as done, and refuses a key it does
+    * not hold as [[grit.projects.plugin.ProjectCommands]] does. With `shows` empty, `project_show`
+    * stands in for any command, answering `answer`.
     */
   private final class Recording(
       answer: Either[CommandError, CommandOutcome],
@@ -65,9 +67,15 @@ object RoutesTests extends TestSuite {
         Right(CommandOutcome.Done(briefs.lift(ran.count(_.name == Brief) - 1).getOrElse("")))
       else if (ToolName.value(name) == "project_claims") Right(CommandOutcome.Done(claims))
       else if (ToolName.value(name) == "project_show")
-        args.obj.get("key").flatMap(_.strOpt).flatMap(shows.get) match {
-          case Some(text) => Right(CommandOutcome.Done(text))
-          case None => answer
+        args.obj.get("key").flatMap(_.strOpt) match {
+          case Some(key) if shows.nonEmpty =>
+            shows.get(key) match {
+              case Some(text) => Right(CommandOutcome.Done(text))
+              case None =>
+                val project = key.takeWhile(_ != '/')
+                Right(CommandOutcome.Refused(s"project $project has no artifact $key"))
+            }
+          case _ => answer
         }
       else answer
     }
@@ -377,6 +385,35 @@ object RoutesTests extends TestSuite {
           )
           .status
       ) ==> (409, 409, 0, 200)
+    }
+
+    test("project_adopt of an amendment whose section is missing is refused 409, nothing batched") {
+      val (routes, commands) = routedBy(
+        Right(CommandOutcome.Done("Kept. Moved.")),
+        Vector.empty,
+        Files.createTempDirectory("briefs"),
+        shows = Map("m17/amend" -> amendment)
+      )
+      (
+        routes.ask("POST", "/command/project_adopt", """{"key":"m17/amend"}"""),
+        commands.ran.map(r => ToolName.value(r.name)).toVector
+      ) ==> (
+        Reply(409, "project m17 has no artifact m17/standing"),
+        Vector("project_show", "project_show")
+      )
+    }
+
+    test("project_adopt or project_standing with no key is refused 400, and runs nothing") {
+      val (routes, commands) = amending(100)
+      (
+        routes.ask("POST", "/command/project_adopt", "{}"),
+        routes.ask("POST", "/command/project_standing", """{"title":"m17/standing"}"""),
+        commands.ran.size
+      ) ==> (
+        Reply(400, "give key, an amendment's or a standing section's, alone"),
+        Reply(400, "give key, an amendment's or a standing section's, alone"),
+        0
+      )
     }
 
     test("no projects command has the edge's own commands' names") {
