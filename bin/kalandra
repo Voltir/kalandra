@@ -4,6 +4,12 @@
 #   bin/kalandra serve                      serve the deployment (blocks; stop it with SIGTERM)
 #   bin/kalandra chat                       the chat on this terminal, in the grit checkout's room
 #   bin/kalandra cache-report [id]          a conversation's cache use per model call (the chat's)
+#   bin/kalandra work [--dry] PROPOSE.md    a proposal, run in an evidence checkout `scripts/eval
+#                                           propose` wrote: serve stopped, the proposer's turns
+#                                           run, serve started again however it ends; --dry shows
+#                                           its first model call, reads no key, leaves serve up
+#   bin/kalandra amendments <dir>           every amendment of the project grit, ended ones
+#                                           included, as exported, a file each under <dir>
 #   bin/kalandra export <project> <dir>     write a project's export files under <dir>
 #   bin/kalandra import <grit> [--dry-run]  import grit's planning tree into the project `grit`
 #   bin/kalandra verify <grit>              check the project `grit` holds that tree whole
@@ -35,7 +41,7 @@ java="${GRIT_JDK_HOME:-/home/nickchilders/.jdks/jdk-26.0.2}/bin/java"
 listen="${KALANDRA_LISTEN:-127.0.0.1:7317}"
 
 usage() {
-  sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 
@@ -152,6 +158,18 @@ unit_do() {
   return 1
 }
 
+# serve up again after a proposal stopped it: a serve that is up already, which the systemd unit or
+# serve-hook.sh may have started meanwhile, is left as it is.
+serve_again() {
+  if managed; then
+    unit_do start
+  elif [[ -n "$(serve_pids)" ]]; then
+    echo "serve is up already: $(echo $(serve_pids))"
+  else
+    serve_start
+  fi
+}
+
 serve_status() {
   local ps
   if managed; then echo "managed by $unit: $(systemctl --user is-active "$unit")"; fi
@@ -208,6 +226,29 @@ case "$1" in
     load_keys
     export KALANDRA_LOGS="$root/logs"
     mkdir -p "$KALANDRA_LOGS"
+    [[ -f "$jar" ]] || build
+    exec "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"
+    ;;
+  work)
+    [[ -f "$jar" ]] || build
+    dry=0
+    for a in "${@:2}"; do [[ "$a" == --dry ]] && dry=1; done
+    export KALANDRA_LOGS="$root/logs"
+    mkdir -p "$KALANDRA_LOGS"
+    export GRIT_DATABASE_URL="${GRIT_DATABASE_URL:-jdbc:postgresql://localhost:5432/grit_kalandra}"
+    if [[ "$dry" == 1 ]]; then
+      # No key read: a dry run is refused with one. Run here, in the evidence checkout.
+      exec "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"
+    fi
+    load_keys
+    # The proposer runs on an engine of its own, so serve stops for the run and starts again
+    # after it, however it ends.
+    if managed; then unit_do stop; else serve_stop; fi
+    trap 'serve_again' EXIT
+    "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"
+    ;;
+  amendments)
+    [[ $# -eq 2 ]] || usage
     [[ -f "$jar" ]] || build
     exec "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"
     ;;

@@ -1,5 +1,6 @@
 package kalandra.main
 
+import grit.core.edge.Console
 import grit.core.place.Directory
 import grit.kit.environment.Secrets
 import grit.kit.run.KitFailure
@@ -15,7 +16,22 @@ object MainTests extends TestSuite {
     "OPENROUTER_API_KEY" -> "o"
   )
 
+  private def dir(s: String): Directory = Directory.of(s).fold(sys.error, identity)
+
   val tests = Tests {
+    test("a proposal that is not dry runs only on an engine this process starts, refused while serve holds it") {
+      (
+        Proposer.admit(Console.Runner.Here),
+        Proposer.admit(Console.Runner.Elsewhere(None)).left.map(_.startsWith("serve runs"))
+      ) ==> (Right(()), Left(true))
+    }
+
+    test("work refuses a directory outside the evidence root, and a sibling whose name it begins") {
+      val root = dir("/home/someone/.cache/grit-propose")
+      Vector("/home/someone/.cache/grit-propose/propose-1", "/home/someone/grit", "/home/someone/.cache/grit-propose-old")
+        .map(d => Proposer.within(root, dir(d)).isRight) ==> Vector(true, false, false)
+    }
+
     test("the kit is given Anthropic's and Jev's keys, never OpenRouter's") {
       Main.environment(keys).map(_.keySet & keys.keySet) ==> Right(
         Set("ANTHROPIC_API_KEY", "JEV_API_KEY")

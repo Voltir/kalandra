@@ -24,7 +24,7 @@ import kalandra.importer.Imports
 /** `kalandra serve`: serves the kalandra deployment until the process is
   * stopped; `kalandra chat`, the chat on this terminal in its room; `kalandra cache-report
   * [conversation-id]`, what a conversation's model calls read from and wrote to the cache
-  * (the chat's, with no id); `kalandra export`, [[Export]]; `kalandra import <checkout> [--dry-run]` and
+  * (the chat's, with no id); `kalandra work [--dry] <file>`, a proposal, [[Proposer]]; `kalandra export`, [[Export]]; `kalandra import <checkout> [--dry-run]` and
   * `kalandra verify <checkout>`, [[Imports]] into the project [[Imported]], through a running
   * serve. It reads the environment alone: `GRIT_DATABASE_URL` (default
   * [[Main.DefaultDatabase]]; a URL naming another deployment's database, `grit`
@@ -98,6 +98,9 @@ object Main {
       case List("chat") =>
         // DBOS's threads are non-daemon: the process ends here, once the chat has closed.
         chat(sys.env).map(_ => sys.exit(0))
+      case "work" :: rest =>
+        // DBOS's threads are non-daemon: the process ends here, once the run has ended.
+        Proposer.run(sys.env, rest.toVector, java.nio.file.Path.of("")).map(_ => sys.exit(0))
       case "cache-report" :: id if id.sizeIs <= 1 => cacheReport(sys.env, id.headOption)
       case List("export", project, into) =>
         Export.run(sys.env, project, java.nio.file.Path.of(into)).map(n => println(s"$n files"))
@@ -121,6 +124,7 @@ object Main {
       case _ =>
         Left(
           "usage: kalandra serve | kalandra chat | kalandra cache-report [conversation-id] | " +
+            "kalandra work [--dry] <file> | " +
             "kalandra export <project> <directory> | " +
             "kalandra import <grit checkout> [--dry-run] | kalandra verify <grit checkout>"
         )
