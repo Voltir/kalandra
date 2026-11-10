@@ -10,7 +10,7 @@ import grit.core.place.{Directory, Place}
 import grit.core.store.Origin
 import grit.host.checkout.Redaction
 import grit.kit.environment.Secrets
-import grit.kit.run.{Kit, KitFailure, LocalEdge}
+import grit.kit.run.{KitFailure, LocalEdge}
 import grit.kit.work.Work
 
 import org.slf4j.LoggerFactory
@@ -61,34 +61,6 @@ object Proposer {
       )
   }
 
-  /** A dry run as [[Work.run]] makes one, but admitted as a real run is ([[admit]]): `edge`
-    * served first through the console of `under`'s engine, then what `text` would send first
-    * shown ([[Work.shown]]). [[Work.run]] admits only a run that is not dry, so on an engine
-    * another process runs it would show that engine's tools, not the proposer's.
-    */
-  private def dry(
-      under: Work.Under,
-      text: String,
-      edge: Console.Edge^,
-      clock: Clock^
-  ): Either[String, Unit] =
-    Kit.console(
-      under.deployment,
-      under.secrets,
-      under.stubDelay,
-      clock,
-      edge,
-      announced = true
-    ) match {
-      case Left(refused) => Left(refused.message)
-      case Right(opener) =>
-        admit(opener.runner).flatMap(_ =>
-          Work.opened(opener)(_ =>
-            Work.shown(under.secrets.database, under.deployment, under.origin, text, clock, println)
-          )
-        )
-    }
-
   /** `kalandra work` with the arguments `rest`, run in the directory `cwd`, over the environment
     * `raw`. Why not, and then nothing is said: as [[Work.asked]], [[Main.environment]] and, not
     * dry, [[Main.keyed]] refuse; `cwd` is not under [[evidence]]; dry with a model key set; the
@@ -134,8 +106,7 @@ object Proposer {
           fresh,
           LoggerFactory.getLogger("kalandra.work")
         ) { edge =>
-          if (asked.dry) dry(under, text, edge, clock)
-          else Work.run(asked, text, Kalandra.ProposerTurns, under, edge, clock, fresh, println)
+          Work.run(asked, text, Kalandra.ProposerTurns, under, edge, clock, fresh, println)
         }
         .flatten
     }
