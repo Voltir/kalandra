@@ -107,11 +107,13 @@ object Kalandra {
   /** A turn's model calls: 12, enough for triage to read the store short and then act. */
   val TurnCalls: Int = 12
 
-  /** The input a turn's request may reach, as its provider counts it: 200,000 tokens, so a
-    * long planning session's turn grows from its [[TurnBudget]] window without being cut. Once
-    * a reply's input plus the largest growth of a round so far meets it, the turn's next call
-    * is its last with tools, and it is told so; a turn can pass it by one round's results
-    * (`TurnLoop.Rounds`).
+  /** The most input a turn's request may reach, as its provider counts it: 200,000 tokens. It is
+    * only a ceiling: grit holds a turn to its window plus its system prompt and tools, less room
+    * for one clipped tool result (50 KB as grit estimates it, about 23,000 tokens), and the lower
+    * of the two governs. So serve's turns, over [[TurnBudget]], are held to about 14,000 tokens,
+    * and a proposer's, over [[ProposerWindow]], to about 79,000. Once a reply's input plus the
+    * largest growth of a round so far meets the limit, the turn's next call is its last with
+    * tools, and it is told so; a turn can pass it by one round's results (`TurnLoop.Rounds`).
     */
   val TurnLimit: Tokens = Tokens(200_000)
 
@@ -186,19 +188,28 @@ object Kalandra {
     */
   val ProposerModel: Assignment = Assignment(direct("anthropic/claude-opus-5-5"), 8_192, None)
 
-  /** A proposer's turn's model calls: 15. A trajectory as shown is read in parts, `read` showing at
-    * most 50 KB (about 12,500 tokens) at a time, so a window reaching [[TurnLimit]] holds about 14
-    * reads beside its system prompt, tools and brief; the 15th call keeps or answers.
+  /** A proposer's turn's window: 96,000 tokens, so its input is held to about 79,000 (see
+    * [[TurnLimit]]). A trajectory as shown is read in parts, `read` showing at most 50 KB (10,000
+    * to 15,000 tokens as the provider counts them) at a time, so a turn holds about 5 or 6 reads
+    * beside its system prompt, tools and brief. Wider, a later turn, which carries the earlier
+    * ones in its window, would begin near the window itself, every token of it written to the
+    * cache.
     */
-  val ProposerCalls: Int = 15
+  val ProposerWindow: Tokens = Tokens(96_000)
 
-  /** The most turns one `work` gives a proposal: 2, about 300¢ at Opus 5.5's rates (each turn
-    * about 150¢: 185,000 tokens written to the cache, 1.3 million read from it, 14,000 written
-    * out). `GRIT_WORK_TURNS` is not read: a person raises it here, in a change, not by a variable.
+  /** A proposer's turn's model calls: 20, more than its input limit lets it reach with reads, so
+    * that limit, not a count, ends a turn: a search costs a call and few tokens.
     */
-  val ProposerTurns: Int = 2
+  val ProposerCalls: Int = 20
 
-  /** The most a day of proposals spends on model calls: $6, two proposals' worth, counted on the
+  /** The most turns one `work` gives a proposal: 3, about 190¢ at Opus 5.5's rates and at most
+    * about 250¢ (a turn about 60 to 65¢: some 80,000 tokens written to the cache as its input
+    * grows to its limit, some 340,000 read back, 8,000 written out). `GRIT_WORK_TURNS` is not
+    * read: a person raises it here, in a change, not by a variable.
+    */
+  val ProposerTurns: Int = 3
+
+  /** The most a day of proposals spends on model calls: $6, two or three proposals' worth, counted on the
     * database's one ledger with serve's.
     */
   val ProposerLimit: DailyCap =
@@ -214,7 +225,8 @@ object Kalandra {
     * offered the coding tools' reads ([[Offered.Read]]) and, of the projects plugin,
     * `project_propose` alone, keeping a new amendment ([[GritMethod.Amendment]]) in its first
     * state. It serves no edge and declares no schedules and no jobs; its turns run on
-    * [[ProposerModel]], [[ProposerCalls]] calls each within [[TurnLimit]], a day's spend capped
+    * [[ProposerModel]] over a window of [[ProposerWindow]], [[ProposerCalls]] calls each within
+    * [[TurnLimit]], a day's spend capped
     * at [[ProposerLimit]], under [[ProposerVersion]]. Why not: the two directories are one room,
     * or as [[deployment]]'s parts refuse.
     */
@@ -239,7 +251,7 @@ object Kalandra {
           plugins = Vector(projects),
           policy = policy,
           offer = Offer(Offered.Read, rounds),
-          assembly = Assembly.Linear(TurnBudget),
+          assembly = Assembly.Linear(ProposerWindow),
           placer = ProposerPlacer,
           lifecycle = LifecycleSettings.Default,
           budget = Budget(ZoneOffset.UTC, Some(ProposerLimit)),

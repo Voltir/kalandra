@@ -60,17 +60,19 @@ object KalandraTests extends TestSuite {
     }
 
     test(
-      "a proposer runs on Claude Opus 5.5 at 8,192 tokens a reply, 15 calls a turn within 200,000 tokens, under the version proposer, a day at most $6"
+      "a proposer runs on Claude Opus 5.5 at 8,192 tokens a reply, 20 calls a turn over a 96,000-token window, 3 turns a proposal, under the version proposer, a day at most $6"
     ) {
       (
         proposer.policy.turn.rungs.map(r => (r.assignment.ref, r.assignment.maxTokens)),
-        (proposer.offer.rounds.calls, proposer.offer.rounds.limit),
+        (proposer.offer.rounds.calls, proposer.offer.rounds.limit, proposer.assembly),
+        Kalandra.ProposerTurns,
         DeploymentVersion.value(proposer.version),
         proposer.budget.cap,
         proposer.placer
       ) ==> (
         Vector((direct("anthropic/claude-opus-5-5"), 8_192)),
-        (15, Some(Tokens(200_000))),
+        (20, Some(Tokens(200_000)), Assembly.Linear(Tokens(96_000))),
+        3,
         "proposer",
         DailyCap.of("6").toOption,
         Kalandra.ProposerPlacer
