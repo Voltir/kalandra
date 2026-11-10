@@ -10,7 +10,7 @@ import grit.core.place.{Directory, Place}
 import grit.core.store.Origin
 import grit.host.checkout.Redaction
 import grit.kit.environment.Secrets
-import grit.kit.run.{KitFailure, LocalEdge}
+import grit.kit.run.{Kit, KitFailure, LocalEdge}
 import grit.kit.work.Work
 
 import org.slf4j.LoggerFactory
@@ -19,10 +19,10 @@ import kalandra.deployment.Kalandra
 /** `kalandra work [--dry] <file>`: the text in `<file>` said to the proposer
   * ([[Kalandra.proposing]]) in the evidence checkout the process runs in, which must lie under the
   * evidence root ([[evidence]]), and its turns awaited, at most [[Kalandra.ProposerTurns]] (grit's
-  * `work`, [[Work.run]], under the program's name `kalandra`). Not dry, it needs
-  * `ANTHROPIC_API_KEY` and runs only on an engine it starts ([[admit]]): serve stopped first,
-  * which `bin/kalandra work` does. Dry, it needs no key and is refused with one, and shows what the
-  * first model call would send, nothing said, serve left up. Its log goes to `work.log` under
+  * `work`, [[Work.run]], under the program's name `kalandra`), on an engine it starts alone,
+  * dry or not ([[admit]]): serve stopped first, which `bin/kalandra work` does. Not dry, it needs
+  * `ANTHROPIC_API_KEY`. Dry, it needs no key and is refused with one, and shows what the first
+  * model call would send, nothing said. Its log goes to `work.log` under
   * [[Main.logs]]. A run cut short is resumed only by running `work` again.
   */
 object Proposer {
@@ -47,18 +47,47 @@ object Proposer {
         "(KALANDRA_EVIDENCE): a proposal runs only in a checkout `scripts/eval propose` wrote"
     )
 
-  /** Whether a run that is not dry may go on given who runs the database's engine: only this
-    * process, so the proposer's deployment, and no other, decides its turns' tools. Refused while
-    * serve, or any other process, holds it.
+  /** Whether a run, dry or not, may go on given who runs the database's engine: only this
+    * process, so the proposer's deployment, and no other, decides its turns' tools, and a dry run
+    * shows the tools a real one is offered. Refused while serve, or any other process, holds it.
     */
   def admit(runner: Console.Runner): Either[String, Unit] = runner match {
     case Console.Runner.Here => Right(())
     case Console.Runner.Elsewhere(_) =>
       Left(
         "serve runs grit_kalandra's engine, so a proposal would run under serve's tools: stop " +
-          "it first (bin/kalandra work stops serve, runs, and starts it again)"
+          "it first with `bin/kalandra stop` (bin/kalandra work stops serve, runs, and starts it " +
+          "again)"
       )
   }
+
+  /** A dry run as [[Work.run]] makes one, but admitted as a real run is ([[admit]]): `edge`
+    * served first through the console of `under`'s engine, then what `text` would send first
+    * shown ([[Work.shown]]). [[Work.run]] admits only a run that is not dry, so on an engine
+    * another process runs it would show that engine's tools, not the proposer's.
+    */
+  private def dry(
+      under: Work.Under,
+      text: String,
+      edge: Console.Edge^,
+      clock: Clock^
+  ): Either[String, Unit] =
+    Kit.console(
+      under.deployment,
+      under.secrets,
+      under.stubDelay,
+      clock,
+      edge,
+      announced = true
+    ) match {
+      case Left(refused) => Left(refused.message)
+      case Right(opener) =>
+        admit(opener.runner).flatMap(_ =>
+          Work.opened(opener)(_ =>
+            Work.shown(under.secrets.database, under.deployment, under.origin, text, clock, println)
+          )
+        )
+    }
 
   /** `kalandra work` with the arguments `rest`, run in the directory `cwd`, over the environment
     * `raw`. Why not, and then nothing is said: as [[Work.asked]], [[Main.environment]] and, not
@@ -105,7 +134,8 @@ object Proposer {
           fresh,
           LoggerFactory.getLogger("kalandra.work")
         ) { edge =>
-          Work.run(asked, text, Kalandra.ProposerTurns, under, edge, clock, fresh, println)
+          if (asked.dry) dry(under, text, edge, clock)
+          else Work.run(asked, text, Kalandra.ProposerTurns, under, edge, clock, fresh, println)
         }
         .flatten
     }

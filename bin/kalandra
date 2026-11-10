@@ -7,7 +7,7 @@
 #   bin/kalandra work [--dry] PROPOSE.md    a proposal, run in an evidence checkout `scripts/eval
 #                                           propose` wrote: serve stopped, the proposer's turns
 #                                           run, serve started again however it ends; --dry shows
-#                                           its first model call, reads no key, leaves serve up
+#                                           its first model call instead, and reads no key
 #   bin/kalandra amendments <dir>           every amendment of the project grit, ended ones
 #                                           included, as exported, a file each under <dir>
 #   bin/kalandra export <project> <dir>     write a project's export files under <dir>
@@ -237,13 +237,10 @@ case "$1" in
     export KALANDRA_LOGS="$root/logs"
     mkdir -p "$KALANDRA_LOGS"
     export GRIT_DATABASE_URL="${GRIT_DATABASE_URL:-jdbc:postgresql://localhost:5432/grit_kalandra}"
-    if [[ "$dry" == 1 ]]; then
-      # No key read: a dry run is refused with one. Run here, in the evidence checkout.
-      exec "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"
-    fi
-    load_keys
-    # The proposer runs on an engine of its own, so serve stops for the run and starts again
-    # after it, however it ends.
+    # No key read for a dry run: it is refused with one. Run here, in the evidence checkout.
+    [[ "$dry" == 1 ]] || load_keys
+    # The proposer runs on an engine of its own, dry or not, so that a dry run shows the tools a
+    # real one is offered: serve stops for the run and starts again after it, however it ends.
     if managed; then unit_do stop; else serve_stop; fi
     trap 'serve_again' EXIT
     "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"

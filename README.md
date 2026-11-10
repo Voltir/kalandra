@@ -114,13 +114,14 @@ read from a directory this writes:
 ```bash
 bin/kalandra amendments /tmp/amendments      # every amendment of grit, ended ones included
 cd ~/.cache/grit-propose/propose-<seconds>
-bin/kalandra work --dry evidence/PROPOSE.md  # its first model call shown: no key, serve left up
-bin/kalandra work evidence/PROPOSE.md        # serve stopped, the turns run, serve started again
+bin/kalandra work --dry evidence/PROPOSE.md  # its first model call shown, no key read
+bin/kalandra work evidence/PROPOSE.md        # its turns run
 ```
 
 It is its own deployment (`Kalandra.proposing`, version `proposer`) on `grit_kalandra`, so a
-run that is not dry needs the engine to itself: `work` refuses one while serve holds it, and
-`bin/kalandra work` stops serve for the run and starts it again however it ends. Its turns are
+run needs the engine to itself, a dry one too (on serve's engine it would show serve's tools):
+`work` refuses one while serve holds it, and `bin/kalandra work` stops serve for the run and
+starts it again however it ends. Its turns are
 offered the coding tools' reads and `project_propose` alone, a new amendment in `proposed`;
 serve's turns may not move an amendment to `adopted`, which only `project_adopt` does.
 

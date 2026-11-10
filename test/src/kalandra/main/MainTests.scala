@@ -53,11 +53,11 @@ object MainTests extends TestSuite {
     }
 
     test(
-      "a proposal that is not dry runs only on an engine this process starts, refused while serve holds it"
+      "a proposal, dry or not, runs only on an engine this process starts, refused while serve holds it, naming bin/kalandra stop"
     ) {
       (
         Proposer.admit(Console.Runner.Here),
-        Proposer.admit(Console.Runner.Elsewhere(None)).left.map(_.startsWith("serve runs"))
+        Proposer.admit(Console.Runner.Elsewhere(None)).left.map(_.contains("`bin/kalandra stop`"))
       ) ==> (Right(()), Left(true))
     }
 
