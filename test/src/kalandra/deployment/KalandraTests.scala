@@ -60,7 +60,7 @@ object KalandraTests extends TestSuite {
     }
 
     test(
-      "a proposer runs on Claude Opus 5.5 at 8,192 tokens a reply, 20 calls a turn over a 32,000-token window, each within 500,000 tokens, 3 turns a proposal, under the version proposer, a day at most $6"
+      "a proposer runs on Claude Opus 5.5 at 8,192 tokens a reply, 20 calls a turn over a 32,000-token window, 3 turns a proposal, under the version proposer, a day at most $6"
     ) {
       (
         proposer.policy.turn.rungs.map(r => (r.assignment.ref, r.assignment.maxTokens)),
@@ -71,7 +71,7 @@ object KalandraTests extends TestSuite {
         proposer.placer
       ) ==> (
         Vector((direct("anthropic/claude-opus-5-5"), 8_192)),
-        (20, Some(Tokens(500_000)), Assembly.Linear(Tokens(32_000))),
+        (20, None, Assembly.Linear(Tokens(32_000))),
         3,
         "proposer",
         DailyCap.of("6").toOption,
@@ -145,9 +145,9 @@ object KalandraTests extends TestSuite {
     }
 
     test(
-      "a turn makes at most 12 model calls, and its input may reach 500,000 tokens before it is told to act"
+      "a turn makes at most 12 model calls, its input bounded by its pin, not by the deployment"
     ) {
-      (kalandra.offer.rounds.calls, kalandra.offer.rounds.limit) ==> (12, Some(Tokens(500_000)))
+      (kalandra.offer.rounds.calls, kalandra.offer.rounds.limit) ==> (12, None)
     }
 
     test(

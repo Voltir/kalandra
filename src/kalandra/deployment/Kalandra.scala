@@ -107,15 +107,6 @@ object Kalandra {
   /** A turn's model calls: 12, enough for triage to read the store short and then act. */
   val TurnCalls: Int = 12
 
-  /** The most input a turn's request may reach, as its provider counts it: 500,000 tokens, half
-    * the context of the Claude models kalandra pins, below which they do their best work. The
-    * window bounds only what a turn draws at its start; the turn then grows to this limit. Once a
-    * reply's input plus the largest growth of a round so far meets it, the turn's next call is
-    * its last with tools, and it is told so; a turn can pass it by one round's results
-    * (`TurnLoop.Rounds`). Spend is bounded by the day's cap, not by this limit.
-    */
-  val TurnLimit: Tokens = Tokens(500_000)
-
   /** What serve's turns are offered of the projects plugin: its shipped commands, a move of an
     * amendment to adopted refused ([[Projects.guardedMove]]), which only a person makes, through
     * the edge's `project_adopt`.
@@ -215,14 +206,13 @@ object Kalandra {
     * offered the coding tools' reads ([[Offered.Read]]) and, of the projects plugin,
     * `project_propose` alone, keeping a new amendment ([[GritMethod.Amendment]]) in its first
     * state. It serves no edge and declares no schedules and no jobs; its turns run on
-    * [[ProposerModel]] over a window of [[TurnBudget]], [[ProposerCalls]] calls each within
-    * [[TurnLimit]], a day's spend capped
-    * at [[ProposerLimit]], under [[ProposerVersion]]. Why not: the two directories are one room,
+    * [[ProposerModel]] over a window of [[TurnBudget]], [[ProposerCalls]] calls each, its input held by its pin's
+    * bounds, a day's spend capped at [[ProposerLimit]], under [[ProposerVersion]]. Why not: the two directories are one room,
     * or as [[deployment]]'s parts refuse.
     */
   def proposing(checkout: Directory, evidence: Directory): Either[String, Deployment] =
     for {
-      rounds <- Rounds.of(ProposerCalls).flatMap(_.within(TurnLimit))
+      rounds <- Rounds.of(ProposerCalls)
       methods <- GritMethod.declared.left.map(_.mkString("; "))
       projects <- Projects
         .of(methods, GritMethod.Name, TurnCommands.Proposing(GritMethod.Amendment))
@@ -259,7 +249,7 @@ object Kalandra {
   /** kalandra over the checkout `checkout`. */
   def deployment(checkout: Directory): Either[String, Deployment] =
     for {
-      rounds <- Rounds.of(TurnCalls).flatMap(_.within(TurnLimit))
+      rounds <- Rounds.of(TurnCalls)
       methods <- GritMethod.declared.left.map(_.mkString("; "))
       projects <- Projects.of(methods, GritMethod.Name, ServeTurns).left.map(_.toString)
       visible <- visibility(checkout)
