@@ -39,6 +39,34 @@ object GritMethodTests extends TestSuite {
       None
     )
 
+  private def project(m: Method, as: Artifact*): Project =
+    right(
+      Project.of(
+        right(ProjectKey.of("p")),
+        right(Pin.of(m.name, m.version, m.digest)),
+        as.toVector
+      )
+    )
+
+  /** The moves that end a checkpoint, each from the state it leaves. */
+  private val Endings: Vector[(String, String)] =
+    Vector("review" -> "merged", "planned" -> "dropped", "building" -> "dropped")
+
+  /** Checkpoint `c`, in `from`, moved to `to` under `m` while note `n` under it is in `note`: the
+    * state it reached, or the refusal as text.
+    */
+  private def ending(m: Method, from: String, to: String, note: String): Either[String, String] =
+    m.move(
+      Vector(
+        Artifact(head("c", "checkpoint", from), right(Body.read("C."))),
+        Artifact(head("n", "note", note, parent = Some("c")), right(Body.read("N.")))
+      ),
+      right(ArtifactKey.read("p/c")),
+      right(StateName.of(to))
+    ).left
+      .map(_.toString)
+      .map(moved => StateName.value(moved.artifact.head.state))
+
   val tests = Tests {
     test("version 1 keeps the digest the project restore-check pinned") {
       GritMethod.v1.map(_.digest) ==>
@@ -46,15 +74,21 @@ object GritMethodTests extends TestSuite {
     }
 
     test("version 2 keeps the digest the project grit pinned") {
-      // The pin grit_kalandra's project grit holds; its brief headers show b08f7ac5f0a1.
+      // The pin grit_kalandra's project grit held; its brief headers showed b08f7ac5f0a1.
       GritMethod.v2.map(_.digest) ==>
         Right("b08f7ac5f0a18cdfffcec83468e48295d3f2e1bb11dc49cf31b8869457c80a1f")
     }
 
-    test("version 3 keeps the digest the project grit pins") {
-      // The pin grit_kalandra's project grit holds; its brief headers show cdae558df99d.
+    test("version 3 keeps the digest the project grit pinned") {
+      // The pin grit_kalandra's project grit held; its brief headers showed cdae558df99d.
       GritMethod.v3.map(_.digest) ==>
         Right("cdae558df99dfaeb924b1eb863a10004196e1bab2cdb65e90d49a42cdfb74f47")
+    }
+
+    test("version 4 keeps the digest the project grit pins") {
+      // The pin grit_kalandra's project grit holds; its brief headers show a4324899142b.
+      GritMethod.v4.map(_.digest) ==>
+        Right("a4324899142bd13487e2442f57fea1be8cd5e6972247bbd177aff000a0cff65d")
     }
 
     test("version 2's milestone sits later, next, now or parallel and ends done or dropped") {
@@ -112,10 +146,7 @@ object GritMethodTests extends TestSuite {
       )
     }
 
-    test(
-      "version 4 is the latest: an amendment is proposed, benched, then adopted, rejected or dropped"
-    ) {
-      methods.map(_.version) ==> Vector(1, 2, 3, 4)
+    test("version 4: an amendment is proposed, benched, then adopted, rejected or dropped") {
       val v4 = version(4)
       kinds(v4) ==> kinds(version(3)) + "amendment"
       val amendment =
@@ -174,10 +205,61 @@ object GritMethodTests extends TestSuite {
       )
     }
 
-    test("version 4's worked examples come out as declared, and it alone has any") {
+    test("versions 4 and 5's worked examples come out as declared, and they alone have any") {
       val declared = GritMethod.declared.fold(why => sys.error(why.mkString("; ")), identity)
-      declared.map((m, ex) => m.version -> ex.size) ==> Vector(1 -> 0, 2 -> 0, 3 -> 0, 4 -> 5)
+      declared.map((m, ex) => m.version -> ex.size) ==>
+        Vector(1 -> 0, 2 -> 0, 3 -> 0, 4 -> 5, 5 -> 5)
       declared.flatMap((m, ex) => MethodBench.failures(m, ex)) ==> Vector()
+    }
+
+    test("version 5, the latest, is version 4 with each move ending a checkpoint children-ended") {
+      methods.map(_.version) ==> Vector(1, 2, 3, 4, 5)
+      val (v4, v5) = (version(4), version(5))
+      (v5.kinds, v5.views, v5.transitions.size) ==> (v4.kinds, v4.views, v4.transitions.size)
+      v5.transitions
+        .zip(v4.transitions)
+        .collect {
+          case (now, was) if now != was =>
+            (
+              KindName.value(now.kind),
+              StateName.value(now.from),
+              StateName.value(now.to),
+              now.copy(checks = was.checks) == was,
+              now.checks.diff(was.checks).map(CheckName.value)
+            )
+        } ==> Endings.map((from, to) => ("checkpoint", from, to, true, Vector("children-ended")))
+    }
+
+    test("version 5 refuses to end a checkpoint while a note under it is open, naming the note") {
+      Endings.map((from, to) => ending(version(5), from, to, "open")) ==>
+        Endings.map((from, to) =>
+          Left(
+            s"Unheld(ArtifactHead(ArtifactKey(p,c),checkpoint,$from,c,None,Vector(),None),$to," +
+              "Vector((children-ended,not ended yet: p/n (open))))"
+          )
+        )
+    }
+
+    test("version 5 merges or drops a checkpoint once the note under it is folded") {
+      Endings.map((from, to) => ending(version(5), from, to, "folded")) ==>
+        Endings.map((_, to) => Right(to))
+    }
+
+    test("version 4 merges or drops a checkpoint over an open note: the migrate alone changes it") {
+      Endings.map((from, to) => ending(version(4), from, to, "open")) ==>
+        Endings.map((_, to) => Right(to))
+    }
+
+    test("a version 4 project migrates to version 5 unchanged, an ended checkpoint's note open") {
+      val (v4, v5) = (version(4), version(5))
+      val as = Vector(
+        Artifact(head("m", "milestone", "now"), right(Body.read("M."))),
+        Artifact(head("c", "checkpoint", "merged", parent = Some("m")), right(Body.read("C."))),
+        Artifact(head("n", "note", "open", parent = Some("c")), right(Body.read("N."))),
+        Artifact(head("d", "checkpoint", "dropped", parent = Some("m")), right(Body.read("D."))),
+        Artifact(head("a", "amendment", "proposed"), right(Body.read("A.")))
+      )
+      v5.migrated(project(v4, as*), Remap()) ==> Right(Migrated(project(v5, as*), Vector()))
     }
 
     test("a version 3 milestone cannot end done while it parents an open backlog item") {
@@ -197,14 +279,6 @@ object GritMethodTests extends TestSuite {
     test("a version 2 project migrates to version 3, its stages checkpoints, a note re-kinded") {
       val v2 = version(2)
       val v3 = version(3)
-      def project(m: Method, as: Artifact*): Project =
-        right(
-          Project.of(
-            right(ProjectKey.of("p")),
-            right(Pin.of(m.name, m.version, m.digest)),
-            as.toVector
-          )
-        )
       val m = Artifact(head("m", "milestone", "now"), right(Body.read("M.")))
       val s = Artifact(head("s", "stage", "building", parent = Some("m")), right(Body.read("S.")))
       val n = Artifact(head("n", "note", "open", parent = Some("m")), right(Body.read("N.")))

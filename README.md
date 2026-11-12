@@ -9,9 +9,10 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   process as data. Version 1 (milestones, stages, ideas, mechanisms) is kept because the project
   `restore-check` is pinned to its digest; version 2 has the kinds grit's planning tree imports
   into: milestones (later, next, now, parallel, done), plans with their stages and sections,
-  mechanisms and notes. Version 3, the latest and so what a new project holds to, renames the
-  stage a checkpoint and adds backlog items; its coder and manager views always carry their
-  rules. `project_migrate` moves a project between versions.
+  mechanisms and notes. Version 3 renames the stage a checkpoint and adds backlog items; its
+  coder and manager views always carry their rules. Version 4 adds amendments. Version 5, the
+  latest and so what a new project holds to, ends a checkpoint only once everything under it
+  has ended. `project_migrate` moves a project between versions.
 - **One account, one room.** Its account is `workshop:local/nick` (stored; kept from the deployment's earlier name); its room is the grit
   checkout's directory (`KALANDRA_CHECKOUT`, default `$HOME/Projects/grit`), declared internal,
   and the account alone is cleared for internal. Every other room is unmapped, so a command
@@ -91,7 +92,7 @@ loginctl enable-linger "$USER"   # user units run without a login session
 ## Amending a standing section
 
 A section that states a cap above its rule (`**Cap: N characters**`, then `***`) holds a
-standing text, which an `amendment` (GritMethod version 4) proposes to edit: its `## Diff`
+standing text, which an `amendment` (GritMethod from version 4) proposes to edit: its `## Diff`
 names the section and the version it is against, then `old` and `new` code blocks, exact
 replacements as a coder's edits are.
 

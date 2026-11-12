@@ -23,7 +23,7 @@ import grit.projects.name.{
   StateName
 }
 
-/** How grit itself is built, as a method (ADR 0049), in two versions.
+/** How grit itself is built, as a method (ADR 0049), in five versions.
   *
   * Version 1: a `milestone` holds `stage`s and closes only once each has ended; a `stage` is
   * planned with a `## Goal` before it is built, reviewed, and merged or dropped; an `idea` is
@@ -55,6 +55,10 @@ import grit.projects.name.{
   * `reviewer` are shown amendments too, a `coder` none; a `grit-coder` (grit's own coding turn)
   * is shown what a coder is and always carries the grit coder's standing section
   * (`roadmap-grit-coder`).
+  *
+  * Version 5, version 4 with a `checkpoint` ending, `merged` or `dropped`, only once every
+  * artifact under it has ended (so its notes end with it), as a plan's close and a milestone's
+  * done already ask.
   */
 object GritMethod {
 
@@ -73,27 +77,30 @@ object GritMethod {
   /** Version 2, which grit's planning tree was imported into. */
   def v2: Either[Vector[String], Method] = method(2, declaredV2)
 
-  /** Version 3, which the project `grit` holds to until it is migrated. */
+  /** Version 3, which the project `grit` held to before version 4. */
   def v3: Either[Vector[String], Method] = method(3, declaredV3)
 
-  /** Version 4, the latest: what a new project holds to. */
+  /** Version 4, which the project `grit` holds to until it is migrated. */
   def v4: Either[Vector[String], Method] = method(4, declaredV4)
+
+  /** Version 5, the latest: what a new project holds to. */
+  def v5: Either[Vector[String], Method] = method(5, declaredV5)
 
   /** Every version, oldest first, or every reason one is not a method. */
   def all: Either[Vector[String], Vector[Method]] =
-    Vector(v1, v2, v3, v4).partitionMap(identity) match {
+    Vector(v1, v2, v3, v4, v5).partitionMap(identity) match {
       case (Vector(), methods) => Right(methods)
       case (why, _) => Left(why.flatten)
     }
 
-  /** Every version with the worked examples it is declared with (version 4's, of an
-    * amendment's moves; none before it), oldest first, or every reason one is not a method.
+  /** Every version with the worked examples it is declared with (an amendment's moves, from
+    * version 4 on; none before it), oldest first, or every reason one is not a method.
     */
   def declared: Either[Vector[String], Vector[(Method, Vector[Example])]] =
     for {
       methods <- all
       worked <- amendments.left.map(Vector(_))
-    } yield methods.map(m => m -> (if (m.version == 4) worked else Vector.empty))
+    } yield methods.map(m => m -> (if (m.version >= 4) worked else Vector.empty))
 
   private type Parts = (Vector[ArtifactKind], Vector[Transition], Vector[RoleView])
 
@@ -361,11 +368,29 @@ object GritMethod {
       widened :+ grit
     )
 
+  private def declaredV5: Either[String, Parts] =
+    for {
+      v4 <- declaredV4
+      checkpoint <- KindName.of("checkpoint")
+      ends <- v4._1
+        .find(_.name == checkpoint)
+        .map(_.ends)
+        .toRight("version 4 has no checkpoint")
+    } yield (
+      v4._1,
+      v4._2.map(t =>
+        if (t.kind == checkpoint && ends.contains(t.to))
+          t.copy(checks = t.checks :+ TransitionChecks.ChildrenEnded.name)
+        else t
+      ),
+      v4._3
+    )
+
   /** The sections an amendment holds before it is benched. */
   private val AmendmentSections: Vector[String] =
     Vector("Diff", "Moments", "Cue", "Lesson", "Confidence", "Observable")
 
-  /** Version 4's worked examples, each one amendment's moves from `proposed`. */
+  /** The worked examples of versions 4 and 5, each one amendment's moves from `proposed`. */
   private def amendments: Either[String, Vector[Example]] = {
     import Example.Expect.{Allowed, RefusedBy}
     val proposal = AmendmentSections.map(s => s"## $s\n\nWhat its $s says.").mkString("\n\n")
