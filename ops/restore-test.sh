@@ -36,10 +36,13 @@ trap cleanup EXIT
 
 up() { curl -s -o /dev/null -X POST "http://$1/command/project_list" -d '{}'; }
 
-# serve <database> <listen>: started in the background; its PID added to `started`.
+# serve <database> <listen>: started in the background; its PID added to `started`. The restored
+# database's serve gets a spool and a briefs directory of its own: sharing the live ones, it
+# would record live sessions' events into the restored database and rewrite live brief files.
 serve() {
-  local log="$work/serve-$1.log"
-  GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/$1" KALANDRA_LISTEN="$2" \
+  local log="$work/serve-$1.log" own=()
+  [[ "$1" == "$restored" ]] && own=(KALANDRA_SPOOL="$work/spool" KALANDRA_BRIEFS="$work/briefs")
+  env "${own[@]}" GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/$1" KALANDRA_LISTEN="$2" \
     "$kalandra" serve >"$log" 2>&1 &
   started+=("$!")
   for _ in $(seq 1 120); do
