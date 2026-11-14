@@ -31,8 +31,6 @@ the join script that jar serves (`join.sh`), their sha256 files and the proof's 
   `serve.jar.sha256`.
 - `git -C ~/Projects/kalandra merge-base --is-ancestor main commands-edge` exits 0 (main has not
   moved under the branch, so the merge in step 6 is a fast-forward).
-- `ops/cutover-report.sh` is no check of the switch: on this branch it fails until commit B
-  (step 12), and is not run before then.
 
 ## 1. End every session
 
