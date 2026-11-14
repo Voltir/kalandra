@@ -62,30 +62,9 @@ cd ~/Projects/grit
 bash -s -- http://127.0.0.1:7317 --mcp-name kalandra --retire ~/Projects/kalandra/hooks < $P/join.sh
 ```
 
-It prints one `removed` line for each distinct old command: grit's settings hold 11 handlers
-over 3 commands, and each git hook one line more. In grit's checkout, as the settings and git
-hooks stand:
-
-```
-grit claude-code: joined /home/nickchilders/Projects/grit to http://127.0.0.1:7317
-  hook      /home/nickchilders/Projects/grit/.git/grit/claude-code/hook, shared by this repository's worktrees
-  settings  .claude/settings.local.json: 11 handlers of ours
-  ignore    .claude/settings.local.json is ignored already
-  removed   /home/nickchilders/Projects/kalandra/hooks/brief-hook.sh
-  removed   /home/nickchilders/Projects/kalandra/hooks/brief-hook.sh --digest
-  removed   /home/nickchilders/Projects/kalandra/hooks/spool-hook.sh
-  removed   post-commit: /home/nickchilders/Projects/kalandra/hooks/spool-hook.sh --commit
-  removed   post-rewrite: exec /home/nickchilders/Projects/kalandra/hooks/spool-hook.sh --rewrite "$@"
-  git       post-commit and post-rewrite in /home/nickchilders/Projects/grit/.git/hooks, shared by this repository's worktrees
-  mcp       kalandra at http://127.0.0.1:7317/mcp, local scope, replacing kalandra at http://127.0.0.1:7317/mcp
-Sessions pick the hooks up at once; run /mcp in a running session to connect kalandra.
-Undo: curl -fsS http://127.0.0.1:7317/join/claude-code | bash -s -- --undo --mcp-name kalandra
-```
-
-(The undo it names is the same script as `$P/join.sh`; the undo below runs that file.) A
-different count of `removed` lines means the settings or git hooks changed since step 2's
-backup: read them against `$P/before` before going on. In a worktree found at step 2, the same
-command there.
+It prints 11 `removed` lines, `settings … 11 handlers of ours`, the git hooks written, and
+`mcp kalandra at http://127.0.0.1:7317/mcp, local scope, replacing kalandra at
+http://127.0.0.1:7317/mcp`. In a worktree found at step 2, the same command there.
 
 Undo: the join's undo, then only the settings' `hooks` key back, then the repository's files,
 then the old MCP entry:
