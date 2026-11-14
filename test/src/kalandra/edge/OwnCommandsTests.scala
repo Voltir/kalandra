@@ -236,12 +236,14 @@ object OwnCommandsTests extends TestSuite {
       )
     }
 
-    test("every own command asks a member's word, two guarding move and batch, two added") {
+    test(
+      "move, batch and standing ask a member's word and adopt an authority's, two guarding, two added"
+    ) {
       OwnCommands.all.map(o => (ToolName.value(o.name), o.least, o.guards)) ==> Vector(
         ("project_move", Integrity.Member, true),
         ("project_batch", Integrity.Member, true),
         ("project_standing", Integrity.Member, false),
-        ("project_adopt", Integrity.Member, false)
+        ("project_adopt", Integrity.Authority, false)
       )
     }
 

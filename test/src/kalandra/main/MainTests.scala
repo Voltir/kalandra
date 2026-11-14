@@ -92,7 +92,9 @@ object MainTests extends TestSuite {
 
     test("a missing Jev key is refused, and the refusal says where kalandra reads its keys") {
       val dir = Directory.of("/home/someone/grit").fold(sys.error, identity)
-      val kalandra = Kalandra.deployment(dir, KalandraTests.Listening).fold(sys.error, identity)
+      val kalandra = Kalandra
+        .deployment(dir, KalandraTests.Listening, KalandraTests.Calling)
+        .fold(sys.error, identity)
       val env = Main
         .environment(keys - "JEV_API_KEY" + ("GRIT_DATABASE_URL" -> "jdbc:postgresql://h/k"))
         .fold(sys.error, identity)

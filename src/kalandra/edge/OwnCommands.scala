@@ -16,8 +16,8 @@ import kalandra.amend.{AdoptRefusal, Adoption, Candidate, Diff, StandingSection}
 import kalandra.method.GritMethod
 
 /** kalandra's own commands at grit's commands edge, and the wait its `/wait` reads besides a
-  * commit's. Each asks a caller believed at [[Integrity.Member]] at least; the edge answers any
-  * other caller 403, running nothing. Each answers as the edge answers every command: done 200,
+  * commit's. Each asks a caller believed at [[Integrity.Member]] at least, and [[adopt]] at
+  * [[Integrity.Authority]]; the edge answers any other caller 403, running nothing. Each answers as the edge answers every command: done 200,
   * refused 409, [[CommandError.Unread]] 400, [[CommandError.Store]] 500, and a plugin command's
   * own error with its own status.
   */
@@ -95,7 +95,8 @@ object OwnCommands {
       } yield Right(CommandOutcome.Done(text))).merge
   )
 
-  /** `project_adopt`, at `/command` alone (`bin/kalandra adopt`): the amendment `key`'s candidate
+  /** `project_adopt`, at `/command` alone (`bin/kalandra adopt`), for a caller believed at
+    * [[Integrity.Authority]], as adopting sets standing policy: the amendment `key`'s candidate
     * kept as its section's next version, at the version its diff is against, and the amendment
     * moved to `adopted`, in one plugin `project_batch`, which keeps both or neither and checks
     * the move as any; done, it says the section, its standing text's size and its cap, then the
@@ -104,7 +105,7 @@ object OwnCommands {
     */
   val adopt: OwnCommand = OwnCommand.added(
     Adopt,
-    Integrity.Member,
+    Integrity.Authority,
     (ran, args) =>
       (for {
         key <- keyOf(Adopt, args)

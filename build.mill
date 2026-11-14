@@ -26,9 +26,27 @@ object `package` extends ScalaModule {
    * __.compile`. An input, so every run reads the shell's value afresh. */
   def lint = Task.Input { Task.env.get("KALANDRA_LINT").contains("1") }
 
-  /* grit's version: plain semver, tagged in grit (`v0.2.0`), every module published together
-   * from that tag and never republished under it, so this pin names one build of grit. */
-  def gritVersion = "0.2.0"
+  /* grit's version. A release (`0.3.0`) is tagged in grit and never republished under its tag,
+   * so it names one build of grit. A snapshot (`0.3.0-SNAPSHOT`) is republished in place from
+   * grit's `main`, under the marker scripts/publish-local writes beside the modules
+   * (`~/.ivy2/local/dev.grit/.publish-local-<version>`, holding the commit), so while the pin is
+   * one, `bin/kalandra build` cleans the resolution first and refuses a marker that moved. */
+  def gritVersion = "0.3.0-SNAPSHOT"
+
+  /* Which grit the jar is built against: the version, and for a snapshot ` at <commit>` from its
+   * marker. An input, so a republish is seen; carried in the jar as `kalandra/grit.txt`, and
+   * serve's log says it. */
+  def gritBuilt = Task.Input {
+    val marker = os.home / ".ivy2" / "local" / "dev.grit" / s".publish-local-$gritVersion"
+    if (os.exists(marker)) s"$gritVersion at ${os.read(marker).trim}" else gritVersion
+  }
+
+  def gritResource = Task {
+    os.write(Task.dest / "kalandra" / "grit.txt", gritBuilt(), createFolders = true)
+    PathRef(Task.dest)
+  }
+
+  def resources = Task { super.resources() :+ gritResource() }
 
   def mvnDeps = Seq(
     mvn"dev.grit::grit-kit:${gritVersion}",

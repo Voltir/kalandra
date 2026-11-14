@@ -1,6 +1,7 @@
 package kalandra.deployment
 
-import grit.core.id.EdgeName
+import grit.commands.caller.Callers
+import grit.core.id.{EdgeName, Sha256}
 import grit.core.identity.Account
 import grit.core.message.Tokens
 import grit.core.model.{ModelId, ModelRef, Upstream}
@@ -13,7 +14,7 @@ import grit.kit.deployment.{Assembly, DeploymentVersion, Offered, Placer}
 import grit.projects.name.{KindName, StateName}
 import grit.projects.plugin.{Projects, TurnCommands}
 
-import kalandra.edge.OwnCommands
+import kalandra.edge.{Mount, OwnCommands}
 import kalandra.method.GritMethod
 import utest.*
 
@@ -22,10 +23,22 @@ object KalandraTests extends TestSuite {
   /** Where a deployment built in a test listens: serve's default address. */
   val Listening: Listen = Listen.parse("127.0.0.1:7317").fold(sys.error, identity)
 
+  /** Who a deployment built in a test takes requests from: the owner, by two throwaway digests. */
+  val Calling: Callers = Mount
+    .callers(
+      Kalandra.Owner,
+      Map(
+        Mount.OwnerDigestVar -> Sha256.text("o" * 43).hex,
+        Mount.SessionsDigestVar -> Sha256.text("s" * 43).hex
+      )
+    )
+    .fold(sys.error, identity)
+
   private val checkout: Directory =
     Directory.of("/home/someone/grit").fold(sys.error, identity)
 
-  private lazy val kalandra = Kalandra.deployment(checkout, Listening).fold(sys.error, identity)
+  private lazy val kalandra =
+    Kalandra.deployment(checkout, Listening, Calling).fold(sys.error, identity)
 
   private def direct(model: String): ModelRef =
     ModelRef(ModelId.of(model).getOrElse(sys.error(model)), Some(Upstream.AnthropicApi))

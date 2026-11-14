@@ -21,9 +21,14 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 - **Its database** is `grit_kalandra` (`GRIT_DATABASE_URL`); it refuses to open `grit` or
   `grit_bort`. Unlike grit's test databases it is durable: never reset or drop it.
 - **Its edge, `commands`**: grit's commands edge (ADR 0062), mounted by `kalandra.edge.Mount`
-  on `KALANDRA_LISTEN` (`host:port` on loopback, default `127.0.0.1:7317`). Every request with no
-  credential is the account's, believed at member, from the worker `local`; one carrying a
-  credential is refused. `POST /command/<name>` runs a projects command with its body, a JSON
+  on `KALANDRA_LISTEN` (`host:port` on loopback, default `127.0.0.1:7317`). Every request bears a
+  credential, and is refused (401) without one serve knows. There are two, both the account's on
+  the machine `local`: the command line's, believed at authority, and the sessions' the account
+  starts, believed at member, so a delegated agent writes as its person's account at lower
+  integrity. serve knows each by its SHA-256 digest, `KALANDRA_OWNER_DIGEST` and
+  `KALANDRA_SESSIONS_DIGEST` in `.env`, and refuses to start without both; a digest is no secret,
+  and the texts live in `~/.config/kalandra/credential` and `~/.config/grit/credential`, mode 0600.
+  `POST /command/<name>` runs a projects command with its body, a JSON
   object, as its arguments; `POST /mcp` serves the same commands as MCP tools; `POST /wait`
   (`bin/kalandra wait`) waits for a commit (`{"commit":{"holder":…}}` or `{"commit":{"worktree":…}}`)
   or for an artifact to reach a state; `GET /holder` answers the claim holder a session or its
@@ -32,12 +37,14 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   `GET /join/claude-code` serves Claude Code's join script. What each answers, and refuses, is
   in the docs of `grit.commands`' `CommandsEdge`. kalandra's own commands (`kalandra.edge.OwnCommands`):
   `project_move` and `project_batch` refuse a move to `adopted`, which `project_adopt` alone
-  makes, and `project_standing` and `project_adopt` are added at `/command` alone. The edge
+  makes, and `project_standing` and `project_adopt` are added at `/command` alone; `project_adopt`
+  asks a caller believed at authority, so a session's is refused (403). The edge
   vouches for the account, the one member of its realm `workshop:local` (stored; kept from the
   earlier name), so a person is linked to it before the first command. serve writes no files.
-- **Sessions** reach the edge through Claude Code's adapter: in a checkout, `curl -fsS
-  http://127.0.0.1:7317/join/claude-code | bash -s -- http://127.0.0.1:7317 --mcp-name kalandra`
-  installs the hook that briefs each session and agent from `/brief` and posts what they do to
+- **Sessions** reach the edge through Claude Code's adapter: in a checkout, `curl -fsS -H
+  @<(printf 'Authorization: Bearer %s' "$(<~/.config/grit/credential)")
+  http://127.0.0.1:7317/join/claude-code | bash -s -- http://127.0.0.1:7317 --credential
+  ~/.config/grit/credential --mcp-name kalandra` installs the hook that briefs each session and agent from `/brief` and posts what they do to
   `/events`, and registers `/mcp` as `kalandra`; `--undo` removes it (grit's
   `extensions/claudecode/README.md`).
 - It names grit's kit, core, prose and the projects plugin alone.
@@ -69,7 +76,8 @@ bin/kalandra export m17 /tmp/m17        # the project's export files, through a 
 bin/kalandra holder                     # the claim holder a session here works as, for a claim
 ```
 
-A command through `bin/kalandra` fails loud, exit 2, when serve is not running. Use `start` and
+A command through `bin/kalandra` fails loud, exit 2, when serve is not running, and sends the
+credential its header names (the sessions' inside a Claude Code session). Use `start` and
 `stop` rather than signalling serve by hand: a pattern kill matches its own shell.
 
 **Kept up by systemd.** Where systemd runs (on WSL, `[boot] systemd=true` in `/etc/wsl.conf`),
@@ -130,10 +138,9 @@ session starts without the tools.
 
 Every route refuses, with 403 and running nothing, a request whose `Host` is not a loopback name
 (`localhost`, `127.0.0.1`, `::1`) at any port, whose `Origin`, when sent, is not `http://` that
-same `Host`, or whose `Sec-Fetch-Site`, when sent, is not `same-origin` or `none`: a web page in a
-browser on this machine could otherwise post to them, by DNS rebinding or a cross-site request,
-and keep durable records. A request with no `Origin`, as from `bin/kalandra`, curl or Claude
-Code's MCP client, passes on its `Host`; one carrying `Authorization` is refused.
+same `Host`, or whose `Sec-Fetch-Site`, when sent, is not `same-origin` or `none`. Claude Code's
+MCP client sends the sessions' credential through the hook's `header`, its `headersHelper`, so the
+credential is in neither `~/.claude.json` nor a session's environment.
 
 ## Importing grit's planning tree
 

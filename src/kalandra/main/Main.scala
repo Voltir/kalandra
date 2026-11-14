@@ -41,6 +41,14 @@ object Main {
   /** `grit`: the project `import` and `verify` keep grit's planning tree in. */
   val Imported: String = "grit"
 
+  /** Which grit this jar was built against, as its build wrote it (`0.3.0-SNAPSHOT at <commit>`
+    * for a snapshot); `unknown` in a build that wrote none.
+    */
+  lazy val GritBuilt: String =
+    Option(getClass.getResourceAsStream("/kalandra/grit.txt"))
+      .map(in => scala.util.Using.resource(in)(i => new String(i.readAllBytes(), "UTF-8")).trim)
+      .getOrElse("unknown")
+
   /** `jdbc:postgresql://localhost:5432/grit_kalandra`. */
   val DefaultDatabase: String = "jdbc:postgresql://localhost:5432/grit_kalandra"
 
@@ -145,7 +153,9 @@ object Main {
       env <- environment(raw).flatMap(keyed)
       dir <- checkout(env)
       at <- Mount.listening(env)
-      kalandra <- Kalandra.deployment(dir, at)
+      callers <- Mount.callers(Kalandra.Owner, env)
+      kalandra <- Kalandra.deployment(dir, at, callers)
+      _ = System.err.println(s"[kalandra] grit $GritBuilt")
       _ <- Kit.serve(kalandra, env).left.map(said)
     } yield ()
 
@@ -161,7 +171,8 @@ object Main {
       env <- environment(raw).flatMap(keyed)
       dir <- checkout(env)
       at <- Mount.listening(env)
-      kalandra <- Kalandra.deployment(dir, at)
+      callers <- Mount.callers(Kalandra.Owner, env)
+      kalandra <- Kalandra.deployment(dir, at, callers)
       secrets <- Secrets.of(env, kalandra).left.map(r => said(KitFailure.Unconfigured(r)))
     } yield (dir, kalandra, secrets)
     // The capabilities are opened in matches, not a for: a for's closures would capture them.
@@ -217,7 +228,8 @@ object Main {
       env <- environment(raw)
       dir <- checkout(env)
       at <- Mount.listening(env)
-      kalandra <- Kalandra.deployment(dir, at)
+      callers <- Mount.callers(Kalandra.Owner, env)
+      kalandra <- Kalandra.deployment(dir, at, callers)
       secrets <- Secrets.of(env, kalandra).left.map(r => said(KitFailure.Unconfigured(r)))
     } yield (dir, kalandra, secrets)
     read.flatMap { (dir, kalandra, secrets) =>

@@ -4,6 +4,7 @@ import java.time.ZoneOffset
 
 import scala.concurrent.duration.DurationInt
 
+import grit.commands.caller.Callers
 import grit.core.files.Formats
 import grit.core.identity.{Account, Identities, Realm, Vouching}
 import grit.core.message.Tokens
@@ -20,7 +21,6 @@ import grit.core.visibility.{
   Grant,
   Group,
   GroupName,
-  Integrity,
   Label,
   Labelled,
   Level,
@@ -56,11 +56,6 @@ object Kalandra {
 
   /** What its room is labelled, and its owner cleared for: internal. */
   val Kept: DeclaredLabel = Label.at(Level.Internal)
-
-  /** How far what its owner says in its room is believed: a team member's word,
-    * the integrity the edge gives every command it runs.
-    */
-  val Believed: Integrity = Integrity.Member
 
   /** The room: the grit checkout `checkout`, under `fs`. */
   def room(checkout: Directory): Place = Place.of(checkout)
@@ -248,10 +243,10 @@ object Kalandra {
     } yield made
 
   /** kalandra over the checkout `checkout`, its one edge grit's commands edge listening at `at`
-    * ([[Mount.edge]]), for [[Owner]] believed at [[Believed]] in the checkout's room. Why not: as
-    * [[Mount.edge]] refuses `at`, or as the deployment's parts refuse.
+    * ([[Mount.edge]]) in the checkout's room, each request from `callers`' caller. Why not: as
+    * [[Mount.edge]] refuses `at` or a caller, or as the deployment's parts refuse.
     */
-  def deployment(checkout: Directory, at: Listen): Either[String, Deployment] =
+  def deployment(checkout: Directory, at: Listen, callers: Callers): Either[String, Deployment] =
     for {
       rounds <- Rounds.of(TurnCalls)
       methods <- GritMethod.declared.left.map(_.mkString("; "))
@@ -262,7 +257,7 @@ object Kalandra {
         .of(Vector(Vouching(Mount.Attester, Local)), Set.empty)
         .left
         .map(_.toString)
-      edge <- Mount.edge(at, room(checkout), Owner, Believed, Local)
+      edge <- Mount.edge(at, room(checkout), callers, Local)
       made <- Deployment
         .of(
           edges = Vector(edge),

@@ -37,12 +37,53 @@
 #
 # A command prints the edge's answer and exits 0 only when it did what it was asked; it fails
 # loud, exit 2, when serve is not reachable at KALANDRA_LISTEN (default 127.0.0.1:7317).
+#
+# Every request to serve bears a credential, read from a file and sent as `Authorization: Bearer`
+# without ever being on a command line or in an environment: inside a Claude Code session
+# (CLAUDE_CODE_SESSION_ID set) the sessions' credential, ~/.config/grit/credential, whatever
+# KALANDRA_CREDENTIAL says; otherwise the file KALANDRA_CREDENTIAL names, or
+# ~/.config/kalandra/credential, the command line's. A missing or empty file exits 78, sending
+# nothing; a credential serve refuses (401) exits 1, naming the file.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 jar="$root/out/assembly.dest/out.jar"
 java="${GRIT_JDK_HOME:-/home/nickchilders/.jdks/jdk-26.0.2}/bin/java"
 listen="${KALANDRA_LISTEN:-127.0.0.1:7317}"
+
+# The sessions' credential, which the join also writes into the hook.
+sessions_credential="$HOME/.config/grit/credential"
+
+# The file of the credential this run sends, as the header says.
+credential_file() {
+  if [[ -n "${CLAUDE_CODE_SESSION_ID-}" ]]; then
+    printf '%s\n' "$sessions_credential"
+  elif [[ -n "${KALANDRA_CREDENTIAL-}" ]]; then
+    printf '%s\n' "$KALANDRA_CREDENTIAL"
+  else
+    printf '%s\n' "$HOME/.config/kalandra/credential"
+  fi
+}
+
+# Sets `cred` to the chosen file, or exits 78 saying so when it is missing, unreadable or empty.
+need_credential() {
+  cred="$(credential_file)"
+  if ! [[ -f "$cred" && -r "$cred" ]] || ! grep -q '[^[:space:]]' "$cred" 2>/dev/null; then
+    echo "kalandra: cannot read a credential in $cred; nothing was sent: ask whoever runs serve for this credential and put it in $cred" >&2
+    exit 78
+  fi
+}
+
+# curl to serve, bearing the credential in $cred: never on argv, nor in any environment
+# (printf and $(<…) are bash's own).
+serve_curl() {
+  curl -q --noproxy '*' -H @<(printf 'Authorization: Bearer %s\n' "$(<"$cred")") "$@"
+}
+
+# What a 401 for `$1` says, after the edge's own line.
+refused_credential() {
+  echo "kalandra: serve at $listen refused the credential in $cred (401) for $1; ask whoever runs serve for this credential and put it in $cred" >&2
+}
 
 usage() {
   sed -n '2,/^[^#]/{/^#/p}' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
@@ -60,8 +101,34 @@ load_keys() {
   fi
 }
 
+# The jar. While build.mill pins a snapshot, which grit republishes in place, the resolution is
+# cleaned first and the snapshot's marker read before and after: a marker that moved, or a
+# publish under way (a .publish-local.* directory), is refused, as the jar could mix two of them.
 build() {
-  (cd "$root" && ./mill show assembly >/dev/null)
+  local version marker before after
+  version="$(sed -n 's/^ *def gritVersion = "\(.*\)"$/\1/p' "$root/build.mill")"
+  if [[ "$version" != *-SNAPSHOT ]]; then
+    (cd "$root" && ./mill show assembly >/dev/null)
+    return
+  fi
+  marker="$HOME/.ivy2/local/dev.grit/.publish-local-$version"
+  snapshot_steady() {
+    if compgen -G "$HOME/.ivy2/local/.publish-local.*" >/dev/null ||
+      compgen -G "$HOME/.ivy2/local/dev.grit/.publish-local.*" >/dev/null; then
+      echo "kalandra: grit $version is being published (a .publish-local.* directory); build again after" >&2
+      return 1
+    fi
+  }
+  snapshot_steady || return 1
+  before="$(cat "$marker" 2>/dev/null)" || { echo "kalandra: grit $version has no marker at $marker; publish it first" >&2; return 1; }
+  (cd "$root" && ./mill clean __.resolvedMvnDeps __.resolvedRunMvnDeps >/dev/null && ./mill show assembly >/dev/null)
+  after="$(cat "$marker" 2>/dev/null || true)"
+  snapshot_steady || return 1
+  if [[ "$after" != "$before" ]]; then
+    echo "kalandra: grit $version was republished during the build ($before, now ${after:-none}); build again" >&2
+    return 1
+  fi
+  echo "built against grit $version at $before"
 }
 
 # serve's pids, one a line: a java process whose cwd is this checkout, whose argv holds the exact
@@ -91,12 +158,11 @@ serve_pids() {
   return 0
 }
 
-# Whether serve answers a projects command at all: any HTTP answer, even a refusal, counts; only
-# unreachable (the command's exit 2) does not.
+# Whether serve answers at all: asked with no credential, any HTTP answer counts, the 401 a
+# credentialed edge gives it included; only no answer does not.
 serve_answers() {
-  local rc=0
-  "$root/bin/kalandra" project_list '{"project":"grit"}' >/dev/null 2>&1 || rc=$?
-  [[ "$rc" != 2 ]]
+  curl -q -s --noproxy '*' --max-time 5 -o /dev/null -X POST -d '{}' \
+    "http://$listen/command/project_list" 2>/dev/null
 }
 
 serve_stop() {
@@ -219,15 +285,19 @@ case "$1" in
       echo "kalandra: an agent's holder needs its session's id: CLAUDE_CODE_SESSION_ID is not set" >&2
       exit 2
     fi
+    need_credential
     out="$(mktemp)"
     trap 'rm -f "$out" "$out.err"' EXIT
-    if ! status="$(curl -sS -o "$out" -w '%{http_code}' "http://$listen/holder?$query" 2>"$out.err")"; then
+    if ! status="$(serve_curl -sS -o "$out" -w '%{http_code}' "http://$listen/holder?$query" 2>"$out.err")"; then
       echo "kalandra: serve is not reachable at $listen: $(cat "$out.err")" >&2
       exit 2
     fi
     cat "$out"
     [[ -s "$out" && "$(tail -c1 "$out")" != "" ]] && echo
-    if [[ "$status" != 200 ]]; then
+    if [[ "$status" == 401 ]]; then
+      refused_credential holder
+      exit 1
+    elif [[ "$status" != 200 ]]; then
       echo "kalandra: holder answered $status" >&2
       exit 1
     fi
@@ -283,10 +353,14 @@ case "$1" in
     ;;
   amendments)
     [[ $# -eq 2 ]] || usage
+    need_credential
+    export KALANDRA_CREDENTIAL="$cred"
     [[ -f "$jar" ]] || build
     exec "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"
     ;;
   export | import | verify)
+    need_credential
+    export KALANDRA_CREDENTIAL="$cred"
     [[ -f "$jar" ]] || build
     exec "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"
     ;;
@@ -294,10 +368,11 @@ case "$1" in
     usage
     ;;
   wait)
+    need_credential
     out="$(mktemp)"
     trap 'rm -f "$out" "$out.err"' EXIT
     # The edge holds a watch at most 10 minutes; a little more lets its answer arrive.
-    if ! status="$(curl -sS --max-time 630 -o "$out" -w '%{http_code}' -X POST \
+    if ! status="$(serve_curl -sS --max-time 630 -o "$out" -w '%{http_code}' -X POST \
       -H 'Content-Type: application/json' --data-binary "${2:-}" \
       "http://$listen/wait" 2>"$out.err")"; then
       echo "kalandra: serve is not reachable at $listen: $(cat "$out.err")" >&2
@@ -308,6 +383,10 @@ case "$1" in
     case "$status" in
       200) exit 0 ;;
       408) exit 3 ;;
+      401)
+        refused_credential wait
+        exit 1
+        ;;
       *)
         echo "kalandra: wait answered $status" >&2
         exit 1
@@ -318,9 +397,10 @@ case "$1" in
     name="$1"
     [[ "$name" == project_* ]] || name="project_$name"
     body="${2:-}"
+    need_credential
     out="$(mktemp)"
     trap 'rm -f "$out"' EXIT
-    if ! status="$(curl -sS -o "$out" -w '%{http_code}' -X POST \
+    if ! status="$(serve_curl -sS -o "$out" -w '%{http_code}' -X POST \
       -H 'Content-Type: application/json' --data-binary "$body" \
       "http://$listen/command/$name" 2>"$out.err")"; then
       echo "kalandra: serve is not reachable at $listen: $(cat "$out.err")" >&2
@@ -330,14 +410,17 @@ case "$1" in
     rm -f "$out.err"
     cat "$out"
     [[ -s "$out" && "$(tail -c1 "$out")" != "" ]] && echo
-    if [[ "$status" != 200 ]]; then
+    if [[ "$status" == 401 ]]; then
+      refused_credential "$name"
+      exit 1
+    elif [[ "$status" != 200 ]]; then
       echo "kalandra: $name answered $status" >&2
       exit 1
     fi
     # A section's version, for scripts/eval propose --against, on stderr so the text stays the
     # file a bench reads. An amendment's candidate is no version of its section, so none is said.
     if [[ "$name" == project_standing ]]; then
-      shown="$(curl -sS -X POST -H 'Content-Type: application/json' --data-binary "$body" \
+      shown="$(serve_curl -sS -X POST -H 'Content-Type: application/json' --data-binary "$body" \
         "http://$listen/command/project_show" 2>/dev/null || true)"
       if grep -qx 'kind: section' <<<"$shown"; then
         echo "$(grep -m1 '^key: ' <<<"$shown" | cut -c6-) at version $(grep -m1 '^version: ' <<<"$shown" | cut -c10-)" >&2
