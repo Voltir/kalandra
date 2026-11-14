@@ -52,7 +52,7 @@ object RoutesTests extends TestSuite {
       shows: Map[String, String] = Map.empty
   ) extends PluginCommands {
     val ran = scala.collection.mutable.ArrayBuffer.empty[Ran]
-    def offered: Vector[PluginCommands.Listed] = tools.map(PluginCommands.Listed(_, false))
+    def offered: Vector[ToolSchema] = tools
     def run(
         by: Account,
         room: Place,
@@ -900,8 +900,8 @@ object RoutesTests extends TestSuite {
       val since = Instant.parse("2026-10-27T11:00:00Z")
       assert(
         watching.asked.map(a => (a._3, a._4)).toVector == Vector(
-          (WatchFor.Committed(WatchFor.Committer.At(fixer), at), 60.seconds),
-          (WatchFor.Committed(WatchFor.Committer.As(ok(ClaimHolder.of("fixer"))), since), 5.minutes)
+          (WatchFor.Committed(WatchFor.Worker.At(fixer), at), 60.seconds),
+          (WatchFor.Committed(WatchFor.Worker.As(ok(ClaimHolder.of("fixer"))), since), 5.minutes)
         ),
         replies.distinct == Vector(
           Reply(200, s"committed abc123 the subject in fs:/work/fixer, on session s-1 at $at")
