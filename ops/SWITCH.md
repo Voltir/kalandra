@@ -194,24 +194,12 @@ Start a new `claude` in grit's checkout (and in each worktree joined at step 3).
 whose first event came before the switch would keep the old one. In an open session, `/clear`
 also starts a new session id. In each new session, `/mcp` lists `kalandra` connected.
 
-An agent's claim set aside at step 8 is made again from the session that starts the agent, for
-the holder the command its opening prints answers, with the agent's type in place of `TYPE`:
+An agent's claim set aside at step 8 is made again from the session that starts the agent, with
+the holder its opening's agent line prints, or in that session's Bash:
 
 ```bash
-'/home/nickchilders/Projects/grit/.git/grit/claude-code/hook' holder coder-opus --dir '/home/nickchilders/Projects/grit' --session '<the session id it names>'
+~/Projects/kalandra/bin/kalandra holder '{"type":"coder-opus"}'   # its session id from CLAUDE_CODE_SESSION_ID
 ```
-
-Prefer that line: it names the directory and session the session's own hooks send, which are
-what SubagentStart looks the agent's holder up by. The same holder from kalandra's command line,
-anywhere, names both too:
-
-```bash
-~/Projects/kalandra/bin/kalandra holder '{"dir":"/home/nickchilders/Projects/grit","type":"coder-opus","session":"<the session id>"}'
-```
-
-Never `holder '{"type":"coder-opus"}'` alone: its `dir` is then `$PWD` and its session
-`$CLAUDE_CODE_SESSION_ID`, so a shell anywhere but the checkout's top (a worktree's session
-names that worktree) answers a holder no SubagentStart looks up.
 
 Undo: none.
 
@@ -235,10 +223,9 @@ In a new session in grit's checkout:
 ## 11. The process line
 
 `grit/roadmap-how-work-is-run`'s coder start names `bash ~/Projects/kalandra/hooks/brief-hook.sh
---slot coder-opus`; it becomes: "the holder the command the session's opening prints answers,
-with `coder-opus` for `TYPE` (`'<hook>' holder coder-opus --dir '<dir>' --session '<id>'`);
-or `~/Projects/kalandra/bin/kalandra holder '{"dir":"<the session's directory>","type":"coder-opus","session":"<its id>"}'`,
-never with `dir` or `session` left out". Undo: keep the previous version back.
+--slot coder-opus`; it becomes the holder command the session's opening prints (`'<hook>'
+holder coder-opus --dir … --session …`), or `~/Projects/kalandra/bin/kalandra holder
+'{"type":"coder-opus"}'`. Undo: keep the previous version back.
 
 ## 12. Held
 
