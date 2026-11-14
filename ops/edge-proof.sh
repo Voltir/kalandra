@@ -34,6 +34,9 @@ jar="$wt/out/assembly.dest/out.jar"
 compose="${GRIT_COMPOSE_DIR:-$HOME/Projects/grit}"
 grit_checkout="${KALANDRA_CHECKOUT:-$HOME/Projects/grit}"
 proof="${KALANDRA_PROOF_DIR:-$HOME/.cache/kalandra-e4c}"
+# The live checkout, whose jar alone is read (copied), and the java bin/kalandra runs.
+live="${KALANDRA_LIVE:-$HOME/Projects/kalandra}"
+java="${GRIT_JDK_HOME:-/home/nickchilders/.jdks/jdk-26.0.2}/bin/java"
 restored=grit_kalandra_restore
 listen=127.0.0.1:7318
 forward=127.0.0.1:7319
@@ -407,11 +410,52 @@ ours "$serve_pid"; holds $? "serve still runs in the proof's directory, pid $ser
 stop "$serve_pid"
 ! kill -0 "$serve_pid" 2>/dev/null; holds $? "serve stopped by its pid"
 
+# ---- 11. The rollback's reader: the old jar, the one the live checkout's bin/kalandra runs,
+# copied read-only (never run from there), serving the copy the new serve wrote, with a HOME,
+# spool and briefs directory of its own under the work directory, as ops/restore-test.sh's.
+old="$work/old"
+mkdir -p "$old/home" "$old/spool" "$old/briefs" "$old/logs"
+old_up=1
+if cp -- "$live/out/assembly.dest/out.jar" "$old/old.jar" 2>/dev/null; then
+  chmod a-w "$old/old.jar"
+  say "old   $(sha256sum "$old/old.jar" | cut -d' ' -f1)  the live checkout's jar, copied"
+  say "old   pending or enqueued workflows in the copy as the old serve starts: $(sql "SELECT count(*) FROM dbos.workflow_status WHERE status IN ('PENDING', 'ENQUEUED')")"
+  (cd "$old" && exec env -i PATH=/usr/bin:/bin HOME="$old/home" KALANDRA_CHECKOUT="$grit_checkout" \
+    GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/$restored" KALANDRA_LISTEN="$listen" \
+    KALANDRA_SPOOL="$old/spool" KALANDRA_BRIEFS="$old/briefs" KALANDRA_LOGS="$old/logs" \
+    ANTHROPIC_API_KEY=edge-proof-no-key JEV_API_KEY=edge-proof-no-key \
+    "$java" --sun-misc-unsafe-memory-access=allow -jar "$old/old.jar" serve) >"$work/old-serve.log" 2>&1 &
+  started+=("$!")
+  old_pid="$!"
+  for _ in $(seq 1 240); do
+    if grep -q "claude-code: serving commands on http://$listen" "$work/old-serve.log"; then old_up=0; break; fi
+    kill -0 "$old_pid" 2>/dev/null || break
+    sleep 0.5
+  done
+fi
+holds "$old_up" "the old jar serves the copy: claude-code: serving commands on http://$listen"
+if [[ "$old_up" == 0 ]]; then
+  expect 0 "old: list edge-proof" K list '{"project":"edge-proof"}'
+  grep -q "edge-proof/n" <<<"$out" && grep -q "edge-proof/w" <<<"$out"; holds $? "  and it lists what the new serve kept"
+  expect 0 "old: show edge-proof/n" K show '{"key":"edge-proof/n"}'
+  grep -q "note-text-2" <<<"$out"; holds $? "  as the new serve kept it last"
+  expect 0 "old: claims of edge-proof" K claims '{"project":"edge-proof"}'
+  grep -qF "$H" <<<"$out" && grep -qF "$AH" <<<"$out"; holds $? "  and they name the new serve's holders $H and $AH"
+  ours "$old_pid"; holds $? "the old serve still runs in its directory, pid $old_pid"
+  stop "$old_pid"
+  ! kill -0 "$old_pid" 2>/dev/null; holds $? "the old serve stopped by its pid"
+  [[ -z "$(find "$old/home" -mindepth 1 -print -quit)" ]]; holds $? "the old serve's HOME is still empty"
+fi
+
 if [[ "$failed" == 0 ]]; then
   say "edge-proof: passed"
 else
   say "edge-proof: $failed checks failed"
   echo "serve's log ends:" >&2
   tail -20 "$work/serve.log" >&2
+  if [[ -f "$work/old-serve.log" ]]; then
+    echo "the old serve's log ends:" >&2
+    tail -20 "$work/old-serve.log" >&2
+  fi
   exit 1
 fi
