@@ -1,19 +1,48 @@
-# The switch to grit's commands edge
+# The switch to grit 0.3.0-SNAPSHOT, with credentials
 
 The steps that move the live serve (`~/Projects/kalandra`, `127.0.0.1:7317`, `grit_kalandra`)
-from kalandra's own `claude-code` edge, its spool and its `hooks/` to grit's commands edge, as
-proved by `ops/edge-proof.sh` on the branch `commands-edge`. Each step has its command and its
-undo; the rollback from any step is after them. The deletion of the old code (commit B) comes
-only once the switch has held.
+from the grit 0.2.0 commands edge, which takes every request with no credential as the owner's,
+to grit 0.3.0-SNAPSHOT's, which answers a request 401 unless it bears one of two credentials:
+the command line's, believed at authority, and the sessions', believed at member, both the
+owner's account on the machine `local`. With it the stored place key `worker` becomes `machine`
+(grit's `machine-from-worker.sql`). Each step has its command and its undo; the rollback from any
+step is after them.
 
-`P=~/.cache/kalandra-e4c` below: the proof's directory, holding the proven jar (`serve.jar`),
-the join script that jar serves (`join.sh`), their sha256 files and the proof's lines
-(`proof.txt`).
+`P=~/.cache/kalandra-e7` below is the proof's directory (`ops/edge-proof.sh`): the proven jar
+(`serve.jar`), the join script it serves (`join.sh`), the forward rename
+(`machine-from-worker.sql`, grit's at the snapshot's commit) and its reverse
+(`worker-from-machine.sql`), each with a `.sha256`, the proof's lines (`proof.txt`), the join's
+output (`join.txt`) and the forward dry run's counts on the copy (`forward-dry.txt`).
+`E=~/.cache/kalandra-e4c` holds the 0.2.0 jar and join script that are live now, and
+`B=$P/before` is what step 4 saves. Every command runs in **a terminal of your own, never through
+a Claude Code session** (not a Bash tool, not `!`): a session's `bin/kalandra` sends the
+sessions' credential, and the switch stops the serve sessions talk to. `pg` below stands for:
+
+```bash
+pg() { docker compose --project-directory ~/Projects/grit exec -T postgres psql -U grit -q -v ON_ERROR_STOP=1 -d grit_kalandra "$@"; }
+```
+
+Paste each block whole: its commands are chained with `&&`, so one that fails stops the rest.
 
 ## Before you start
 
-- **No `bin/kalandra chat` or `work` runs at step 5:** serve waits on the engine lock they hold,
-  so the new serve would not start at step 7. This prints the pid of each (nothing, when none):
+- **The proof passed** on a commit whose `src`, `build.mill`, `bin` and `ops/*.sql` are the
+  branch head's, and its files are the ones there:
+
+  ```bash
+  P=~/.cache/kalandra-e7; E=~/.cache/kalandra-e4c; B=$P/before
+  tail -1 $P/proof.txt                                                  # edge-proof: passed
+  c=$(head -1 $P/proof.txt | sed -n 's/.* at \([0-9a-f]*\)$/\1/p')     # empty: proved `with changes`
+  git -C ~/Projects/kalandra-e7 diff --quiet "$c" e7-repin -- src build.mill bin 'ops/*.sql' && echo same
+  (cd $P && sha256sum -c serve.jar.sha256 join.sh.sha256 machine-from-worker.sql.sha256 worker-from-machine.sql.sha256)
+  ```
+
+  It prints `edge-proof: passed`, `same` and four `OK` lines. Anything else, and the proof is run
+  again from `~/Projects/kalandra-e7` after `bin/kalandra build` there.
+- `git -C ~/Projects/kalandra merge-base --is-ancestor main e7-repin` exits 0, so the merge at
+  step 7 is a fast-forward.
+- **No `bin/kalandra chat` or `work` is running**: serve waits on the engine lock they hold. This
+  prints the pid of each (nothing, when none):
 
   ```bash
   for p in /proc/[0-9]*; do
@@ -23,325 +52,279 @@ the join script that jar serves (`join.sh`), their sha256 files and the proof's 
   done
   ```
 
-- **The live `.env` names no listener or database:** `bin/kalandra serve` sources it with
-  `set -a`, which overrides what the unit sets. Check by name alone, never printing a value:
-  `grep -c '^\(export \)\{0,1\}\(KALANDRA_LISTEN\|GRIT_DATABASE_[A-Z_]*\)=' ~/Projects/kalandra/.env`
+- **The live `.env` names no listener or database:** `grep -c
+  '^\(export \)\{0,1\}\(KALANDRA_LISTEN\|GRIT_DATABASE_[A-Z_]*\)=' ~/Projects/kalandra/.env`
   prints `0`.
-- `KALANDRA_SPOOL` and `KALANDRA_BRIEFS` are no longer read: a value for either, in `.env` or
-  the unit, does nothing after step 7, and the directories they named stay until step 12.
-- Pending workflows in `grit_kalandra` resume when the new serve starts, as on any restart.
-- **A proof killed with SIGKILL** leaves `grit_kalandra_restore`, a serve on 7318 (and with
-  `--record-mcp` a forwarder on 7319) and its `mktemp -d` directory. Clear them by the pid, the
-  serve's cwd checked to be the proof's (`/tmp/tmp.…/run` or `/tmp/tmp.…/old`), never by pattern:
+- **The date is 2026-11-15 or later.** The branch's first commit deletes the old edge, its spool
+  and `hooks/`, which E4c kept a day after its switch.
+- **While the pin is a snapshot, nothing is built in `~/Projects/kalandra`**: no `bin/kalandra
+  build` there. The switch installs the proven jar by its sha, and kalandra re-pins to grit's
+  release before its next build.
+- **What holds, and what does not.** A session's keeps, claims and moves are recorded as yours at
+  member, your command line's at authority, and a session's `project_adopt` is refused. A
+  version's integrity is its last writer's: your `project_move` of a session's note records the
+  note at authority, and a session's move of yours records it at member. A session runs as your
+  unix user, so one that goes looking can read `~/.config/kalandra/credential`: the split keeps
+  the command line's credential out of every session's environment, argv, transcript and
+  `~/.claude.json`, and refuses an accident, not a session set on it. `project_keep` of a
+  standing section is not guarded by adopt's authority.
+- **What cannot be undone**, by the rollback or anything else: the commit subjects step 8 drops
+  (saved at step 6 first); a claim's lease that lapses while the switch is under way, two hours
+  after its holder's last event; and a rollback's revert commits, which stay on kalandra's
+  `main`.
+- **A proof killed with SIGKILL** leaves `grit_kalandra_e7`, a serve on 7318, a forwarder on
+  7319 and its `mktemp -d` directory. Clear them by the pid, its cwd checked to be the proof's
+  (`/tmp/tmp.…/run` or `/tmp/tmp.…/old`), never by pattern:
 
   ```bash
-  ss -Hltnp 'sport = :7318'                    # users:(("java",pid=<pid>,…))
+  ss -Hltnp 'sport = :7318'                    # users:(("java",pid=<pid>,…)); and :7319
   readlink /proc/<pid>/cwd                     # /tmp/tmp.…/run or /tmp/tmp.…/old
   kill <pid>
   docker compose --project-directory ~/Projects/grit exec -T postgres \
-    psql -U grit -d postgres -c 'DROP DATABASE IF EXISTS grit_kalandra_restore WITH (FORCE)'
+    psql -U grit -d postgres -c 'DROP DATABASE IF EXISTS grit_kalandra_e7 WITH (FORCE)'
   rm -rf -- /tmp/tmp.…                         # the directory that cwd named
   ```
 
-- **What cannot be undone**, by the rollback or anything else: a claim's lease that lapsed while
-  the switch was under way (two hours after its holder's last event); the events the new serve
-  recorded, which stay in the store; a re-made claim's `since`, which is the time it was re-made
-  at step 8 or 9, before and after a rollback alike; and a rollback's revert commits, which stay
-  on kalandra's `main`.
-
-## Before
-
-- `ops/edge-proof.sh` passed on a commit whose code is the branch head's: what is switched is
-  `src`, `build.mill` and `bin`, so a commit since that changed only docs or `ops` needs no
-  rerun:
-
-  ```bash
-  tail -1 $P/proof.txt                                    # edge-proof: passed
-  c=$(head -1 $P/proof.txt | sed -n 's/.* at \([0-9a-f]*\)$/\1/p')   # empty: proved `with changes`
-  git -C ~/Projects/kalandra-commands-edge diff --quiet "$c" HEAD -- src build.mill bin && echo same
-  ```
-
-  It prints `edge-proof: passed` and `same`. Anything else (an empty `$c` included, which makes
-  `git diff` fail), and the proof is run again from `~/Projects/kalandra-commands-edge` after
-  `./mill show assembly` there.
-- The proven files are the ones there: `(cd $P && sha256sum -c serve.jar.sha256 join.sh.sha256)`
-  prints two `OK` lines, and `serve.jar` is the jar the head builds: `sha256sum
-  ~/Projects/kalandra-commands-edge/out/assembly.dest/out.jar` prints the sha in
-  `serve.jar.sha256`.
-- `git -C ~/Projects/kalandra merge-base --is-ancestor main commands-edge` exits 0 (main has not
-  moved under the branch, so the merge in step 6 is a fast-forward).
-- `ops/cutover-report.sh` is no check of the switch: on this branch it fails until commit B
-  (step 12), and is not run before then.
-
-## 1. End every session
-
-Every Claude Code session in grit's checkout and its worktrees ends first (`/exit`, or quit),
-so no hook fires while the hooks change and nothing is spooled that the old serve would not
-take. What still runs there:
+## 1. Make the two credentials
 
 ```bash
-for p in /proc/[0-9]*; do
-  [[ "$(readlink "$p/exe" 2>/dev/null)" == *claude* ]] || continue
-  echo "${p#/proc/} $(readlink "$p/cwd")"
-done
+( set -o noclobber; umask 077 && mkdir -p ~/.config/kalandra ~/.config/grit &&
+  head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_' > ~/.config/kalandra/credential &&
+  head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_' > ~/.config/grit/credential ) &&
+stat -c '%a %n' ~/.config/kalandra ~/.config/kalandra/credential ~/.config/grit/credential
 ```
 
-A claim lapses two hours after its holder's last event, and ending a session starts that clock
-for every claim it holds: go from here to step 8 well inside two hours, or the claims step 2
-backs up are gone by step 8 and are made again by hand at step 9.
+The `stat` line prints `700`, `600`, `600`. Under `noclobber` a second run refuses (`cannot
+overwrite existing file`) rather than replace a credential whose digest is configured. If
+`~/.config/grit` already existed, its own mode is left as it was; the join checks the file's.
+The text goes from urandom to the file through pipes, so it is on no argv and in no history, and
+it is never printed. `~/.config/kalandra/credential` is the command line's;
+`~/.config/grit/credential` is the sessions': the join writes its path into the hook, and
+`bin/kalandra` reads it inside a session.
 
-Undo: none; sessions start again at step 9.
+Undo: `rm -- ~/.config/kalandra/credential ~/.config/grit/credential`, and only after a rollback.
 
-## 2. Back up what the switch changes
+## 2. The digests into serve's environment file
 
 ```bash
-B=$P/before && mkdir -p $B && cd ~/Projects/grit
-cp .claude/settings.local.json .git/hooks/post-commit .git/hooks/post-rewrite .git/info/exclude $B/
-cp ~/Projects/kalandra/out/assembly.dest/out.jar $B/serve.jar
-git -C ~/Projects/kalandra rev-parse HEAD > $B/kalandra-head
+d() { tr -d '\n' < "$1" | sha256sum | cut -d' ' -f1; }
+f=~/Projects/kalandra/.env &&
+[ "$(grep -c '^\(export \)\{0,1\}KALANDRA_\(OWNER\|SESSIONS\)_DIGEST=' $f)" = 0 ] &&
+{ [ -z "$(tail -c1 $f)" ] || echo >> $f; } &&
+{ printf 'KALANDRA_OWNER_DIGEST=%s\n' "$(d ~/.config/kalandra/credential)"
+  printf 'KALANDRA_SESSIONS_DIGEST=%s\n' "$(d ~/.config/grit/credential)"; } >> $f &&
+grep -c '^KALANDRA_\(OWNER\|SESSIONS\)_DIGEST=[0-9a-f]\{64\}$' $f        # 2
+```
+
+Only the two digests go in, and a digest is no secret. A last line with no newline gets one
+first, so the first digest is a line of its own. `.env` keeps its mode. The live 0.2.0 serve
+reads neither variable, so this step can come before step 5; `bin/kalandra chat` and
+`cache-report` need both from step 7 on.
+
+Undo: delete the two lines by hand. A rollback does not need it: 0.2.0 ignores them.
+
+## 3. End every session
+
+End every Claude Code session in grit's checkout and its worktrees (`/exit`, or quit). The
+holders do not change, so no claim is re-made, but a claim lapses two hours after its holder's
+last event: go from here to step 10 well inside that.
+
+Undo: none. Sessions start again at step 11.
+
+## 4. Back up what the switch changes
+
+```bash
+mkdir -p $B && cd ~/Projects/grit &&
+cp .claude/settings.local.json .git/grit/claude-code/hook $B/ &&
+claude mcp get kalandra > $B/mcp.txt &&
+cp ~/Projects/kalandra/out/assembly.dest/out.jar $B/serve.jar &&
+git -C ~/Projects/kalandra rev-parse HEAD > $B/kalandra-head &&
 ~/Projects/kalandra/bin/kalandra claims '{"project":"grit"}' > $B/claims.json
-jq -e '.claims | length > 0' $B/claims.json      # true
 ```
 
-The last line prints `true`, exit 0. `false` (exit 1) means no claim is held, as when they lapsed
-after step 1: step 8 then re-makes nothing, and each claim the work needs is made by hand at
-step 9, as an agent's is. Any other exit means `claims.json` is no answer: stop and read it.
+For each worktree in `git worktree list` with an MCP entry of its own, run `claude mcp get
+kalandra` there as well, and save it as `$B/mcp-<name>.txt`.
 
-A worktree of grit's with old handlers of its own (`grep -l kalandra/hooks
-<worktree>/.claude/settings.local.json` for each of `git -C ~/Projects/grit worktree list`)
-gets its settings backed up the same way and is joined at step 3 too; the git hooks and
-`info/exclude` are the repository's, shared by every worktree.
+Undo: none needed.
 
-Undo: none needed; it changes nothing.
-
-## 3. Join, retiring the old hooks
-
-In grit's checkout, with the proven join script, for the address the new serve takes at step 7
-(the old serve answers there until step 5; nothing posts meanwhile, as every session has ended):
+## 5. Stop serve, show nothing is connected, then dump
 
 ```bash
-cd ~/Projects/grit
-bash -s -- http://127.0.0.1:7317 --mcp-name kalandra --retire ~/Projects/kalandra/hooks < $P/join.sh
+cd ~/Projects/kalandra && bin/kalandra stop &&
+pg -At -c "SELECT count(*) FROM pg_stat_activity WHERE datname='grit_kalandra' AND pid <> pg_backend_pid()" &&
+pg -At -c "SELECT count(*) FROM dbos.workflow_status w WHERE w.status IN ('PENDING','ENQUEUED') AND (w.inputs LIKE '%worker:%' OR EXISTS (SELECT 1 FROM dbos.operation_outputs o WHERE o.workflow_uuid = w.workflow_uuid AND o.output LIKE '%worker:%'))" &&
+cp "$(ops/backup.sh)" $B/grit_kalandra.dump
 ```
 
-It prints one `removed` line for each distinct old command: grit's settings hold 11 handlers
-over 3 commands, and each git hook one line more. In grit's checkout, as the settings and git
-hooks stand:
-
-```
-grit claude-code: joined /home/nickchilders/Projects/grit to http://127.0.0.1:7317
-  hook      /home/nickchilders/Projects/grit/.git/grit/claude-code/hook, shared by this repository's worktrees
-  settings  .claude/settings.local.json: 11 handlers of ours
-  ignore    .claude/settings.local.json is ignored already
-  removed   /home/nickchilders/Projects/kalandra/hooks/brief-hook.sh
-  removed   /home/nickchilders/Projects/kalandra/hooks/brief-hook.sh --digest
-  removed   /home/nickchilders/Projects/kalandra/hooks/spool-hook.sh
-  removed   post-commit: /home/nickchilders/Projects/kalandra/hooks/spool-hook.sh --commit
-  removed   post-rewrite: exec /home/nickchilders/Projects/kalandra/hooks/spool-hook.sh --rewrite "$@"
-  git       post-commit and post-rewrite in /home/nickchilders/Projects/grit/.git/hooks, shared by this repository's worktrees
-  mcp       kalandra at http://127.0.0.1:7317/mcp, local scope, replacing kalandra at http://127.0.0.1:7317/mcp
-Sessions pick the hooks up at once; run /mcp in a running session to connect kalandra.
-Undo: curl -fsS http://127.0.0.1:7317/join/claude-code | bash -s -- --undo --mcp-name kalandra
-```
-
-(The undo it names is the same script as `$P/join.sh`; the undo below runs that file.) A
-different count of `removed` lines means the settings or git hooks changed since step 2's
-backup: read them against `$P/before` before going on. In a worktree found at step 2, the same
-command there.
-
-Undo: the join's undo, then only the settings' `hooks` key back, then the repository's files,
-then the old MCP entry:
-
-```bash
-cd ~/Projects/grit
-bash -s -- --undo --mcp-name kalandra < $P/join.sh
-jq --slurpfile was $P/before/settings.local.json '.hooks = $was[0].hooks' .claude/settings.local.json \
-  > .claude/settings.local.json.undo && mv .claude/settings.local.json.undo .claude/settings.local.json
-cp $P/before/post-commit $P/before/post-rewrite .git/hooks/ && cp $P/before/exclude .git/info/exclude
-claude mcp add --transport http --scope local kalandra http://127.0.0.1:7317/mcp
-```
-
-## 4. The spool is empty
-
-```bash
-find ~/.local/state/kalandra/spool -type f | wc -l     # 0
-```
-
-With every session ended it is 0 within a few seconds (the old serve takes each file every 2 s).
-If it stays above 0, stop here and read `bin/kalandra status` and `logs/serve.log`. Undo: none.
-
-## 5. Stop the old serve
-
-```bash
-cd ~/Projects/kalandra && bin/kalandra stop
-```
+Both counts print `0`: nothing else holds the database open, and no pending workflow names a
+place under `worker` (the proof showed this query counts a planted one, in DBOS's own
+encoding). A connection is ended before going on; a pending workflow that names one means the
+switch waits for it to finish under 0.2.0. The dump comes after the stop, so it holds
+everything. It is the last resort, used only if the reverse rewrite raises.
 
 Undo: `bin/kalandra start`.
 
-## 6. The new code, and the proven jar: no build at the switch
+## 6. The rename, dry, and the rows it drops saved
 
 ```bash
-cd ~/Projects/kalandra
-git merge --ff-only commands-edge
-cp $P/serve.jar out/assembly.dest/out.jar
-echo "$(cut -d' ' -f1 $P/serve.jar.sha256)  out/assembly.dest/out.jar" | sha256sum -c
+pg -f - < $P/machine-from-worker.sql &&
+pg -c "\copy (SELECT session, seq, kind, shape FROM grit.session_events WHERE shape ->> 'worktree' LIKE 'worker:%' AND octet_length(shape::text) >= 300 ORDER BY session, seq) TO STDOUT WITH CSV HEADER" > $B/dropped.csv &&
+wc -l < $B/dropped.csv
 ```
 
-The last line prints `out/assembly.dest/out.jar: OK`; anything else, and the jar is put back
-(the undo) before going on. The unit file is unchanged by this: the new serve reads no variable
-the unit does not set. (`ops/systemd/kalandra-serve.service.next` is the unit's text after the
-switch: its `Description` alone differs, naming grit's commands edge; it replaces the unit file in
-commit B.)
+The first prints the counts table and rolls back. On the copy the proof printed
+(`$P/forward-dry.txt`):
 
-Undo, kalandra's `main` never rewritten: a revert of the merged commits, then the old jar:
-
-```bash
-cd ~/Projects/kalandra
-git revert --no-edit "$(cat $P/before/kalandra-head)"..HEAD
-cp $P/before/serve.jar out/assembly.dest/out.jar
+```
+<from the proof>
 ```
 
-## 7. Start the new serve
+- `grit.session_events deleted, too long to rewrite` must be 0; anything else, stop.
+- `grit.session_events rewritten without their subject` are the commits whose subject is
+  dropped. On the copy they were these (session, seq): <from the proof>.
 
-```bash
-cd ~/Projects/kalandra && bin/kalandra start
-tail -3 logs/serve.log      # commands: serving on http://127.0.0.1:7317
-bin/kalandra status         # commands answer at 127.0.0.1:7317
-```
-
-Undo: `bin/kalandra stop`, step 6's undo, then `bin/kalandra start`.
-
-## 8. Re-make the claims
-
-A holder is now `local/<directory>-<8 hex>` (and an agent's `…/<type>/<12 hex>`), so every claim
-`claims` listed at step 2 is made again for the holder `bin/kalandra holder` prints. A session's
-claim names the sha1 of its directory; each is re-made for that directory's new holder here. An
-agent's claim (a holder with a `/` in it) belonged to a session that has ended: it is re-made from
-the new session at step 9.
-
-```bash
-cd ~/Projects/kalandra
-declare -A dir_of
-while read -r d; do dir_of[$(printf %s "$d" | sha1sum | cut -c1-40)]="$d"; done \
-  < <(git -C ~/Projects/grit worktree list --porcelain | sed -n 's/^worktree //p')
-jq -r '.claims[] | [.key, .role, .holder] | @tsv' $P/before/claims.json |
-  while IFS=$'\t' read -r key role old; do
-    dir="${dir_of[$old]:-}"
-    if [[ -z "$dir" ]]; then echo "at step 9: $key ($role), was $old"; continue; fi
-    new="$(bin/kalandra holder "{\"dir\":\"$dir\"}")" &&
-      bin/kalandra release "{\"key\":\"$key\"}" &&
-      bin/kalandra claim "{\"key\":\"$key\",\"role\":\"$role\",\"holder\":\"$new\"}"
-  done
-bin/kalandra claims '{"project":"grit"}'
-```
-
-The last line lists each claim with its `local/…` holder.
-
-Undo: release each claim made here, and claim it again for the holder `before/claims.json` names:
-
-```bash
-jq -r '.claims[] | [.key, .role, .holder] | @tsv' $P/before/claims.json |
-  while IFS=$'\t' read -r key role old; do
-    bin/kalandra release "{\"key\":\"$key\"}"
-    bin/kalandra claim "{\"key\":\"$key\",\"role\":\"$role\",\"holder\":\"$old\"}"
-  done
-```
-
-(That undo is only meaningful after a rollback to the old serve, which reads the old holders.)
-
-## 9. New sessions, not resumed ones
-
-Start a new `claude` in grit's checkout (and in each worktree joined at step 3). Not `claude
---resume`, and not `/compact`: a session keeps the holder its first event named, so a session
-whose first event came before the switch would keep the old one. In an open session, `/clear`
-also starts a new session id. In each new session, `/mcp` lists `kalandra` connected.
-
-An agent's claim set aside at step 8 is made again from the session that starts the agent, for
-the holder the command its opening prints answers, with the agent's type in place of `TYPE`:
-
-```bash
-'/home/nickchilders/Projects/grit/.git/grit/claude-code/hook' holder coder-opus --dir '/home/nickchilders/Projects/grit' --session '<the session id it names>'
-```
-
-Prefer that line: it names the directory and session the session's own hooks send, which are
-what SubagentStart looks the agent's holder up by. The same holder from kalandra's command line,
-anywhere, names both too:
-
-```bash
-~/Projects/kalandra/bin/kalandra holder '{"dir":"/home/nickchilders/Projects/grit","type":"coder-opus","session":"<the session id>"}'
-```
-
-Never `holder '{"type":"coder-opus"}'` alone: its `dir` is then `$PWD` and its session
-`$CLAUDE_CODE_SESSION_ID`, so a shell anywhere but the checkout's top (a worktree's session
-names that worktree) answers a holder no SubagentStart looks up.
-
-Each such claim still holds for its old holder, so it is released first; a claim for the new
-holder is refused until the old one lapses otherwise:
-
-```bash
-K=~/Projects/kalandra/bin/kalandra
-$K release '{"key":"<key>"}'
-$K claim '{"key":"<key>","role":"<role>","holder":"<the holder printed above>"}'
-```
+`$B/dropped.csv` saves every event the rename drops a subject from or deletes: its line count is
+one header line plus that count and the deleted count. The live database may have grown since
+the proof: a count that differs from the proof's by more than that growth is a reason to stop.
+If the file raises, stop: nothing changed.
 
 Undo: none.
 
-## 10. What to check
-
-In a new session in grit's checkout:
-
-- its start's context holds the manager note's brief, and the line `grit: this session's claim
-  holder is local/grit-…`, the holder `bin/kalandra claims '{"project":"grit"}'` shows for it;
-- `mcp__kalandra__project_show` of a key answers, and `~/Projects/kalandra/bin/kalandra list
-  '{"project":"grit","state":"now"}'` answers;
-- after one edit and one commit, `/compact`: the digest at the compaction's start shows them;
-  `bin/kalandra wait '{"commit":{"holder":"local/grit-…"},"within":60}'` started before a commit
-  answers `committed …`;
-- an agent claimed for the holder the opening's agent line prints gets its brief at
-  SubagentStart;
-- a keep of the claimed manager note: the next `/clear`'s brief shows the new text (the brief
-  follows every keep, in grit);
-- `ls ~/.local/state/kalandra/spool` stays empty, and nothing new appears under `briefs/`.
-
-## 11. The process line
-
-`grit/roadmap-how-work-is-run`'s coder start names `bash ~/Projects/kalandra/hooks/brief-hook.sh
---slot coder-opus`; it becomes: "the holder the command the session's opening prints answers,
-with `coder-opus` for `TYPE` (`'<hook>' holder coder-opus --dir '<dir>' --session '<id>'`);
-or `~/Projects/kalandra/bin/kalandra holder '{"dir":"<the session's directory>","type":"coder-opus","session":"<its id>"}'`,
-never with `dir` or `session` left out". Undo: keep the previous version back.
-
-## 12. Held
-
-After a day of work, once the switch has held: commit B on `commands-edge` deletes the old
-edge, `kalandra.capture`, `hooks/` and their tests, and moves
-`ops/systemd/kalandra-serve.service.next` over the unit file; it is merged, built and restarted
-(`bin/kalandra build && bin/kalandra restart`, then `systemctl --user daemon-reload` for the
-unit's new `Description`). Then the old state goes, by name, never `rm -r` of the parent:
+## 7. The new code and the proven jar, with no build
 
 ```bash
-S=~/.local/state/kalandra
-rm -f -- "$S"/briefs/*.md "$S"/spool/quarantine/*
-rmdir "$S"/spool/quarantine 2>/dev/null; rmdir "$S"/spool "$S"/briefs "$S"
+cd ~/Projects/kalandra && git merge --ff-only e7-repin &&
+cp $P/serve.jar out/assembly.dest/out.jar &&
+echo "$(cut -d' ' -f1 $P/serve.jar.sha256)  out/assembly.dest/out.jar" | sha256sum -c &&
+systemctl --user daemon-reload
 ```
 
-`rmdir` refuses a directory that still holds something: what it names is looked at, not
-removed. Then `ops/restore-test.sh` once (it keeps `restore-check` in the live database, as it
-always has). `$P/before` is kept a week.
+It prints `out/assembly.dest/out.jar: OK`; anything else, and the jar is put back (the undo)
+before going on. The merge changes the unit file's `Description` alone (it names grit's commands
+edge), which `daemon-reload` reads. This comes before the rename is kept: the 0.2.0 jar must
+never serve data under `machine`, while the new jar answers 401 before anything is stored.
 
-## The rollback, from any step before 12
+Undo, kalandra's `main` never rewritten:
 
-1. `cd ~/Projects/kalandra && bin/kalandra stop`.
-2. When step 6 ran: its undo (the revert, then the old jar).
-3. `bin/kalandra start`: the log says `claude-code: serving commands on http://127.0.0.1:7317`
-   and `claude-code: recording the sessions spooled in …`.
-4. When step 3 ran: its undo, in grit's checkout and each worktree joined.
-5. When step 8 ran: its undo.
-6. New sessions, as at step 9.
+```bash
+cd ~/Projects/kalandra && git revert --no-edit "$(cat $B/kalandra-head)"..HEAD &&
+cp $B/serve.jar out/assembly.dest/out.jar && systemctl --user daemon-reload
+```
 
-Events the new serve recorded stay in the store: they are grit's session record, which the old
-code reads too. The proof shows it: after the new serve has kept, claimed and recorded on the
-copy and stopped, the live checkout's jar (copied, never run from there) serves that copy, and
-its `project_list`, `project_show` and `project_claims` answer what the new serve kept, with the
-new serve's holders. The new serve wrote no files, so nothing else needs undoing. What cannot be
-undone is listed under "Before you start".
+## 8. The rename, kept
+
+```bash
+pg -At -c "SELECT count(*) FROM pg_stat_activity WHERE datname='grit_kalandra' AND pid <> pg_backend_pid()" &&
+pg -f - -c COMMIT < $P/machine-from-worker.sql &&
+pg -f - < $P/machine-from-worker.sql
+```
+
+The first prints `0` again (stop if not); the second prints step 6's counts and keeps them; the
+third, every count `0`.
+
+Undo: `pg -f - -c COMMIT < $P/worker-from-machine.sql && pg -f - < $P/worker-from-machine.sql`,
+the second's counts all `0`.
+
+## 9. Start the new serve
+
+```bash
+cd ~/Projects/kalandra && bin/kalandra start &&
+grep -F '[kalandra] grit 0.3.0-SNAPSHOT at ' logs/serve.log | tail -1 &&
+tail -1 logs/serve.log &&
+curl -q -s --noproxy '*' -o /dev/null -w '%{http_code}\n' -X POST -d '{}' http://127.0.0.1:7317/command/project_list &&
+bin/kalandra list '{"project":"grit","state":"now"}' > /dev/null && echo command line ok
+```
+
+It prints `[kalandra] grit 0.3.0-SNAPSHOT at <the marker's commit>`, `commands: serving on
+http://127.0.0.1:7317`, `401` for a request with no credential, and `command line ok` for one
+with yours. A serve missing a digest exits at once, its log naming the variable
+(`[kalandra] KALANDRA_OWNER_DIGEST is not set: …`); systemd starts it again every 10 s until
+step 2 is right.
+
+Undo: `bin/kalandra stop`, then the rollback.
+
+## 10. Join again, with the sessions' credential
+
+```bash
+cd ~/Projects/grit &&
+bash -s -- http://127.0.0.1:7317 --credential ~/.config/grit/credential --mcp-name kalandra < $P/join.sh
+```
+
+The join asks the new serve with the credential first, so this step comes after step 9. On the
+proof's copy it printed (the repository and credential paths there were its own):
+
+```
+<from the proof>
+```
+
+Run the same command in each worktree found at step 4. The hook file is shared, so every
+worktree sends the same credential.
+
+Undo (the second line puts the 0.2.0 join back; compare `claude mcp get kalandra` with
+`$B/mcp.txt`):
+
+```bash
+bash -s -- --undo --mcp-name kalandra < $P/join.sh &&
+bash -s -- http://127.0.0.1:7317 --mcp-name kalandra < $E/join.sh
+```
+
+## 11. New sessions, not resumed ones
+
+Start a new `claude` in grit's checkout and in each joined worktree. In each, `/mcp` lists
+`kalandra` as connected. A claim made for an agent of a session that has ended is re-made from
+the new session for the holder its opening's agent line prints: release it first, then claim
+it.
+
+Undo: none.
+
+## 12. What to check
+
+- The opening's `grit: this session's claim holder is local/grit-…` line is the holder in
+  `$B/claims.json`, unchanged, and `bin/kalandra claims '{"project":"grit"}'` matches that file.
+- `mcp__kalandra__project_show` answers. A keep from the session and one from your terminal are
+  read back as member (2) and authority (3):
+  `pg -At -c "SELECT d.key, l.level FROM grit.documents d JOIN grit.integrity_labels l ON l.id = d.integrity_id WHERE d.superseded_at IS NULL AND d.key IN ('<key1>','<key2>')"`.
+- The session's `bin/kalandra show` works, and its `bin/kalandra adopt` is refused 403 naming
+  authority.
+- A commit wait by holder answers `committed …`. After a `/compact`, the digest shows the edit.
+- The agent path gets its brief at SubagentStart.
+- `bin/kalandra export grit /tmp/x` works from your terminal.
+
+## 13. Held
+
+After a day of work, once the switch has held:
+
+- remove E4c's leftover state by name, never `rm -r` of the parent; `rmdir` refuses a directory
+  that still holds something, and what it names is looked at, not removed:
+
+  ```bash
+  S=~/.local/state/kalandra
+  rm -f -- "$S"/briefs/*.md "$S"/spool/quarantine/*
+  rmdir "$S"/spool/quarantine 2>/dev/null; rmdir "$S"/spool "$S"/briefs "$S"
+  ```
+
+- run `ops/restore-test.sh` once;
+- delete `ops/worker-from-machine.sql` in a commit of its own, and `rm -r -- $E`;
+- keep `$B` for a week.
+
+## The rollback, from any step before 13
+
+1. End every session (step 3).
+2. `cd ~/Projects/kalandra && bin/kalandra stop`.
+3. **Before step 10 ran:** if step 8 ran, its undo (the reverse rewrite); then, if step 7 ran,
+   its undo (the old code and jar). **After step 10 ran:** step 7's undo first, then step 8's.
+4. If the reverse rewrite raises, restore instead, never dropping the database:
+
+   ```bash
+   docker compose --project-directory ~/Projects/grit exec -T postgres psql -U grit -d postgres -v ON_ERROR_STOP=1 \
+     -c 'ALTER DATABASE grit_kalandra RENAME TO grit_kalandra_e7_failed' -c 'CREATE DATABASE grit_kalandra' &&
+   docker compose --project-directory ~/Projects/grit exec -T postgres pg_restore -U grit -d grit_kalandra --no-owner --exit-on-error < $B/grit_kalandra.dump
+   ```
+
+   This loses everything since step 5, which `grit_kalandra_e7_failed` still holds.
+5. `bin/kalandra start`. The log says `commands: serving on http://127.0.0.1:7317`.
+6. If step 10 ran: its undo, in grit's checkout and each worktree.
+7. New sessions.
+
+The keeps, claims and events the new serve wrote stay, under `worker` again; the proof's step 10
+shows the 0.2.0 jar serving them, with the same holders.
