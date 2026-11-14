@@ -213,6 +213,15 @@ Never `holder '{"type":"coder-opus"}'` alone: its `dir` is then `$PWD` and its s
 `$CLAUDE_CODE_SESSION_ID`, so a shell anywhere but the checkout's top (a worktree's session
 names that worktree) answers a holder no SubagentStart looks up.
 
+Each such claim still holds for its old holder, so it is released first; a claim for the new
+holder is refused until the old one lapses otherwise:
+
+```bash
+K=~/Projects/kalandra/bin/kalandra
+$K release '{"key":"<key>"}'
+$K claim '{"key":"<key>","role":"<role>","holder":"<the holder printed above>"}'
+```
+
 Undo: none.
 
 ## 10. What to check
