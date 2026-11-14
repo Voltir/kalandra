@@ -211,7 +211,7 @@ object ImporterTests extends TestSuite {
     test("a move's arguments read as the plugin's project_move reads them") {
       val dir = grit.core.place.Directory.of("/home/someone/grit").fold(sys.error, identity)
       val move = kalandra.deployment.Kalandra
-        .deployment(dir, kalandra.deployment.KalandraTests.Listening)
+        .deployment(dir)
         .fold(sys.error, identity)
         .plugins
         .flatMap(_.commands)

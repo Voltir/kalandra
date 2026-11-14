@@ -28,11 +28,10 @@ import grit.core.visibility.{
   RoomLabels,
   Visibility
 }
-import grit.edge.http.Listen
 import grit.kit.deployment.{Assembly, Deployment, DeploymentVersion, Offer, Offered, Placer, Rounds}
 import grit.projects.plugin.{Projects, TurnCommands}
 
-import kalandra.edge.Mount
+import kalandra.edge.ClaudeCodeEdge
 import kalandra.method.GritMethod
 
 /** kalandra: grit's own projects, kept by the projects plugin (ADR 0049) under
@@ -247,11 +246,8 @@ object Kalandra {
         .map(_.message)
     } yield made
 
-  /** kalandra over the checkout `checkout`, its one edge grit's commands edge listening at `at`
-    * ([[Mount.edge]]), for [[Owner]] believed at [[Believed]] in the checkout's room. Why not: as
-    * [[Mount.edge]] refuses `at`, or as the deployment's parts refuse.
-    */
-  def deployment(checkout: Directory, at: Listen): Either[String, Deployment] =
+  /** kalandra over the checkout `checkout`. */
+  def deployment(checkout: Directory): Either[String, Deployment] =
     for {
       rounds <- Rounds.of(TurnCalls)
       methods <- GritMethod.declared.left.map(_.mkString("; "))
@@ -259,13 +255,12 @@ object Kalandra {
       visible <- visibility(checkout)
       persona <- Persona.of("Kalandra")
       identities <- Identities
-        .of(Vector(Vouching(Mount.Attester, Local)), Set.empty)
+        .of(Vector(Vouching(ClaudeCodeEdge.Attester, Local)), Set.empty)
         .left
         .map(_.toString)
-      edge <- Mount.edge(at, room(checkout), Owner, Believed, Local)
       made <- Deployment
         .of(
-          edges = Vector(edge),
+          edges = Vector(new ClaudeCodeEdge(Owner, Local, room(checkout), Believed)),
           plugins = Vector(projects),
           policy = Models,
           offer = Offer(Offered.Read, rounds),

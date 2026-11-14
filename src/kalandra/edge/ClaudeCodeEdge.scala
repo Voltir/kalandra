@@ -117,8 +117,9 @@ object ClaudeCodeEdge {
   /** `claude-code`. */
   val Name: EdgeName = EdgeName("claude-code")
 
-  /** `workshop`: the attester this edge is, the one the commands edge is ([[Mount.Attester]]). */
-  val Attester: AttesterName = Mount.Attester
+  /** `workshop`: the attester this edge is. */
+  // Stored, so kept from the deployment's earlier name: workshop.
+  val Attester: AttesterName = AttesterName("workshop")
 
   /** The variable naming where it listens: `KALANDRA_LISTEN`. */
   val ListenVar: String = "KALANDRA_LISTEN"

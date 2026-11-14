@@ -18,7 +18,7 @@ import grit.kit.run.{Kit, KitFailure, LocalEdge, LocalTools}
 
 import org.slf4j.LoggerFactory
 import kalandra.deployment.Kalandra
-import kalandra.edge.{CommandClient, Mount}
+import kalandra.edge.CommandClient
 import kalandra.importer.Imports
 
 /** `kalandra serve`: serves the kalandra deployment until the process is
@@ -30,9 +30,7 @@ import kalandra.importer.Imports
   * serve. It reads the environment alone: `GRIT_DATABASE_URL` (default
   * [[Main.DefaultDatabase]]; a URL naming another deployment's database, `grit`
   * or `grit_bort`, is refused) and `KALANDRA_CHECKOUT`, the grit checkout its
-  * room is (default `$HOME/Projects/grit`); and `KALANDRA_LISTEN`, where serve's edge listens and
-  * where the commands that go through a running serve reach it ([[Mount.listening]]). `serve`
-  * and `chat` run turns: each needs
+  * room is (default `$HOME/Projects/grit`). `serve` and `chat` run turns: each needs
   * `ANTHROPIC_API_KEY` and `JEV_API_KEY`, and is refused without either; OpenRouter's key is
   * never passed on.
   */
@@ -144,8 +142,7 @@ object Main {
     for {
       env <- environment(raw).flatMap(keyed)
       dir <- checkout(env)
-      at <- Mount.listening(env)
-      kalandra <- Kalandra.deployment(dir, at)
+      kalandra <- Kalandra.deployment(dir)
       _ <- Kit.serve(kalandra, env).left.map(said)
     } yield ()
 
@@ -160,8 +157,7 @@ object Main {
     val read = for {
       env <- environment(raw).flatMap(keyed)
       dir <- checkout(env)
-      at <- Mount.listening(env)
-      kalandra <- Kalandra.deployment(dir, at)
+      kalandra <- Kalandra.deployment(dir)
       secrets <- Secrets.of(env, kalandra).left.map(r => said(KitFailure.Unconfigured(r)))
     } yield (dir, kalandra, secrets)
     // The capabilities are opened in matches, not a for: a for's closures would capture them.
@@ -216,8 +212,7 @@ object Main {
     val read = for {
       env <- environment(raw)
       dir <- checkout(env)
-      at <- Mount.listening(env)
-      kalandra <- Kalandra.deployment(dir, at)
+      kalandra <- Kalandra.deployment(dir)
       secrets <- Secrets.of(env, kalandra).left.map(r => said(KitFailure.Unconfigured(r)))
     } yield (dir, kalandra, secrets)
     read.flatMap { (dir, kalandra, secrets) =>
