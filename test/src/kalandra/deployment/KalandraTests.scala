@@ -13,6 +13,7 @@ import grit.kit.deployment.{Assembly, DeploymentVersion, Offered, Placer}
 import grit.projects.name.{KindName, StateName}
 import grit.projects.plugin.{Projects, TurnCommands}
 
+import kalandra.edge.OwnCommands
 import kalandra.method.GritMethod
 import utest.*
 
@@ -204,6 +205,20 @@ object KalandraTests extends TestSuite {
         "project_export",
         "project_stale",
         "project_brief"
+      )
+    }
+
+    test(
+      "no plugin command has the name of a command kalandra's edge adds, and each it guards is a plugin's"
+    ) {
+      val plugins = kalandra.plugins.flatMap(_.commands).map(c => ToolName.value(c.spec.name)).toSet
+      val added = OwnCommands.all.filterNot(_.guards).map(o => ToolName.value(o.name)).toList
+      val guarding = OwnCommands.all.filter(_.guards).map(o => ToolName.value(o.name)).toList
+      (added, added.filter(plugins), guarding, guarding.filterNot(plugins)) ==> (
+        List("project_standing", "project_adopt"),
+        Nil,
+        List("project_move", "project_batch"),
+        Nil
       )
     }
   }
