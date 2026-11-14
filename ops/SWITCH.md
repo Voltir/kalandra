@@ -12,11 +12,23 @@ the join script that jar serves (`join.sh`), their sha256 files and the proof's 
 
 ## Before
 
-- `ops/edge-proof.sh` passed on the head of `commands-edge`: `head -1 $P/proof.txt` names that
-  commit with no `with changes`, and its last line is `edge-proof: passed`. If `commands-edge`
-  moved since, run it again from `~/Projects/kalandra-commands-edge` after `./mill show
-  assembly` there.
-- The proven files are the ones there: `(cd $P && sha256sum -c serve.jar.sha256 join.sh.sha256)`.
+- `ops/edge-proof.sh` passed on a commit whose code is the branch head's: what is switched is
+  `src`, `build.mill` and `bin`, so a commit since that changed only docs or `ops` needs no
+  rerun:
+
+  ```bash
+  tail -1 $P/proof.txt                                    # edge-proof: passed
+  c=$(head -1 $P/proof.txt | sed -n 's/.* at \([0-9a-f]*\)$/\1/p')   # empty: proved `with changes`
+  git -C ~/Projects/kalandra-commands-edge diff --quiet "$c" HEAD -- src build.mill bin && echo same
+  ```
+
+  It prints `edge-proof: passed` and `same`. Anything else (an empty `$c` included, which makes
+  `git diff` fail), and the proof is run again from `~/Projects/kalandra-commands-edge` after
+  `./mill show assembly` there.
+- The proven files are the ones there: `(cd $P && sha256sum -c serve.jar.sha256 join.sh.sha256)`
+  prints two `OK` lines, and `serve.jar` is the jar the head builds: `sha256sum
+  ~/Projects/kalandra-commands-edge/out/assembly.dest/out.jar` prints the sha in
+  `serve.jar.sha256`.
 - `git -C ~/Projects/kalandra merge-base --is-ancestor main commands-edge` exits 0 (main has not
   moved under the branch, so the merge in step 6 is a fast-forward).
 
