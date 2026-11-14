@@ -1,8 +1,8 @@
 # kalandra
 
-A deployment of grit that keeps grit's own projects: a Scala module against grit's
-`publishLocal` jars (`grit-kit` and `grit-projects`, `0.1.0-SNAPSHOT`), the way any deployment
-outside grit builds. Package `kalandra`, outside `grit` on purpose, so the compiler treats it
+A deployment of grit that keeps grit's own projects: a Scala module against grit's published
+jars (`grit-kit`, `grit-chat`, `grit-projects`, `grit-commands` and `grit-claudecode`, at the
+version `build.mill` pins), the way any deployment outside grit builds. Package `kalandra`, outside `grit` on purpose, so the compiler treats it
 as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 
 - **The projects plugin** (ADR 0049), under one method, `grit` (`kalandra.method`): grit's own
@@ -20,46 +20,43 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 - **No model.** It passes no model's key to the kit, so nothing it serves can spend.
 - **Its database** is `grit_kalandra` (`GRIT_DATABASE_URL`); it refuses to open `grit` or
   `grit_bort`. Unlike grit's test databases it is durable: never reset or drop it.
-- **Its edge, `claude-code`** (`kalandra.edge`): HTTP on `KALANDRA_LISTEN` (`host:port` on a
-  loopback address, default `127.0.0.1:7317`). `POST /command/<name>` runs the projects command
-  `name` with the body, a JSON object, as its arguments, as the account in the room, believed at
-  member (the integrity the deployment declares for its room, which grit meets with the room's
-  cap). It answers the command's text with 200, a refusal with 409, and an error with its own
-  status. `POST /mcp` serves the same commands as MCP tools (streamable HTTP, one JSON reply per
-  message, no session): `initialize`, `ping`, `tools/list` and `tools/call`, run as `/command` runs it; a command that did not answer 200 is a tool
-  error carrying its text. `POST /wait` (`bin/kalandra wait`) holds the request until an
-  artifact reaches one of some states, or a commit is made in a worktree, as grit's `EdgeWatch`
-  waits (grit's ADR 0051), and answers what met it, or 408 once it lapses. The edge also vouches for the account, the one member of its realm `workshop:local` (stored; kept from the earlier name),
-  so a person is linked to it before the first command. It holds no transaction.
-- **Brief files.** A `project_claim` that is done through the edge also writes its brief
-  (`project_brief` for the claim's key and role) to a file a session hook reads:
-  `${KALANDRA_BRIEFS:-$HOME/.local/state/kalandra/briefs}/<slot>.md`, the slot being the
-  claim's `holder` with `A`-`Z` lower-cased and every other character outside a slug part written `-`, and each `/`
-  written `__` in the file's name. It is replaced whole, through a file beside it. A
-  `project_release` through the edge, once done, deletes the file of the holder its answer names.
-- **Session capture** (`kalandra.capture`). The edge records each Claude Code session that
-  `hooks/spool-hook.sh` spools in grit's session record (grit's ADR 0050), as the account, at
-  its room's label, each session placed at its worktree. Every 2 s it records the files the
-  hook appended to `${KALANDRA_SPOOL:-$HOME/.local/state/kalandra/spool}`, one transaction a
-  file, and deletes them. A file the store refuses 3 times goes to `quarantine/` there (the
-  newest 20 kept); while the database cannot be reached, a pass ends at once, trying no file and
-  taking no new one, so the hook's own bound holds what waits. A line it cannot read, or a
-  session it cannot place, is dropped and said in serve's log.
+- **Its edge, `commands`**: grit's commands edge (ADR 0062), mounted by `kalandra.edge.Mount`
+  on `KALANDRA_LISTEN` (`host:port` on loopback, default `127.0.0.1:7317`). Every request with no
+  credential is the account's, believed at member, from the worker `local`; one carrying a
+  credential is refused. `POST /command/<name>` runs a projects command with its body, a JSON
+  object, as its arguments; `POST /mcp` serves the same commands as MCP tools; `POST /wait`
+  (`bin/kalandra wait`) waits for a commit (`{"commit":{"holder":…}}` or `{"commit":{"worktree":…}}`)
+  or for an artifact to reach a state; `GET /holder` answers the claim holder a session or its
+  agent works as (`local/<dir>-<8 hex>`); `GET /brief` a holder's brief, or with `part=digest`
+  what its last session did; `POST /events` records a session's events in grit's session record;
+  `GET /join/claude-code` serves Claude Code's join script. What each answers, and refuses, is
+  in the docs of `grit.commands`' `CommandsEdge`. kalandra's own commands (`kalandra.edge.OwnCommands`):
+  `project_move` and `project_batch` refuse a move to `adopted`, which `project_adopt` alone
+  makes, and `project_standing` and `project_adopt` are added at `/command` alone. The edge
+  vouches for the account, the one member of its realm `workshop:local` (stored; kept from the
+  earlier name), so a person is linked to it before the first command. serve writes no files.
+- **Sessions** reach the edge through Claude Code's adapter: in a checkout, `curl -fsS
+  http://127.0.0.1:7317/join/claude-code | bash -s -- http://127.0.0.1:7317 --mcp-name kalandra`
+  installs the hook that briefs each session and agent from `/brief` and posts what they do to
+  `/events`, and registers `/mcp` as `kalandra`; `--undo` removes it (grit's
+  `extensions/claudecode/README.md`). The old edge, `kalandra.capture` and `hooks/`, described
+  below under the hook sections, are in the tree unmounted until the switch to the commands edge
+  has held (`ops/SWITCH.md`).
 - It names grit's kit, core, prose and the projects plugin alone.
 
 It compiles under grit's flags (`-no-indent`, capture and separation checking, `-Werror`).
 
-Packages, in one-way order: `method` (the method's data) → `capture` (the spool's lines and
-their ingest) → `edge` (and its client) →
+Packages, in one-way order: `method` (the method's data) → `amend` (a standing section's
+amendments) → `capture` (the old spool's lines and their ingest, unmounted) → `edge` (the mount
+of grit's commands edge, kalandra's own commands, and the client) →
 `deployment` → `importer` (grit's planning tree → export-shaped files → `project_keep` over
 HTTP) → `main` (`serve`, `export`, `import`, `verify`).
 
 ## Build and run
 
 ```bash
-# in a grit checkout
-./mill --no-daemon __.publishLocal
-# here
+# grit is published once per version, from its tag (grit's scripts/publish-local refuses a
+# version already published); build.mill pins the version. Here:
 ./mill compile
 ./mill test
 KALANDRA_LINT=1 MILL_OUTPUT_DIR=out/lint ./mill __.compile   # the unused-warnings pass
@@ -71,6 +68,7 @@ bin/kalandra restart                    # stop, then start (does not build)
 bin/kalandra status                     # serve's pids, and whether commands answer
 bin/kalandra new '{"project":"m17"}'    # any command: `keep` or `project_keep`, then its JSON
 bin/kalandra export m17 /tmp/m17        # the project's export files, through a running serve
+bin/kalandra holder                     # the claim holder a session here works as, for a claim
 ```
 
 A command through `bin/kalandra` fails loud, exit 2, when serve is not running. Use `start` and
@@ -103,7 +101,7 @@ bin/kalandra adopt '{"key":"grit/amend-…"}'                    # keep it as th
 
 For a section, `standing` also says its version on stderr, which `scripts/eval propose
 --against` takes. Both are the edge's own commands, not tools, and `adopt` is the only way an amendment reaches
-`adopted`: what each refuses is in `Routes`' and `Adoption.candidate`'s docs.
+`adopted`: what each refuses is in `OwnCommands`' and `Adoption.candidate`'s docs.
 
 ## The proposer
 
@@ -127,6 +125,9 @@ offered the coding tools' reads and `project_propose` alone, a new amendment in 
 serve's turns may not move an amendment to `adopted`, which only `project_adopt` does.
 
 ## The brief hook
+
+Unmounted since the commands edge: this section and the two after it describe the hooks the join
+replaces, kept until the switch has held.
 
 `hooks/brief-hook.sh` puts a claimed brief in a Claude Code session's context, or in a
 subagent's: as a SessionStart and a SubagentStart hook it reads the event on stdin and prints
@@ -249,19 +250,15 @@ exec /home/nickchilders/Projects/kalandra/hooks/spool-hook.sh --rewrite "$@"
 ## The MCP server
 
 Claude Code reaches the commands as tools (`mcp__kalandra__project_show`, …) through serve's
-`/mcp`. To add it for grit's checkout alone, run there:
+`/mcp`, which the join registers for its checkout (`--mcp-name kalandra`). With serve down, a
+session starts without the tools.
 
-```bash
-claude mcp add --scope local --transport http kalandra http://127.0.0.1:7317/mcp
-```
-
-With serve down, a session starts without the tools.
-
-Both `/mcp` and `/command` refuse, with 403 and running nothing, a request whose `Origin` is not
-`http://` on `127.0.0.1`, `localhost` or `[::1]`, or whose `Host` is not the listen address or
-`localhost` at its port: a web page in a browser on this machine could otherwise post to them,
-by DNS rebinding with its own name as `Host`, and keep durable records. A request with no
-`Origin`, as from `bin/kalandra`, curl or Claude Code's MCP client, passes on its `Host`.
+Every route refuses, with 403 and running nothing, a request whose `Host` is not a loopback name
+(`localhost`, `127.0.0.1`, `::1`) at any port, whose `Origin`, when sent, is not `http://` that
+same `Host`, or whose `Sec-Fetch-Site`, when sent, is not `same-origin` or `none`: a web page in a
+browser on this machine could otherwise post to them, by DNS rebinding or a cross-site request,
+and keep durable records. A request with no `Origin`, as from `bin/kalandra`, curl or Claude
+Code's MCP client, passes on its `Host`; one carrying `Authorization` is refused.
 
 ## Importing grit's planning tree
 
