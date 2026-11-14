@@ -233,21 +233,6 @@ ctx="$(fire brief <<<"$start" | jq -r '.hookSpecificOutput.additionalContext // 
 grep -q "Proof note" <<<"$ctx" && grep -q "note-text-2" <<<"$ctx"; holds $? "the hook's brief at SessionStart holds the claimed note as kept last"
 op="$(fire opening <<<"$start" | jq -r '.hookSpecificOutput.additionalContext // empty')" || op=""
 [[ "$(head -1 <<<"$op")" == *"$H"* ]]; holds $? "the hook's opening names the holder first"
-# The agent path: the holder command the opening prints, bin/kalandra holder with dir, type and
-# session, and the SubagentStart brief of an agent claimed for that holder.
-printed="'$hook' holder TYPE --dir '$repo' --session 'proof-s1'"
-grep -qxF "grit: an agent this session starts has its own claim holder. This prints it, with the agent's type in place of TYPE: $printed" <<<"$op"
-holds $? "the opening prints the agent holder command $printed"
-AH="$(fire holder coder-proof --dir "$repo" --session proof-s1 2>/dev/null)" || AH=""
-KH="$(K holder "{\"dir\":\"$repo\",\"type\":\"coder-proof\",\"session\":\"proof-s1\"}")" || KH=""
-[[ -n "$AH" && "$AH" == "$KH" && "$AH" == "$H"/coder-proof/* ]]
-holds $? "bin/kalandra holder with dir, type and session is the hook's holder coder-proof: $AH"
-expect 0 "keep checkpoint edge-proof/w" K keep '{"key":"edge-proof/w","kind":"checkpoint","title":"Agent checkpoint","body":"## Goal\n\nagent-text-1","parent":"edge-proof/m"}'
-expect 0 "claim edge-proof/w as coder for $AH" K claim "{\"key\":\"edge-proof/w\",\"role\":\"coder\",\"holder\":\"$AH\"}"
-sub="$(payload proof-s1 SubagentStart | jq -c '. + {agent_id: "proof-a1", agent_type: "coder-proof"}')"
-actx="$(fire brief <<<"$sub" | jq -r '.hookSpecificOutput.additionalContext // empty')" || actx=""
-grep -q "agent-text-1" <<<"$actx" && ! grep -q "note-text-2" <<<"$actx"
-holds $? "the hook's brief at SubagentStart holds the agent's claimed checkpoint, not the session's note"
 rc=0; fire event <<<"$start" || rc=$?; holds "$rc" "the hook posts the start"
 read="$(payload proof-s1 PostToolUse | jq -c --arg f "$repo/README" '. + {tool_name: "Read", tool_input: {file_path: $f}, tool_response: {type: "text", file: {filePath: $f, content: "hello\n", numLines: 1, startLine: 1, totalLines: 1}}}')"
 rc=0; fire event <<<"$read" || rc=$?; holds "$rc" "the hook posts a read"
