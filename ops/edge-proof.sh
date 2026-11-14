@@ -53,17 +53,6 @@ listening() { ss -Hltn "sport = :$1" 2>/dev/null | grep -q .; }
 # ---- 0. Refusals, before anything is started.
 refuse() { echo "edge-proof: $*" >&2; exit 1; }
 [[ "${KALANDRA_LISTEN:-}" != *:7317 ]] || refuse "KALANDRA_LISTEN names 7317, the live serve's port"
-# What else the hook, bin/kalandra or curl read that could send a step elsewhere, 7317 included;
-# the proof names each one it needs itself:
-#   GRIT_EDGE               the installed hook's edge, in place of the one the join wrote
-#   GRIT_HOOK_STARTED/SELF  the hook's watchdog marks: set, a hook skips its bound and runs as SELF
-#   CLAUDE_PROJECT_DIR      the hook's directory: set, the proof's events and commit name it
-#   CLAUDE_CODE_SESSION_ID  the session the hook's commit and holder and bin/kalandra holder
-#                           default to
-#   GRIT_DATABASE_URL       bin/kalandra start's and work's database (the serves here get env -i)
-#   *_proxy, *_PROXY        a proxy every curl to the proof's serve would go through
-unset GRIT_EDGE GRIT_HOOK_STARTED GRIT_HOOK_SELF CLAUDE_PROJECT_DIR CLAUDE_CODE_SESSION_ID \
-  GRIT_DATABASE_URL http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY
 [[ -f "$jar" ]] || refuse "no jar at $jar: run ./mill show assembly first"
 if [[ -n "$(pg psql -U grit -d postgres -At -c "SELECT 1 FROM pg_database WHERE datname = '$restored'")" ]]; then
   refuse "$restored exists: a restore test may be running"
