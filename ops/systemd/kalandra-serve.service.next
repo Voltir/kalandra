@@ -1,0 +1,20 @@
+[Unit]
+Description=kalandra's serve: the planning store through grit's commands edge on 127.0.0.1:7317
+# Postgres runs under Docker Desktop, outside this systemd: a serve that cannot reach it exits,
+# and is started again until it can.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/kalandra
+Environment=GRIT_DATABASE_URL=jdbc:postgresql://localhost:5432/grit_kalandra
+ExecStart=%h/Projects/kalandra/bin/kalandra serve
+# The JVM answers SIGTERM with 143; that is a stop, not a failure.
+SuccessExitStatus=143
+Restart=always
+RestartSec=10
+StandardOutput=append:%h/Projects/kalandra/logs/serve.log
+StandardError=append:%h/Projects/kalandra/logs/serve.log
+
+[Install]
+WantedBy=default.target
