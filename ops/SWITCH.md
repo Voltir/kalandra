@@ -172,16 +172,27 @@ pg -c "\copy (SELECT session, seq, kind, shape FROM grit.session_events WHERE sh
 wc -l < $B/dropped.csv
 ```
 
-The first prints the counts table and rolls back. On the copy the proof printed
+The first prints the counts table and rolls back. On the copy of 2026-11-14 the proof printed
 (`$P/forward-dry.txt`):
 
 ```
-<from the proof>
+                        what                         |  n  
+-----------------------------------------------------+-----
+ grit.documents rewritten                            |   0
+ grit.files rewritten                                |   0
+ grit.piece_sets rewritten                           |   0
+ grit.places rewritten                               |   0
+ grit.session_events deleted, too long to rewrite    |   0
+ grit.session_events rewritten                       | 202
+ grit.session_events rewritten without their subject |   0
+ grit.sessions rewritten                             |  12
+ grit.visibility_changes rewritten                   |   0
+(9 rows)
 ```
 
 - `grit.session_events deleted, too long to rewrite` must be 0; anything else, stop.
 - `grit.session_events rewritten without their subject` are the commits whose subject is
-  dropped. On the copy they were these (session, seq): <from the proof>.
+  dropped. On the copy there were none, and `dropped.csv` held its header line alone.
 
 `$B/dropped.csv` saves every event the rename drops a subject from or deletes: its line count is
 one header line plus that count and the deleted count. The live database may have grown since
@@ -251,11 +262,23 @@ bash -s -- http://127.0.0.1:7317 --credential ~/.config/grit/credential --mcp-na
 ```
 
 The join asks the new serve with the credential first, so this step comes after step 9. On the
-proof's copy it printed (the repository and credential paths there were its own):
+proof's copy it printed, over a 0.2.0 join (its edge was the proof's on 7318, and `<work>` its
+own directory):
 
 ```
-<from the proof>
+grit claude-code: joined <work>/repo to http://127.0.0.1:7318
+  hook      <work>/repo/.git/grit/claude-code/hook, shared by this repository's worktrees
+  settings  .claude/settings.local.json: 11 handlers of ours
+  ignore    .claude/settings.local.json in <work>/repo/.git/info/exclude, shared by this repository's worktrees
+  git       post-commit and post-rewrite in <work>/repo/.git/hooks, shared by this repository's worktrees
+  credential <work>/cred/sessions, sent with every request
+  mcp       kalandra at http://127.0.0.1:7318/mcp, local scope, replacing kalandra at http://127.0.0.1:7318/mcp
+Sessions pick the hooks up at once; run /mcp in a running session to connect kalandra.
+Undo: curl -fsS http://127.0.0.1:7318/join/claude-code | bash -s -- --undo --mcp-name kalandra
 ```
+
+Here it names `http://127.0.0.1:7317` and `~/.config/grit/credential`. Its last line's undo asks
+`/join` with no credential, which the new serve refuses: use the undo below instead.
 
 Run the same command in each worktree found at step 4. The hook file is shared, so every
 worktree sends the same credential.
