@@ -57,6 +57,10 @@ sql() { pg psql -U grit -d "$restored" -At -v ON_ERROR_STOP=1 -c "$1"; }
 # The switch's psql, on the copy: `pg` in ops/SWITCH.md.
 psw() { pg psql -U grit -q -v ON_ERROR_STOP=1 -d "$restored" "$@"; }
 listening() { ss -Hltn "sport = :$1" 2>/dev/null | grep -q .; }
+# How many stored places, in every table the rename rewrites, are under the key $1.
+under() {
+  sql "SELECT (SELECT count(*) FROM grit.places WHERE path[1] = '$1') + (SELECT count(*) FROM grit.sessions WHERE place[1] = '$1') + (SELECT count(*) FROM grit.documents WHERE place[1] = '$1') + (SELECT count(*) FROM grit.files WHERE place[1] = '$1') + (SELECT count(*) FROM grit.piece_sets WHERE place[1] = '$1') + (SELECT count(*) FROM grit.visibility_changes WHERE change ->> 'room' LIKE '$1:%') + (SELECT count(*) FROM grit.session_events WHERE shape ->> 'worktree' LIKE '$1:%')"
+}
 
 # The two queries the switch runs before the kept rename, verbatim in ops/SWITCH.md (checked
 # below): the pending workflows that name a place under `worker`, and the session events the
@@ -83,7 +87,10 @@ unset GRIT_EDGE GRIT_HOOK_STARTED GRIT_HOOK_SELF CLAUDE_PROJECT_DIR CLAUDE_CODE_
 version="$(sed -n 's/^ *def gritVersion = "\(.*\)"$/\1/p' "$wt/build.mill")"
 marker="$HOME/.ivy2/local/dev.grit/.publish-local-$version"
 at="$(cat "$marker" 2>/dev/null)" || refuse "no marker for grit $version at $marker"
-built="$(unzip -p "$jar" kalandra/grit.txt 2>/dev/null)" || refuse "the jar carries no kalandra/grit.txt"
+# The jar is an executable assembly, a launcher before its zip, which unzip warns of; Python's
+# zipfile reads past it.
+built="$(python3 -I -c 'import sys, zipfile; print(zipfile.ZipFile(sys.argv[1]).read("kalandra/grit.txt").decode().strip())' "$jar" 2>/dev/null)" ||
+  refuse "the jar carries no kalandra/grit.txt"
 [[ "$built" == "$version at $at" ]] || refuse "the jar is built against grit $built, the marker names $at: build again"
 forward_sql="$(git -C "$grit_checkout" show "$at:core/dbos/it/resources/machine-from-worker.sql")" ||
   refuse "grit's checkout has no machine-from-worker.sql at $at"
@@ -189,14 +196,19 @@ if [[ -n "$plant" ]]; then
 else
   # None records one: a workflow recording a place under fs is given one under worker in its
   # place, in DBOS's own encoding, made pending, counted, then put back.
-  plant="$(sql "SELECT w.workflow_uuid FROM dbos.workflow_status w WHERE w.status NOT IN ('PENDING','ENQUEUED') AND w.inputs LIKE '%fs:/%' ORDER BY w.created_at DESC LIMIT 1")"
+  say "fact  workflows in the copy by name: $(sql "SELECT string_agg(name || ' ' || n, ', ' ORDER BY name) FROM (SELECT name, count(*) n FROM dbos.workflow_status GROUP BY name) s")"
+  say "fact  recorded steps naming a place under fs: $(sql "SELECT count(*) FROM dbos.operation_outputs WHERE output LIKE '%fs:/%'"), workflows' inputs: $(sql "SELECT count(*) FROM dbos.workflow_status WHERE inputs LIKE '%fs:/%'")"
+  plant="$(sql "SELECT o.workflow_uuid || ' ' || o.function_id FROM dbos.operation_outputs o JOIN dbos.workflow_status w USING (workflow_uuid) WHERE w.status NOT IN ('PENDING','ENQUEUED') AND o.output LIKE '%fs:/%' ORDER BY w.created_at DESC LIMIT 1")"
   if [[ -n "$plant" ]]; then
-    sql "CREATE TABLE e7plant AS SELECT * FROM dbos.workflow_status WHERE workflow_uuid = '$plant'" >/dev/null
-    sql "UPDATE dbos.workflow_status SET status = 'PENDING', inputs = regexp_replace(inputs, 'fs:/', 'worker:local/') WHERE workflow_uuid = '$plant'" >/dev/null
+    read -r pw pf <<<"$plant"
+    sql "CREATE TABLE e7plant AS SELECT w.status, o.output FROM dbos.workflow_status w JOIN dbos.operation_outputs o USING (workflow_uuid) WHERE o.workflow_uuid = '$pw' AND o.function_id = $pf" >/dev/null
+    sql "UPDATE dbos.operation_outputs SET output = replace(output, 'fs:/', 'worker:local/') WHERE workflow_uuid = '$pw' AND function_id = $pf" >/dev/null
+    sql "UPDATE dbos.workflow_status SET status = 'PENDING' WHERE workflow_uuid = '$pw'" >/dev/null
     seen="$(sql "$pending_q")"
-    sql "UPDATE dbos.workflow_status w SET status = p.status, inputs = p.inputs FROM e7plant p WHERE w.workflow_uuid = p.workflow_uuid" >/dev/null
+    sql "UPDATE dbos.operation_outputs o SET output = p.output FROM e7plant p WHERE o.workflow_uuid = '$pw' AND o.function_id = $pf" >/dev/null
+    sql "UPDATE dbos.workflow_status w SET status = p.status FROM e7plant p WHERE w.workflow_uuid = '$pw'" >/dev/null
     sql "DROP TABLE e7plant" >/dev/null
-    [[ "$seen" == 1 ]]; holds $? "the pending-workflow query counts a planted one: a recorded place under fs in its inputs given one under worker, as DBOS stored it, made pending: $seen"
+    [[ "$seen" == 1 ]]; holds $? "the pending-workflow query counts a planted one: a step's recorded place under fs given one under worker, in DBOS's stored encoding, its workflow made pending: $seen"
   else
     fail "no workflow in the copy records a place, so the pending-workflow query cannot be shown to see one"
   fi
@@ -204,7 +216,7 @@ fi
 [[ "$(sql "$pending_q")" == 0 ]]; holds $? "  and put back, the query counts 0 again"
 cancelled="$(sql "WITH c AS (UPDATE dbos.workflow_status SET status = 'CANCELLED' WHERE status IN ('PENDING', 'ENQUEUED') RETURNING 1) SELECT count(*) FROM c")"
 say "copy  $cancelled pending or enqueued workflows cancelled in the copy"
-machine_before="$(sql "SELECT (SELECT count(*) FROM grit.places WHERE path[1] = 'machine') + (SELECT count(*) FROM grit.sessions WHERE place[1] = 'machine') + (SELECT count(*) FROM grit.documents WHERE place[1] = 'machine') + (SELECT count(*) FROM grit.files WHERE place[1] = 'machine') + (SELECT count(*) FROM grit.piece_sets WHERE place[1] = 'machine') + (SELECT count(*) FROM grit.visibility_changes WHERE change ->> 'room' LIKE 'machine:%') + (SELECT count(*) FROM grit.session_events WHERE shape ->> 'worktree' LIKE 'machine:%')")"
+machine_before="$(under machine)"
 [[ "$machine_before" == 0 ]]; holds $? "no place is under machine before the rename, so the reverse is exact ($machine_before)"
 # Every rewritten table's place, by primary key, kept in the copy to compare after the rollback.
 pg psql -U grit -d "$restored" -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
@@ -241,7 +253,8 @@ deleted="$(count "$work/dry.txt" 'grit.session_events deleted, too long to rewri
 subjectless="$(count "$work/dry.txt" 'grit.session_events rewritten without their subject')"
 [[ "$deleted" == 0 ]]; holds $? "the dry run deletes no event ($deleted)"
 [[ "$saved" == "$((subjectless + deleted))" ]]; holds $? "the saved rows are the dry run's subjectless and deleted events ($saved = $subjectless + $deleted)"
-[[ "$(sql "SELECT count(*) FROM grit.places WHERE path[1] = 'worker'")" != 0 ]]; holds $? "the dry run rolled back: places under worker remain"
+w_left="$(under worker)"
+[[ "$w_left" != 0 ]]; holds $? "the dry run rolled back: $w_left places under worker remain"
 if [[ "$deleted" != 0 ]]; then
   say "edge-proof: stopped: the rename would delete $deleted events"
   exit 1
@@ -252,7 +265,7 @@ cmp -s <(grep -v '^COMMIT' "$work/kept.txt") "$work/dry.txt"; holds $? "  and it
 rc=0; psw -f - <"$F" >"$work/again.txt" 2>&1 || rc=$?
 zeros "$work/again.txt" && [[ "$rc" == 0 ]]
 holds $? "a second forward run counts 0 everywhere"
-left_worker="$(sql "SELECT (SELECT count(*) FROM grit.places WHERE path[1] = 'worker') + (SELECT count(*) FROM grit.sessions WHERE place[1] = 'worker') + (SELECT count(*) FROM grit.documents WHERE place[1] = 'worker') + (SELECT count(*) FROM grit.files WHERE place[1] = 'worker') + (SELECT count(*) FROM grit.piece_sets WHERE place[1] = 'worker') + (SELECT count(*) FROM grit.visibility_changes WHERE change ->> 'room' LIKE 'worker:%') + (SELECT count(*) FROM grit.session_events WHERE shape ->> 'worktree' LIKE 'worker:%')")"
+left_worker="$(under worker)"
 [[ "$left_worker" == 0 ]]; holds $? "no place under worker remains ($left_worker)"
 
 # ---- 3. serve on the copy, with no keys, an empty HOME and two throwaway credentials, made as
@@ -595,7 +608,8 @@ stop "$serve_pid"
 rc=0; psw -f - <"$R" >"$work/rdry.txt" 2>&1 || rc=$?
 holds "$rc" "the reverse dry run exits 0"
 sed 's/^/rdry    /' "$work/rdry.txt" | tee -a "$proof/proof.txt"
-[[ "$(sql "SELECT count(*) FROM grit.places WHERE path[1] = 'machine'")" != 0 ]]; holds $? "  and rolled back"
+m_left="$(under machine)"
+[[ "$m_left" != 0 ]]; holds $? "  and rolled back: $m_left places under machine remain"
 rc=0; psw -f - -c COMMIT <"$R" >"$work/rkept.txt" 2>&1 || rc=$?
 holds "$rc" "the reverse run, kept, exits 0"
 cmp -s <(grep -v '^COMMIT' "$work/rkept.txt") "$work/rdry.txt"; holds $? "  and its counts are its dry run's"
