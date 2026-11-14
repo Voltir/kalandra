@@ -287,5 +287,8 @@ always has). `$P/before` is kept a week.
 6. New sessions, as at step 9.
 
 Events the new serve recorded stay in the store: they are grit's session record, which the old
-code reads too. The new serve wrote no files, so nothing else needs undoing. What cannot be
+code reads too. The proof shows it: after the new serve has kept, claimed and recorded on the
+copy and stopped, the live checkout's jar (copied, never run from there) serves that copy, and
+its `project_list`, `project_show` and `project_claims` answer what the new serve kept, with the
+new serve's holders. The new serve wrote no files, so nothing else needs undoing. What cannot be
 undone: a claim's lease that lapsed while the switch was under way (two hours).
