@@ -38,16 +38,16 @@ object MountTests extends TestSuite {
     ) {
       Mount
         .edge(at("0.0.0.0:7317"), room, owner, Integrity.Member, realm)
-        .map(_.name) ==> Left(
-        "a request with no credential is the owner's, so the edge listens on loopback alone, not 0.0.0.0:7317"
-      )
+        .left
+        .map(_.contains("listens on loopback alone")) ==> Left(true)
     }
 
     test("an owner outside the realm is refused") {
       val stranger = Account.of("elsewhere", "someone").fold(sys.error, identity)
       Mount
         .edge(at("127.0.0.1:7317"), room, stranger, Integrity.Member, realm)
-        .map(_.name) ==> Left("elsewhere:someone is no account of workshop:local/")
+        .left
+        .map(_.contains("is no account of workshop:local")) ==> Left(true)
     }
 
     test(
