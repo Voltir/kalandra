@@ -333,13 +333,11 @@ PY
     fail "the forwarder recorded no exchange"
   fi
   after="$(ls -1 "$HOME/.claude/projects" 2>/dev/null || true)"
-  others="$(comm -13 <(sort <<<"$claude_projects_before") <(sort <<<"$after") | grep -vxF -e "$(basename "$transcripts")" || true)"
+  others="$(comm -13 <(sort <<<"$claude_projects_before") <(sort <<<"$after") | grep -vxF "$(basename "$transcripts")" || true)"
   [[ -z "$others" ]] || say "note  other new directories under ~/.claude/projects, left alone: $others"
   if [[ -d "$transcripts" ]]; then rm -rf -- "$transcripts"; say "clean deleted the run's transcripts, $transcripts"; fi
   if jq -e --arg p "$repo" '.projects[$p]' "$HOME/.claude.json" >/dev/null 2>&1; then
     say "note  ~/.claude.json holds a projects entry for $repo, left as it is"
-  else
-    say "fact  ~/.claude.json holds no projects entry for $repo"
   fi
   s2="$(sql "SELECT count(*) FROM grit.sessions WHERE harness = 'claude-code' AND place[array_length(place, 1)] = '$(basename "$repo")'")"
   say "fact  claude-code sessions recorded at the repository: $s2"
