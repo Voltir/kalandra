@@ -1,5 +1,6 @@
 package kalandra.deployment
 
+import grit.core.id.EdgeName
 import grit.core.identity.Account
 import grit.core.message.Tokens
 import grit.core.model.{ModelId, ModelRef, Upstream}
@@ -7,6 +8,7 @@ import grit.core.place.{Directory, Place}
 import grit.core.spend.DailyCap
 import grit.core.tool.ToolName
 import grit.core.visibility.{Label, Labelled, Party, Room}
+import grit.edge.http.Listen
 import grit.kit.deployment.{Assembly, DeploymentVersion, Offered, Placer}
 import grit.projects.name.{KindName, StateName}
 import grit.projects.plugin.{Projects, TurnCommands}
@@ -16,10 +18,13 @@ import utest.*
 
 object KalandraTests extends TestSuite {
 
+  /** Where a deployment built in a test listens: serve's default address. */
+  val Listening: Listen = Listen.parse("127.0.0.1:7317").fold(sys.error, identity)
+
   private val checkout: Directory =
     Directory.of("/home/someone/grit").fold(sys.error, identity)
 
-  private lazy val kalandra = Kalandra.deployment(checkout).fold(sys.error, identity)
+  private lazy val kalandra = Kalandra.deployment(checkout, Listening).fold(sys.error, identity)
 
   private def direct(model: String): ModelRef =
     ModelRef(ModelId.of(model).getOrElse(sys.error(model)), Some(Upstream.AnthropicApi))
@@ -77,6 +82,10 @@ object KalandraTests extends TestSuite {
         DailyCap.of("6").toOption,
         Kalandra.ProposerPlacer
       )
+    }
+
+    test("serve's one edge is grit's commands edge, needing no variable") {
+      kalandra.edges.map(e => (EdgeName.value(e.name), e.needs)) ==> Vector(("commands", Vector()))
     }
 
     test("a proposer declares no schedules, no jobs and no edge") {

@@ -6,7 +6,8 @@ import java.nio.charset.StandardCharsets
 
 import grit.core.plugin.CommandOutcome
 
-/** A client of a running serve's edge at `base` (`http://host:port`), which [[Routes]] answers.
+/** A client of a running serve's commands edge at `base` (`http://host:port`), each command
+  * posted to `/command/<name>`.
   */
 final class CommandClient private (base: String) {
 
@@ -16,7 +17,7 @@ final class CommandClient private (base: String) {
     * serve cannot be reached or answers another status (with that status and its text).
     */
   def run(name: String, args: ujson.Obj): Either[String, CommandOutcome] = {
-    val uri = URI.create(s"$base${Routes.Command}$name")
+    val uri = URI.create(s"$base/command/$name")
     scala.util
       .Try(
         client.send(
@@ -77,11 +78,7 @@ final class CommandClient private (base: String) {
 
 object CommandClient {
 
-  /** A client of the serve `env` says listens ([[ClaudeCodeEdge.listening]]), or why not. */
+  /** A client of the serve `env` says listens ([[Mount.listening]]), or why not. */
   def of(env: Map[String, String]): Either[String, CommandClient] =
-    ClaudeCodeEdge
-      .listening(env)
-      .left
-      .map(_.message)
-      .map(at => new CommandClient(s"http://${at.getHostString}:${at.getPort}"))
+    Mount.listening(env).map(at => new CommandClient(s"http://${at.shown}"))
 }
