@@ -1,5 +1,5 @@
 [Unit]
-Description=kalandra's serve: the planning store's HTTP and MCP edge on 127.0.0.1:7317
+Description=kalandra's serve: the planning store through grit's commands edge on 127.0.0.1:7317
 # Postgres runs under Docker Desktop, outside this systemd: a serve that cannot reach it exits,
 # and is started again until it can.
 StartLimitIntervalSec=0

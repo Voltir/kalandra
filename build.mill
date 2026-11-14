@@ -55,10 +55,6 @@ object `package` extends ScalaModule {
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = Seq(mvn"com.lihaoyi::utest:0.9.5")
     def forkArgs = Seq("--sun-misc-unsafe-memory-access=allow")
-    /* The hooks' tests run the scripts in this checkout's `hooks/`. */
-    def forkEnv = Task {
-      super.forkEnv() ++ Map("KALANDRA_HOOKS" -> (build.moduleDir / "hooks").toString)
-    }
     def scalacOptions = Task {
       super.scalacOptions() ++
         Option.when(build.lint())("-Wconf:msg=unused pattern variable:s")

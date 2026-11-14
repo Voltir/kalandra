@@ -39,15 +39,13 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   http://127.0.0.1:7317/join/claude-code | bash -s -- http://127.0.0.1:7317 --mcp-name kalandra`
   installs the hook that briefs each session and agent from `/brief` and posts what they do to
   `/events`, and registers `/mcp` as `kalandra`; `--undo` removes it (grit's
-  `extensions/claudecode/README.md`). The old edge, `kalandra.capture` and `hooks/`, described
-  below under the hook sections, are in the tree unmounted until the switch to the commands edge
-  has held (`ops/SWITCH.md`).
+  `extensions/claudecode/README.md`).
 - It names grit's kit, core, prose and the projects plugin alone.
 
 It compiles under grit's flags (`-no-indent`, capture and separation checking, `-Werror`).
 
 Packages, in one-way order: `method` (the method's data) → `amend` (a standing section's
-amendments) → `capture` (the old spool's lines and their ingest, unmounted) → `edge` (the mount
+amendments) → `edge` (the mount
 of grit's commands edge, kalandra's own commands, and the client) →
 `deployment` → `importer` (grit's planning tree → export-shaped files → `project_keep` over
 HTTP) → `main` (`serve`, `export`, `import`, `verify`).
@@ -123,129 +121,6 @@ run needs the engine to itself, a dry one too (on serve's engine it would show s
 starts it again however it ends. Its turns are
 offered the coding tools' reads and `project_propose` alone, a new amendment in `proposed`;
 serve's turns may not move an amendment to `adopted`, which only `project_adopt` does.
-
-## The brief hook
-
-Unmounted since the commands edge: this section and the two after it describe the hooks the join
-replaces, kept until the switch has held.
-
-`hooks/brief-hook.sh` puts a claimed brief in a Claude Code session's context, or in a
-subagent's: as a SessionStart and a SubagentStart hook it reads the event on stdin and prints
-the brief file of its slot as `additionalContext`. A session's slot is the sha1 of its working
-directory; a subagent's is `<agent type>/<sha1 of the session's working directory>/<session id>`,
-normalised as `BriefFiles.slot` normalises a claim's `holder` (`BriefHookTests` holds the two to
-one rule); `hooks/slot.sh` computes it for both hooks. The session id is the one that starts the
-subagent, so two sessions in one directory never share a subagent's slot, and since a session
-keeps its id across `claude --resume`, a session resumed after a crash gives its subagents the
-slots, and so the claims, they had (a fork or a `/clear` starts a new id, and new slots). Two
-sessions in one directory do share the session slot, which is how a manager's claim carries
-from one session to the next there; run two at once in two worktrees. `bin/kalandra slot
-[agent-type]`, run in the session's Bash in its directory, prints it, for a claim's `holder`; with
-an agent type it reads the session's id from `CLAUDE_CODE_SESSION_ID`, and exits 2 without one:
-
-```bash
-cd ~/Projects/grit
-w=~/Projects/kalandra/bin/kalandra
-$w claim "{\"key\":\"<key>\",\"role\":\"<role>\",\"holder\":\"$($w slot coder-haiku)\"}"
-```
-
-It needs bash, `jq`, `sha1sum`, `find` and `timeout`, never a JVM or the network, and it reads
-the files the edge wrote, so it works with serve down. A missing file, a read over a second, or
-anything else that fails, and it exits 0 with no output: the session starts without a brief.
-SessionStart has no matcher, so the brief is injected at startup, on resume, after `/clear` and
-after `/compact` (each resume injects it again). The edge writes a brief again after each keep or
-move of its project, and after each ingest pass a digest of the slot's session beside it, which
-a second SessionStart hook, `brief-hook.sh --digest`, injects after `/compact`, and with what the
-session last said after `/clear` (the hook's header says which file, when it is left out, and why
-it is a hook of its own). What a test hook saw of these events is in
-[`docs/claude-code-hooks.md`](docs/claude-code-hooks.md). To install it in grit's checkout, in
-`.claude/settings.local.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/brief-hook.sh", "timeout": 5 }] },
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/brief-hook.sh --digest", "timeout": 5 }] }
-    ],
-    "SubagentStart": [
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/brief-hook.sh", "timeout": 5 }] }
-    ]
-  }
-}
-```
-
-## The serve hook
-
-`hooks/serve-hook.sh`, a SessionStart hook beside the brief hook, starts serve when none is
-running, detached so the hook returns at once, and says so in the session's context. Claude
-Code connects an HTTP MCP server only at session start (three retries, then `/mcp`), so a
-session that connected before serve answered is told to ask for `/mcp`. Its header says what it
-reports when serve runs but does not answer. Installed as
-`{ "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/serve-hook.sh", "timeout": 5 }] }`
-in `SessionStart`.
-
-## The spool hook
-
-`hooks/spool-hook.sh` appends one line per session event to the spool serve records from
-(Session capture, above); its header says what each line holds, what it bounds, and the one
-collision that drops an event silently. A session's start line names its slot, as the brief
-hook computes it, so the session record knows which claims its work keeps from lapsing (grit's
-`Claims.Lease`). Like the brief hook it needs no JVM and no network and
-fails open, and it works with serve down: the spool waits for serve, bounded. It needs bash 5,
-`jq`, `git` and coreutils. Its PostToolUse hooks run in the background (`async`), so a tool
-call never waits on it; the session's start, each reply's end, a compaction and the session's
-end run in order with the session, so their lines are written before it moves on. To install
-it beside the brief hook, in grit's checkout's `.claude/settings.local.json` (`hooks` entries
-added to those above):
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
-    ],
-    "PostToolUse": [
-      { "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__scout__.*",
-        "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5, "async": true }] }
-    ],
-    "PostToolUseFailure": [
-      { "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__scout__.*",
-        "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5, "async": true }] }
-    ],
-    "Stop": [
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
-    ],
-    "PostCompact": [
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
-    ],
-    "SessionEnd": [
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
-    ],
-    "SubagentStart": [
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
-    ],
-    "SubagentStop": [
-      { "hooks": [{ "type": "command", "command": "/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh", "timeout": 5 }] }
-    ]
-  }
-}
-```
-
-A commit made by a session's Bash is spooled by git's post-commit hook in that checkout
-(`.git/hooks/post-commit`, or the common one a worktree shares), and the commits a rebase or an
-amend leaves, with those they replace, by its post-rewrite hook (`.git/hooks/post-rewrite`), so
-that a session's digest lists each surviving commit once:
-
-```bash
-#!/usr/bin/env bash
-/home/nickchilders/Projects/kalandra/hooks/spool-hook.sh --commit
-```
-
-```bash
-#!/usr/bin/env bash
-exec /home/nickchilders/Projects/kalandra/hooks/spool-hook.sh --rewrite "$@"
-```
 
 ## The MCP server
 
