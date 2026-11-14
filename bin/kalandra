@@ -21,10 +21,13 @@
 #   bin/kalandra adopt '{"key":"<key>"}'     keep an amendment's candidate as its section's next
 #                                           version, under the section's cap, and adopt it
 #   bin/kalandra build                      build the jar serve and export run from
-#   bin/kalandra slot [agent-type]          the slot a claim's `holder` names here, for an agent type
-#                                           in the session whose Bash runs it (hooks/brief-hook.sh)
+#   bin/kalandra holder ['<json>']          the claim holder a session in a directory works as, for a
+#                                           claim's `holder`: {"dir"} (default $PWD), and for an agent
+#                                           the session starts {"type","session"} (session default
+#                                           $CLAUDE_CODE_SESSION_ID; exit 2 without one)
 #   bin/kalandra wait '<json>'              wait until an artifact reaches a state, or a commit is made
-#                                           ({"artifact":"<key>","state":["review"]} or
+#                                           ({"artifact":"<key>","state":["review"]},
+#                                           {"commit":{"holder":"<holder>"}} or
 #                                           {"commit":{"worktree":"<path>"}}; "within" seconds,
 #                                           default 300, at most 600): exit 0 met, 3 lapsed
 #   bin/kalandra stop                       stop serve: SIGTERM its processes, wait up to 30 s
@@ -42,7 +45,7 @@ java="${GRIT_JDK_HOME:-/home/nickchilders/.jdks/jdk-26.0.2}/bin/java"
 listen="${KALANDRA_LISTEN:-127.0.0.1:7317}"
 
 usage() {
-  sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 
@@ -159,8 +162,8 @@ unit_do() {
   return 1
 }
 
-# serve up again after a proposal stopped it: a serve that is up already, which the systemd unit or
-# serve-hook.sh may have started meanwhile, is left as it is.
+# serve up again after a proposal stopped it: a serve that is up already, which the systemd unit
+# may have started meanwhile, is left as it is.
 serve_again() {
   if managed; then
     unit_do start
@@ -194,7 +197,40 @@ case "$1" in
     build
     ;;
   slot)
-    exec "$root/hooks/brief-hook.sh" --slot "${2-}"
+    echo "kalandra: slot is gone; a claim's holder is what bin/kalandra holder prints" >&2
+    exit 64
+    ;;
+  holder)
+    args="${2:-}"
+    [[ -n "$args" ]] || args='{}'
+    if ! query="$(jq -er --arg pwd "$PWD" --arg sid "${CLAUDE_CODE_SESSION_ID-}" '
+      if type != "object" then error("the holder'"'"'s arguments are a JSON object")
+      elif (keys - ["dir", "type", "session"]) != [] then
+        error("holder reads dir, type and session alone")
+      else
+        [ ["harness", "claude-code"], ["dir", (.dir // $pwd)] ]
+        + (if .type then [["type", .type], ["session", (.session // $sid)]] else [] end)
+        | map(select(.[1] != "")) | map("\(.[0])=\(.[1] | @uri)") | join("&")
+      end' <<<"$args" 2>&1)"; then
+      echo "kalandra: ${query#jq: error (at <stdin>:*): }" >&2
+      exit 64
+    fi
+    if jq -e 'has("type")' <<<"$args" >/dev/null && [[ "$query" != *"&session="* ]]; then
+      echo "kalandra: an agent's holder needs its session's id: CLAUDE_CODE_SESSION_ID is not set" >&2
+      exit 2
+    fi
+    out="$(mktemp)"
+    trap 'rm -f "$out" "$out.err"' EXIT
+    if ! status="$(curl -sS -o "$out" -w '%{http_code}' "http://$listen/holder?$query" 2>"$out.err")"; then
+      echo "kalandra: serve is not reachable at $listen: $(cat "$out.err")" >&2
+      exit 2
+    fi
+    cat "$out"
+    [[ -s "$out" && "$(tail -c1 "$out")" != "" ]] && echo
+    if [[ "$status" != 200 ]]; then
+      echo "kalandra: holder answered $status" >&2
+      exit 1
+    fi
     ;;
   stop)
     if managed; then unit_do stop; else serve_stop; fi
