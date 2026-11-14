@@ -10,6 +10,45 @@ only once the switch has held.
 the join script that jar serves (`join.sh`), their sha256 files and the proof's lines
 (`proof.txt`).
 
+## Before you start
+
+- **No `bin/kalandra chat` or `work` runs at step 5:** serve waits on the engine lock they hold,
+  so the new serve would not start at step 7. This prints the pid of each (nothing, when none):
+
+  ```bash
+  for p in /proc/[0-9]*; do
+    [[ "$(readlink "$p/exe" 2>/dev/null)" == */java ]] || continue
+    a="$(tr '\0' '\n' <"$p/cmdline" 2>/dev/null)"
+    grep -qxF ~/Projects/kalandra/out/assembly.dest/out.jar <<<"$a" && grep -qx -e chat -e work <<<"$a" && echo "${p#/proc/}"
+  done
+  ```
+
+- **The live `.env` names no listener or database:** `bin/kalandra serve` sources it with
+  `set -a`, which overrides what the unit sets. Check by name alone, never printing a value:
+  `grep -c '^\(export \)\{0,1\}\(KALANDRA_LISTEN\|GRIT_DATABASE_[A-Z_]*\)=' ~/Projects/kalandra/.env`
+  prints `0`.
+- `KALANDRA_SPOOL` and `KALANDRA_BRIEFS` are no longer read: a value for either, in `.env` or
+  the unit, does nothing after step 7, and the directories they named stay until step 12.
+- Pending workflows in `grit_kalandra` resume when the new serve starts, as on any restart.
+- **A proof killed with SIGKILL** leaves `grit_kalandra_restore`, a serve on 7318 (and with
+  `--record-mcp` a forwarder on 7319) and its `mktemp -d` directory. Clear them by the pid, the
+  serve's cwd checked to be the proof's (`/tmp/tmp.…/run` or `/tmp/tmp.…/old`), never by pattern:
+
+  ```bash
+  ss -Hltnp 'sport = :7318'                    # users:(("java",pid=<pid>,…))
+  readlink /proc/<pid>/cwd                     # /tmp/tmp.…/run or /tmp/tmp.…/old
+  kill <pid>
+  docker compose --project-directory ~/Projects/grit exec -T postgres \
+    psql -U grit -d postgres -c 'DROP DATABASE IF EXISTS grit_kalandra_restore WITH (FORCE)'
+  rm -rf -- /tmp/tmp.…                         # the directory that cwd named
+  ```
+
+- **What cannot be undone**, by the rollback or anything else: a claim's lease that lapsed while
+  the switch was under way (two hours after its holder's last event); the events the new serve
+  recorded, which stay in the store; a re-made claim's `since`, which is the time it was re-made
+  at step 8 or 9, before and after a rollback alike; and a rollback's revert commits, which stay
+  on kalandra's `main`.
+
 ## Before
 
 - `ops/edge-proof.sh` passed on a commit whose code is the branch head's: what is switched is
@@ -305,4 +344,4 @@ code reads too. The proof shows it: after the new serve has kept, claimed and re
 copy and stopped, the live checkout's jar (copied, never run from there) serves that copy, and
 its `project_list`, `project_show` and `project_claims` answer what the new serve kept, with the
 new serve's holders. The new serve wrote no files, so nothing else needs undoing. What cannot be
-undone: a claim's lease that lapsed while the switch was under way (two hours).
+undone is listed under "Before you start".
