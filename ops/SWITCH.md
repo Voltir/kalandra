@@ -33,6 +33,10 @@ for p in /proc/[0-9]*; do
 done
 ```
 
+A claim lapses two hours after its holder's last event, and ending a session starts that clock
+for every claim it holds: go from here to step 8 well inside two hours, or the claims step 2
+backs up are gone by step 8 and are made again by hand at step 9.
+
 Undo: none; sessions start again at step 9.
 
 ## 2. Back up what the switch changes
@@ -43,7 +47,12 @@ cp .claude/settings.local.json .git/hooks/post-commit .git/hooks/post-rewrite .g
 cp ~/Projects/kalandra/out/assembly.dest/out.jar $B/serve.jar
 git -C ~/Projects/kalandra rev-parse HEAD > $B/kalandra-head
 ~/Projects/kalandra/bin/kalandra claims '{"project":"grit"}' > $B/claims.json
+jq -e '.claims | length > 0' $B/claims.json      # true
 ```
+
+The last line prints `true`, exit 0. `false` (exit 1) means no claim is held, as when they lapsed
+after step 1: step 8 then re-makes nothing, and each claim the work needs is made by hand at
+step 9, as an agent's is. Any other exit means `claims.json` is no answer: stop and read it.
 
 A worktree of grit's with old handlers of its own (`grep -l kalandra/hooks
 <worktree>/.claude/settings.local.json` for each of `git -C ~/Projects/grit worktree list`)
