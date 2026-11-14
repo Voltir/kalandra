@@ -2,9 +2,9 @@ package build
 import mill.*, scalalib.*
 
 /* kalandra, a deployment of grit that keeps grit's own projects: a Scala module against grit's
- * kit and the projects plugin, as published by `./mill __.publishLocal` in a grit checkout (the
- * local ivy repository, which Mill resolves from by default). Its one edge serves the plugin's
- * commands over localhost HTTP. Scala and the JDK are grit's. */
+ * kit, the projects plugin, the commands edge and Claude Code's adapter, as grit publishes them
+ * to the local ivy repository (which Mill resolves from by default). Its one edge, grit's commands
+ * edge, serves the plugin's commands over localhost HTTP. Scala and the JDK are grit's. */
 object `package` extends ScalaModule {
   def scalaVersion = "3.9.0"
 
@@ -26,10 +26,16 @@ object `package` extends ScalaModule {
    * __.compile`. An input, so every run reads the shell's value afresh. */
   def lint = Task.Input { Task.env.get("KALANDRA_LINT").contains("1") }
 
+  /* grit's version: plain semver, tagged in grit (`v0.2.0`), every module published together
+   * from that tag and never republished under it, so this pin names one build of grit. */
+  def gritVersion = "0.2.0"
+
   def mvnDeps = Seq(
-    mvn"dev.grit::grit-kit:0.1.0-SNAPSHOT",
-    mvn"dev.grit::grit-chat:0.1.0-SNAPSHOT",
-    mvn"dev.grit::grit-projects:0.1.0-SNAPSHOT"
+    mvn"dev.grit::grit-kit:${gritVersion}",
+    mvn"dev.grit::grit-chat:${gritVersion}",
+    mvn"dev.grit::grit-projects:${gritVersion}",
+    mvn"dev.grit::grit-commands:${gritVersion}",
+    mvn"dev.grit::grit-claudecode:${gritVersion}"
   )
 
   def forkArgs = Seq("--sun-misc-unsafe-memory-access=allow")

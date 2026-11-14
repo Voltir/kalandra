@@ -47,6 +47,15 @@ object IngestTests extends TestSuite {
       reads.add((room, id))
       Right(Option(known.get(id)))
     }
+    // The ingest reads no brief; grit's commands edge does.
+    def briefed(
+        by: Account,
+        room: Place,
+        holder: ClaimHolder,
+        besides: Option[SessionId],
+        at: Instant
+    ): Either[grit.core.edge.BriefError, EdgeSessions.Briefed] =
+      EdgeSessions.Refusing.briefed(by, room, holder, besides, at)
   }
 
   /** What session `local` did lately, as the record keeps it, working as `holder`. */

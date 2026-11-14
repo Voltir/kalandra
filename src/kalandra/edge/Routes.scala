@@ -148,12 +148,12 @@ final class Routes(
       method match {
         case "initialize" => Mcp.initialized(id, params)
         case "ping" => Mcp.result(id, ujson.Obj())
-        case "tools/list" => Mcp.result(id, Mcp.tools(commands.offered))
+        case "tools/list" => Mcp.result(id, Mcp.tools(commands.offered.map(_.schema)))
         case "tools/call" =>
           Mcp
             .call(params)
             .filterOrElse(
-              c => commands.offered.exists(_.name == ToolName.value(c._1)),
+              c => commands.offered.exists(_.schema.name == ToolName.value(c._1)),
               s"no tool is named ${params.value.get("name").flatMap(_.strOpt).getOrElse("")}"
             ) match {
             case Left(why) => Mcp.failed(id, Mcp.InvalidParams, why)
@@ -417,13 +417,13 @@ object Routes {
             case Some(m) if m.keySet == Set("worktree") =>
               m("worktree").strOpt
                 .flatMap(Spooled.worktree)
-                .map(WatchFor.Worker.At(_))
+                .map(WatchFor.Committer.At(_))
                 .toRight("worktree is an absolute path")
             case Some(m) if m.keySet == Set("slot") =>
               m("slot").strOpt
                 .toRight("slot is a holder's name")
                 .flatMap(ClaimHolder.of)
-                .map(WatchFor.Worker.As(_))
+                .map(WatchFor.Committer.As(_))
             case _ => Left("commit names a worktree or a slot")
           }
           since <- o.get("since") match {
