@@ -25,7 +25,8 @@
 # Refused, exit 1, before anything is started: grit_kalandra_restore exists (a restore test may
 # be running), something listens on 7318 or 7319, KALANDRA_LISTEN names 7317, or there is no jar.
 # Prints a line a check, and `edge-proof: passed`, exit 0, only when every check held. Every
-# process it starts is stopped by its PID, and the copy dropped, however it ends.
+# process it starts runs in a directory of its own and is stopped by its PID, only while that
+# PID still runs there and has not been waited for; the copy is dropped, however it ends.
 set -euo pipefail
 
 wt="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -71,22 +72,36 @@ fi
 listening 7318 && refuse "something listens on 7318"
 listening 7319 && refuse "something listens on 7319"
 
-work="$(mktemp -d)"
+work="$(cd "$(mktemp -d)" && pwd -P)"
+# Every process the proof starts runs in a directory under $work, so a pid's cwd shows it is
+# the proof's own; `started` holds each until it is waited for.
+mkdir -p "$work/run"
 started=()
 copied=0
 transcripts=""
 claude_projects_before=""
 
+# ours <pid>: the process is alive and runs in a directory under the work directory.
+ours() { [[ "$(readlink "/proc/$1/cwd" 2>/dev/null)" == "$work"/* ]]; }
+# forget <pid>: waited for, so no longer the proof's to stop (its pid may be another's now).
+forget() {
+  local p kept=()
+  for p in "${started[@]}"; do [[ "$p" == "$1" ]] || kept+=("$p"); done
+  started=("${kept[@]}")
+}
+# stop <pid>: SIGTERM, up to 30 s, then SIGKILL, each only while the pid is still ours; then waited.
+stop() {
+  ours "$1" || { forget "$1"; return 0; }
+  kill "$1" 2>/dev/null || true
+  for _ in $(seq 1 60); do ours "$1" || break; sleep 0.5; done
+  if ours "$1"; then kill -9 "$1" 2>/dev/null || true; fi
+  wait "$1" 2>/dev/null || true
+  forget "$1"
+}
+
 cleanup() {
   local pid
-  for pid in "${started[@]}"; do
-    # Only a process this script started, still in this checkout or the work directory.
-    if [[ -d "/proc/$pid" ]]; then
-      kill "$pid" 2>/dev/null || true
-      for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-      kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
-    fi
-  done
+  for pid in "${started[@]}"; do stop "$pid"; done
   if [[ "$copied" == 1 ]]; then
     pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $restored WITH (FORCE)" >/dev/null || true
   fi
@@ -146,10 +161,10 @@ fi
 
 # ---- 3. serve on the copy, with no keys and an empty HOME.
 mkdir -p "$work/home"
-env -i PATH=/usr/bin:/bin HOME="$work/home" KALANDRA_CHECKOUT="$grit_checkout" \
+(cd "$work/run" && exec env -i PATH=/usr/bin:/bin HOME="$work/home" KALANDRA_CHECKOUT="$grit_checkout" \
   GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/$restored" KALANDRA_LISTEN="$listen" \
   ANTHROPIC_API_KEY=edge-proof-no-key JEV_API_KEY=edge-proof-no-key \
-  "$wt/bin/kalandra" serve >"$work/serve.log" 2>&1 &
+  "$wt/bin/kalandra" serve) >"$work/serve.log" 2>&1 &
 started+=("$!")
 serve_pid="$!"
 up=1
@@ -264,7 +279,8 @@ read="$(payload proof-s1 PostToolUse | jq -c --arg f "$repo/README" '. + {tool_n
 rc=0; fire event <<<"$read" || rc=$?; holds "$rc" "the hook posts a read"
 stop="$(payload proof-s1 Stop | jq -c '. + {last_assistant_message: "The proof session is done.", stop_hook_active: false}')"
 rc=0; fire event <<<"$stop" || rc=$?; holds "$rc" "the hook posts a closing"
-K wait "{\"commit\":{\"holder\":\"$H\"},\"within\":30}" >"$work/wait.out" 2>&1 &
+(cd "$work/run" && exec env KALANDRA_LISTEN="$listen" "$wt/bin/kalandra" wait \
+  "{\"commit\":{\"holder\":\"$H\"},\"within\":30}") >"$work/wait.out" 2>&1 &
 wait_pid="$!"
 started+=("$wait_pid")
 sleep 2
@@ -272,6 +288,7 @@ CLAUDE_CODE_SESSION_ID=proof-s1 PATH=/usr/bin:/bin git -C "$repo" -c user.name=p
   -c user.email=proof@example.invalid commit -q --allow-empty -m 'edge proof'
 sha="$(git -C "$repo" rev-parse HEAD)"
 rc=0; wait "$wait_pid" || rc=$?
+forget "$wait_pid"
 grep -q "^committed ${sha:0:12} edge proof" "$work/wait.out" || rc=1
 holds "$rc" "the commit wait for $H is met by the commit"
 counts="$(sql "SELECT s.holder, count(e.seq), string_agg(DISTINCT e.kind, ',' ORDER BY e.kind) FROM grit.sessions s JOIN grit.session_events e ON e.session = s.id WHERE s.harness = 'claude-code' AND s.local = 'proof-s1' GROUP BY s.holder")"
@@ -331,7 +348,7 @@ class Forward(http.server.BaseHTTPRequestHandler):
         pass
 http.server.ThreadingHTTPServer(("127.0.0.1", listen_port), Forward).serve_forever()
 PY
-  python3 -I "$work/forward.py" 7319 7318 "$work/mcp.jsonl" >"$work/forward.log" 2>&1 &
+  (cd "$work/run" && exec python3 -I "$work/forward.py" 7319 7318 "$work/mcp.jsonl") >"$work/forward.log" 2>&1 &
   started+=("$!")
   for _ in $(seq 1 20); do listening 7319 && break; sleep 0.25; done
   jq -n --arg u "http://$forward/mcp" '{mcpServers: {kalandra: {type: "http", url: $u}}}' >"$work/mcp-config.json"
@@ -386,8 +403,8 @@ written="$(find "$wt" -newer "$work/start" -type f -not -path "$wt/out/*" -not -
 [[ -z "$written" ]]; holds $? "nothing written in the checkout${written:+: $written}"
 
 # ---- 10. The edge stopped, then: what is left listening is checked by the trap's caller.
-kill "$serve_pid" 2>/dev/null || true
-for _ in $(seq 1 60); do kill -0 "$serve_pid" 2>/dev/null || break; sleep 0.5; done
+ours "$serve_pid"; holds $? "serve still runs in the proof's directory, pid $serve_pid"
+stop "$serve_pid"
 ! kill -0 "$serve_pid" 2>/dev/null; holds $? "serve stopped by its pid"
 
 if [[ "$failed" == 0 ]]; then
