@@ -588,9 +588,13 @@ say "fact  sessions the real run's hooks recorded at machine:local$repo: $s_plac
 if [[ -d "$transcripts" ]]; then rm -rf -- "$transcripts"; say "clean deleted the run's transcripts, $transcripts"; fi
 transcripts=""
 
-# ---- 9. The join's undo; the claims.
-rc=0; J "$repo" "$work/jhome" --undo --mcp-name kalandra <"$work/join.sh" >"$work/undo.out" 2>&1 || rc=$?
-holds "$rc" "the undo exits 0"
+# ---- 9. The join's undo, the line it printed run as printed; the claims.
+undo_line="$(sed -n 's/^Undo: //p' "$work/join.out")"
+[[ "$undo_line" == "curl -fsS -H @<(printf 'Authorization: Bearer %s' \"\$(<'$ses')\") $edge/join/claude-code | bash -s -- --undo --mcp-name kalandra" ]]
+holds $? "the join's printed undo fetches the script with the sessions' credential, by its file"
+# pipefail, so a refused fetch fails the run rather than piping nothing to a bash that exits 0.
+rc=0; (cd "$repo" && HOME="$work/jhome" PATH="$work/shim:/usr/bin:/bin" bash -o pipefail -c "$undo_line") >"$work/undo.out" 2>&1 || rc=$?
+holds "$rc" "the printed undo, run as printed, exits 0"
 [[ ! -e "$hook" && ! -e "$repo/.git/hooks/post-commit" && ! -e "$repo/.git/hooks/post-rewrite" ]]
 holds $? "  the hook and its git hooks are gone"
 [[ "$(jq '[.hooks // {} | .[][].hooks[]] | length' "$repo/.claude/settings.local.json")" == 0 && "$(entry "$repo" "$work/jhome")" == null ]]
