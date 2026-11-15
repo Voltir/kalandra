@@ -34,6 +34,7 @@
 #   bin/kalandra start                      start serve in the background (no build), wait until it answers
 #   bin/kalandra restart                    stop, then start
 #   bin/kalandra status                     serve's pids, and whether commands answer
+#   bin/kalandra deploy <proof-dir>         deploy a proven build, or roll back: ops/deploy.sh
 #
 # A command prints the edge's answer and exits 0 only when it did what it was asked; it fails
 # loud, exit 2, when serve is not reachable at KALANDRA_LISTEN (default 127.0.0.1:7317).
@@ -313,6 +314,9 @@ case "$1" in
     ;;
   status)
     serve_status
+    ;;
+  deploy)
+    exec bash "$root/ops/deploy.sh" "${@:2}"
     ;;
   serve)
     load_keys

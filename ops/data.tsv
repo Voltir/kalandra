@@ -1,0 +1,15 @@
+# The data files `bin/kalandra deploy` runs, in order: one a line, three fields separated by tabs.
+#
+#   forward	reverse	rows that must count 0, separated by `;`
+#
+# Each file is named as the proof directory holds it, with its .sha256 beside it; the reverse is
+# this checkout's ops/<reverse> at the proved commit. Every file, forward and reverse, must:
+#
+# - hold no COMMIT, so that run alone (psql -f) it prints its counts and rolls back: its dry run;
+# - print its counts as one table of two columns, a row's name and its count;
+# - be idempotent: a second run changes nothing and counts 0 everywhere.
+#
+# A forward file is pending exactly when its dry run counts a row that is not 0; deploy keeps no
+# record of what it ran, as the database is that record. A row named in the third field must be
+# in the dry run and count 0, or deploy stops and rolls back for a person to decide.
+machine-from-worker.sql	worker-from-machine.sql	grit.session_events deleted, too long to rewrite;grit.session_events rewritten without their subject
