@@ -1,39 +1,40 @@
 #!/usr/bin/env bash
-# The proof, before the switch, that this checkout's serve works through grit's commands edge with
-# credentials, and that the stored key's rename and its rollback hold: it restores a copy of
-# grit_kalandra, renames its places from `worker` to `machine` as the switch will, serves it on a
-# second port with two throwaway credentials, drives it the way the command line, sessions,
-# agents, the join and Claude Code will, then rolls the copy back and serves it from the live
-# 0.2.0 jar, and stops what it started and drops the copy.
+# The proof, before a deploy, that this checkout's commit deploys over the live one and serves
+# through grit's commands edge with credentials: it restores a copy of grit_kalandra, makes a
+# copy of the live checkout (a clone at its commit, with its jar) serving the copy on a second
+# port, joins two checkouts of a throwaway repository to it, and runs `bin/kalandra deploy` there
+# four times: stopped by a data file that would drop a row's subject; failing after the data file
+# is kept, and rolled back to the copy as it began; whole; and again, with nothing to rewrite. It
+# then drives the deployed serve the way the command line, sessions, agents, the join and Claude
+# Code will, and stops what it started and drops the copy.
 #
 #   ops/edge-proof.sh
 #
-# Run from this checkout after `bin/kalandra build`. It reads grit_kalandra once (a pg_dump, as
-# ops/backup.sh does) and never writes it; it restores the dump into grit_kalandra_e7, where it
-# cancels every pending or enqueued DBOS workflow so nothing resumes, and serves that copy on
-# 127.0.0.1:7318 from this checkout's jar, with keys that are no keys, so nothing it serves can
-# spend, and with an empty HOME, which must stay empty: serve writes no files. Its two credentials
-# are made in its own work directory, as the switch makes the real ones, and never printed.
+# Run from this checkout, committed, after `bin/kalandra build`. It reads grit_kalandra once (a
+# pg_dump, as ops/backup.sh does) and never writes it; it restores the dump into grit_kalandra_e7,
+# where it cancels every pending or enqueued DBOS workflow so nothing resumes. Everything it serves
+# is on 127.0.0.1:7318, with keys that are no keys, so nothing it serves can spend; the deploys run
+# with a HOME of the proof's own, where they make their own credentials, never printed.
 #
 # Into the proof's directory, ${KALANDRA_PROOF_DIR:-$HOME/.cache/kalandra-e7}, it saves the jar it
 # proved (serve.jar), the join script that jar serves (join.sh), grit's forward rewrite at the
 # commit the jar is built against (machine-from-worker.sql), this checkout's reverse
-# (worker-from-machine.sql), each with its sha256, the join's output (join.txt), the forward dry
-# run's counts (forward-dry.txt) and each check's line (proof.txt): the switch installs and runs
-# those exact files.
+# (worker-from-machine.sql), each with its sha256, a fresh join's output (join.txt), the whole
+# deploy's dry-run counts (forward-dry.txt) and each check's line (proof.txt), which names the
+# commit proved: `bin/kalandra deploy` runs those exact files, and only that commit.
 #
-# It runs Claude Code once (`claude -p`, Haiku, 3 turns at most) in the credential-joined
-# temporary repository, its MCP entry the one the join wrote, with its headersHelper, pointed by
-# a --strict-mcp-config file at a forwarder on 127.0.0.1:7319 that checks an Authorization header
-# is the sessions' credential's (by its digest) and never logs its value. That run needs the real
-# HOME to log in: the transcript directory it makes under ~/.claude/projects/ is deleted.
+# It runs Claude Code once (`claude -p`, Haiku, 3 turns at most) in a joined checkout, its MCP
+# entry the one the join wrote, with its headersHelper, pointed by a --strict-mcp-config file at a
+# forwarder on 127.0.0.1:7319 that checks an Authorization header is the sessions' credential's
+# (by its digest) and never logs its value. That run needs the real HOME to log in: the transcript
+# directory it makes under ~/.claude/projects/ is deleted.
 #
-# Refused, exit 1, before anything is started: grit_kalandra_e7 exists, something listens on
-# 7318 or 7319, KALANDRA_LISTEN names 7317, there is no jar, or the jar is not built against the
-# grit snapshot's marker. Prints a line a check, and `edge-proof: passed`, exit 0, only when every
-# check held. Every process it starts runs in a directory of its own and is stopped by its PID,
-# only while that PID still runs there and has not been waited for; the copy is dropped, however
-# it ends.
+# Refused, exit 1, before anything is started: the checkout has changes, grit_kalandra_e7 or
+# grit_kalandra_e7_join exists, something listens on 7318 or 7319, KALANDRA_LISTEN names 7317,
+# there is no jar, or the jar is not built against the grit snapshot's marker. Prints a line a
+# check, and `edge-proof: passed`, exit 0, only when every check held. Every process it starts,
+# and every one a deploy starts, runs in a directory under its own, and is stopped by its PID only
+# while that PID still runs there; the copies are dropped, however it ends.
 set -euo pipefail
 
 wt="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,12 +42,10 @@ jar="$wt/out/assembly.dest/out.jar"
 compose="${GRIT_COMPOSE_DIR:-$HOME/Projects/grit}"
 grit_checkout="${KALANDRA_CHECKOUT:-$HOME/Projects/grit}"
 proof="${KALANDRA_PROOF_DIR:-$HOME/.cache/kalandra-e7}"
-# The live checkout, whose jar and bin/kalandra alone are read (copied), and the 0.2.0 join script
-# E4c's proof saved, which the live sessions' join was made with.
+# The live checkout, which is cloned and whose jar is copied, never written.
 live="${KALANDRA_LIVE:-$HOME/Projects/kalandra}"
-e4c="${KALANDRA_E4C_DIR:-$HOME/.cache/kalandra-e4c}"
-java="${GRIT_JDK_HOME:-/home/nickchilders/.jdks/jdk-26.0.2}/bin/java"
 restored=grit_kalandra_e7
+joindb=grit_kalandra_e7_join
 listen=127.0.0.1:7318
 forward=127.0.0.1:7319
 edge="http://$listen"
@@ -54,20 +53,12 @@ edge="http://$listen"
 
 pg() { docker compose --project-directory "$compose" exec -T postgres "$@"; }
 sql() { pg psql -U grit -d "$restored" -At -v ON_ERROR_STOP=1 -c "$1"; }
-# The switch's psql, on the copy: `pg` in ops/SWITCH.md.
-psw() { pg psql -U grit -q -v ON_ERROR_STOP=1 -d "$restored" "$@"; }
 listening() { ss -Hltn "sport = :$1" 2>/dev/null | grep -q .; }
+sha() { sha256sum <"$1" | cut -d' ' -f1; }
 # How many stored places, in every table the rename rewrites, are under the key $1.
 under() {
   sql "SELECT (SELECT count(*) FROM grit.places WHERE path[1] = '$1') + (SELECT count(*) FROM grit.sessions WHERE place[1] = '$1') + (SELECT count(*) FROM grit.documents WHERE place[1] = '$1') + (SELECT count(*) FROM grit.files WHERE place[1] = '$1') + (SELECT count(*) FROM grit.piece_sets WHERE place[1] = '$1') + (SELECT count(*) FROM grit.visibility_changes WHERE change ->> 'room' LIKE '$1:%') + (SELECT count(*) FROM grit.session_events WHERE shape ->> 'worktree' LIKE '$1:%')"
 }
-
-# The two queries the switch runs before the kept rename, verbatim in ops/SWITCH.md (checked
-# below): the pending workflows that name a place under `worker`, and the session events the
-# rename drops a subject from or deletes, which the switch saves first.
-pending_q="SELECT count(*) FROM dbos.workflow_status w WHERE w.status IN ('PENDING','ENQUEUED') AND (w.inputs LIKE '%worker:%' OR EXISTS (SELECT 1 FROM dbos.operation_outputs o WHERE o.workflow_uuid = w.workflow_uuid AND o.output LIKE '%worker:%'))"
-dropped_q="SELECT session, seq, kind, shape FROM grit.session_events WHERE shape ->> 'worktree' LIKE 'worker:%' AND octet_length(shape::text) >= 300 ORDER BY session, seq"
-connected_q="SELECT count(*) FROM pg_stat_activity WHERE datname='grit_kalandra' AND pid <> pg_backend_pid()"
 
 # ---- 0. Refusals, before anything is started.
 refuse() { echo "edge-proof: $*" >&2; exit 1; }
@@ -83,6 +74,7 @@ refuse() { echo "edge-proof: $*" >&2; exit 1; }
 #   *_proxy, *_PROXY        a proxy every curl to the proof's serve would go through
 unset GRIT_EDGE GRIT_HOOK_STARTED GRIT_HOOK_SELF CLAUDE_PROJECT_DIR CLAUDE_CODE_SESSION_ID \
   KALANDRA_CREDENTIAL GRIT_DATABASE_URL http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY
+git -C "$wt" diff --quiet HEAD -- || refuse "the checkout has changes: deploy runs only a commit that was proved, so commit first"
 [[ -f "$jar" ]] || refuse "no jar at $jar: run bin/kalandra build first"
 version="$(sed -n 's/^ *def gritVersion = "\(.*\)"$/\1/p' "$wt/build.mill")"
 marker="$HOME/.ivy2/local/dev.grit/.publish-local-$version"
@@ -94,16 +86,19 @@ built="$(python3 -I -c 'import sys, zipfile; print(zipfile.ZipFile(sys.argv[1]).
 [[ "$built" == "$version at $at" ]] || refuse "the jar is built against grit $built, the marker names $at: build again"
 forward_sql="$(git -C "$grit_checkout" show "$at:core/dbos/it/resources/machine-from-worker.sql")" ||
   refuse "grit's checkout has no machine-from-worker.sql at $at"
-[[ -f "$e4c/join.sh" ]] || refuse "no 0.2.0 join script at $e4c/join.sh"
-if [[ -n "$(pg psql -U grit -d postgres -At -c "SELECT 1 FROM pg_database WHERE datname = '$restored'")" ]]; then
-  refuse "$restored exists: a proof may be running"
-fi
+[[ -f "$live/out/assembly.dest/out.jar" ]] || refuse "no live jar at $live/out/assembly.dest/out.jar"
+for d in "$restored" "$joindb"; do
+  if [[ -n "$(pg psql -U grit -d postgres -At -c "SELECT 1 FROM pg_database WHERE datname = '$d'")" ]]; then
+    refuse "$d exists: a proof may be running"
+  fi
+done
 listening 7318 && refuse "something listens on 7318"
 listening 7319 && refuse "something listens on 7319"
 
 work="$(cd "$(mktemp -d)" && pwd -P)"
-# Every process the proof starts runs in a directory under $work, so a pid's cwd shows it is
-# the proof's own; `started` holds each until it is waited for.
+# Every process the proof starts runs in a directory under $work, and so does every one a deploy
+# starts (its run, under the deploys' HOME; serve, in the checkout's copy), so a pid's cwd shows
+# it is the proof's own; `started` holds each the proof started until it is waited for.
 mkdir -p "$work/run"
 started=()
 copied=0
@@ -126,12 +121,26 @@ stop() {
   wait "$1" 2>/dev/null || true
   forget "$1"
 }
+# The pids running in a directory under the work directory but this shell: a deploy's run and the
+# serve it started, which are no children of the proof's.
+strays() {
+  local p pid
+  for p in /proc/[0-9]*; do
+    pid="${p#/proc/}"
+    [[ "$pid" == "$$" || "$pid" == "${BASHPID-}" ]] && continue
+    if ours "$pid"; then echo "$pid"; fi
+  done
+  return 0
+}
 
 cleanup() {
-  local pid
+  local pid d
   for pid in "${started[@]}"; do stop "$pid"; done
+  for pid in $(strays); do stop "$pid"; done
   if [[ "$copied" == 1 ]]; then
-    pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $restored WITH (FORCE)" >/dev/null || true
+    for d in $restored $joindb $(pg psql -U grit -d postgres -At -c "SELECT datname FROM pg_database WHERE datname LIKE '${restored}\\_rolled\\_back\\_%'" 2>/dev/null); do
+      pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $d WITH (FORCE)" >/dev/null || true
+    done
   fi
   if [[ -n "$transcripts" && -d "$transcripts" ]]; then rm -rf -- "$transcripts"; fi
   rm -rf -- "$work"
@@ -156,19 +165,15 @@ expect() {
 }
 keep_file() { cp "$1" "$proof/$2" && (cd "$proof" && sha256sum "$2" >"$2.sha256") && say "file  $(cut -d' ' -f1 "$proof/$2.sha256")  $2"; }
 
-say "edge-proof: $(date -u +%Y-%m-%dT%H:%M:%SZ), checkout $wt at $(git -C "$wt" rev-parse --short HEAD)$(git -C "$wt" diff --quiet HEAD -- || echo ' with changes')"
+proved="$(git -C "$wt" rev-parse HEAD)"
+began_at="$SECONDS"
+say "edge-proof: $(date -u +%Y-%m-%dT%H:%M:%SZ), checkout $wt at $(git -C "$wt" rev-parse --short HEAD)"
+say "commit $proved"
 say "grit  the jar is built against grit $built"
 keep_file "$jar" serve.jar
 printf '%s\n' "$forward_sql" >"$work/machine-from-worker.sql"
 keep_file "$work/machine-from-worker.sql" machine-from-worker.sql
 keep_file "$wt/ops/worker-from-machine.sql" worker-from-machine.sql
-F="$proof/machine-from-worker.sql"
-R="$proof/worker-from-machine.sql"
-# The switch runs these queries as the proof does.
-for q in "$pending_q" "$dropped_q" "$connected_q"; do
-  grep -qF -- "$q" "$wt/ops/SWITCH.md" || refuse "ops/SWITCH.md does not run the proof's query: $q"
-done
-pass "ops/SWITCH.md runs the proof's pending-workflow, saved-rows and connections queries verbatim"
 
 # ---- 1. The copy, and what it holds before anything changes it.
 pg pg_dump -U grit -Fc grit_kalandra >"$work/live.dump"
@@ -180,45 +185,11 @@ say "copy  $restored restored from one dump of grit_kalandra"
 # From here a failed check is counted, not an exit.
 set +e
 say "copy  workflows by status: $(sql "SELECT string_agg(status || ' ' || n, ', ' ORDER BY status) FROM (SELECT status, count(*) n FROM dbos.workflow_status GROUP BY status) s")"
-pending_named="$(sql "$pending_q")"
-say "pend  pending or enqueued workflows naming worker: $pending_named (of $(sql "SELECT count(*) FROM dbos.workflow_status WHERE status IN ('PENDING','ENQUEUED')") pending or enqueued)"
-[[ "$pending_named" == 0 ]]; holds $? "no pending workflow names a place under worker"
-# The query is shown to see DBOS's stored encoding: one workflow, its recorded inputs or step
-# outputs holding a place as grit wrote it, made pending on the copy, is counted, then put back.
-plant="$(sql "SELECT w.workflow_uuid FROM dbos.workflow_status w WHERE w.status NOT IN ('PENDING','ENQUEUED') AND (w.inputs LIKE '%worker:%' OR EXISTS (SELECT 1 FROM dbos.operation_outputs o WHERE o.workflow_uuid = w.workflow_uuid AND o.output LIKE '%worker:%')) ORDER BY w.created_at DESC LIMIT 1")"
-if [[ -n "$plant" ]]; then
-  was="$(sql "SELECT status FROM dbos.workflow_status WHERE workflow_uuid = '$plant'")"
-  where="$(sql "SELECT CASE WHEN inputs LIKE '%worker:%' THEN 'its inputs' ELSE 'a step''s output' END FROM dbos.workflow_status WHERE workflow_uuid = '$plant'")"
-  sql "UPDATE dbos.workflow_status SET status = 'PENDING' WHERE workflow_uuid = '$plant'" >/dev/null
-  seen="$(sql "$pending_q")"
-  sql "UPDATE dbos.workflow_status SET status = '$was' WHERE workflow_uuid = '$plant'" >/dev/null
-  [[ "$seen" == 1 ]]; holds $? "the pending-workflow query counts a planted one ($was, made pending), a place under worker in $where as DBOS stored it: $seen"
-else
-  # None records one: a workflow recording a place under fs is given one under worker in its
-  # place, in DBOS's own encoding, made pending, counted, then put back.
-  say "fact  workflows in the copy by name: $(sql "SELECT string_agg(name || ' ' || n, ', ' ORDER BY name) FROM (SELECT name, count(*) n FROM dbos.workflow_status GROUP BY name) s")"
-  say "fact  recorded steps naming a place under fs: $(sql "SELECT count(*) FROM dbos.operation_outputs WHERE output LIKE '%fs:/%'"), workflows' inputs: $(sql "SELECT count(*) FROM dbos.workflow_status WHERE inputs LIKE '%fs:/%'")"
-  plant="$(sql "SELECT o.workflow_uuid || ' ' || o.function_id FROM dbos.operation_outputs o JOIN dbos.workflow_status w USING (workflow_uuid) WHERE w.status NOT IN ('PENDING','ENQUEUED') AND o.output LIKE '%fs:/%' ORDER BY w.created_at DESC LIMIT 1")"
-  if [[ -n "$plant" ]]; then
-    read -r pw pf <<<"$plant"
-    sql "CREATE TABLE e7plant AS SELECT w.status, o.output FROM dbos.workflow_status w JOIN dbos.operation_outputs o USING (workflow_uuid) WHERE o.workflow_uuid = '$pw' AND o.function_id = $pf" >/dev/null
-    sql "UPDATE dbos.operation_outputs SET output = replace(output, 'fs:/', 'worker:local/') WHERE workflow_uuid = '$pw' AND function_id = $pf" >/dev/null
-    sql "UPDATE dbos.workflow_status SET status = 'PENDING' WHERE workflow_uuid = '$pw'" >/dev/null
-    seen="$(sql "$pending_q")"
-    sql "UPDATE dbos.operation_outputs o SET output = p.output FROM e7plant p WHERE o.workflow_uuid = '$pw' AND o.function_id = $pf" >/dev/null
-    sql "UPDATE dbos.workflow_status w SET status = p.status FROM e7plant p WHERE w.workflow_uuid = '$pw'" >/dev/null
-    sql "DROP TABLE e7plant" >/dev/null
-    [[ "$seen" == 1 ]]; holds $? "the pending-workflow query counts a planted one: a step's recorded place under fs given one under worker, in DBOS's stored encoding, its workflow made pending: $seen"
-  else
-    fail "no workflow in the copy records a place, so the pending-workflow query cannot be shown to see one"
-  fi
-fi
-[[ "$(sql "$pending_q")" == 0 ]]; holds $? "  and put back, the query counts 0 again"
 cancelled="$(sql "WITH c AS (UPDATE dbos.workflow_status SET status = 'CANCELLED' WHERE status IN ('PENDING', 'ENQUEUED') RETURNING 1) SELECT count(*) FROM c")"
 say "copy  $cancelled pending or enqueued workflows cancelled in the copy"
 machine_before="$(under machine)"
 [[ "$machine_before" == 0 ]]; holds $? "no place is under machine before the rename, so the reverse is exact ($machine_before)"
-# Every rewritten table's place, by primary key, kept in the copy to compare after the rollback.
+# Every rewritten table's place, by primary key, kept in the copy to compare after each rollback.
 pg psql -U grit -d "$restored" -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 CREATE SCHEMA e7proof;
 CREATE VIEW e7proof.placed AS
@@ -235,79 +206,235 @@ say "hash  $(sql "SELECT string_agg(tbl || ' ' || n || ' rows ' || left(h, 12), 
 claims_q="SELECT plugin, subject, holder, role FROM grit.claims ORDER BY plugin, subject, holder"
 sql "$claims_q" >"$work/claims-before.txt"
 say "claim $(wc -l <"$work/claims-before.txt") claims in the copy"
-# What the switch saves before the kept run: the rows the rename drops a subject from or deletes.
-psw -c "\copy ($dropped_q) TO STDOUT WITH CSV HEADER" >"$work/dropped.csv"
-saved=$(($(wc -l <"$work/dropped.csv") - 1))
-say "save  $saved session events the rename drops a subject from or deletes, saved as the switch saves them"
-tail -n +2 "$work/dropped.csv" | cut -d, -f1-3 | sed 's/^/save    session,seq,kind /' | tee -a "$proof/proof.txt"
+# The rows whose place differs from the copy's before any deploy, of those that were there then.
+changed_q="SELECT b.tbl || ' ' || b.k FROM e7proof.before b LEFT JOIN e7proof.placed p ON p.tbl = b.tbl AND p.k = b.k WHERE p.v IS DISTINCT FROM b.v ORDER BY 1"
 
-# ---- 2. The rename on the copy, as the switch runs it.
-rc=0; psw -f - <"$F" >"$work/dry.txt" 2>&1 || rc=$?
-holds "$rc" "the forward dry run exits 0"
-cp "$work/dry.txt" "$proof/forward-dry.txt"
-sed 's/^/dry     /' "$work/dry.txt" | tee -a "$proof/proof.txt"
-# A count in psql's aligned table, by its row's name; zeros: every count in the table is 0.
-count() { awk -F'|' -v w="$2" '{ a = $1; gsub(/^ +| +$/, "", a); b = $2; gsub(/ /, "", b); if (a == w) print b }' "$1"; }
-zeros() { awk -F'|' 'NF == 2 { b = $2; gsub(/ /, "", b); if (b ~ /^[0-9]+$/) { seen = 1; if (b != 0) bad = 1 } } END { exit (bad || !seen) }' "$1"; }
-deleted="$(count "$work/dry.txt" 'grit.session_events deleted, too long to rewrite')"
-subjectless="$(count "$work/dry.txt" 'grit.session_events rewritten without their subject')"
-[[ "$deleted" == 0 ]]; holds $? "the dry run deletes no event ($deleted)"
-[[ "$saved" == "$((subjectless + deleted))" ]]; holds $? "the saved rows are the dry run's subjectless and deleted events ($saved = $subjectless + $deleted)"
-w_left="$(under worker)"
-[[ "$w_left" != 0 ]]; holds $? "the dry run rolled back: $w_left places under worker remain"
-if [[ "$deleted" != 0 ]]; then
-  say "edge-proof: stopped: the rename would delete $deleted events"
-  exit 1
-fi
-rc=0; psw -f - -c COMMIT <"$F" >"$work/kept.txt" 2>&1 || rc=$?
-holds "$rc" "the forward run, kept, exits 0"
-cmp -s <(grep -v '^COMMIT' "$work/kept.txt") "$work/dry.txt"; holds $? "  and its counts are the dry run's"
-rc=0; psw -f - <"$F" >"$work/again.txt" 2>&1 || rc=$?
-zeros "$work/again.txt" && [[ "$rc" == 0 ]]
-holds $? "a second forward run counts 0 everywhere"
-left_worker="$(under worker)"
-[[ "$left_worker" == 0 ]]; holds $? "no place under worker remains ($left_worker)"
-
-# ---- 3. serve on the copy, with no keys, an empty HOME and two throwaway credentials, made as
-# the switch makes the real ones.
+# ---- 2. The proved jar's join script, from a serve of it on an empty database; serve refuses to
+# start without either digest.
 mkdir -p "$work/home" "$work/cred"
 ( umask 077
-  head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_' >"$work/cred/owner"
-  head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_' >"$work/cred/sessions"
-  head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_' >"$work/cred/wrong"
+  for c in a b wrong; do head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_' >"$work/cred/$c"; done
   printf 'Authorization: Bearer %s\n' "$(<"$work/cred/wrong")" >"$work/cred/wrong.header" )
 d() { tr -d '\n' <"$1" | sha256sum | cut -d' ' -f1; }
-own="$work/cred/owner"; ses="$work/cred/sessions"; wrong="$work/cred/wrong"
-[[ "$(stat -c %a "$own" "$ses" | sort -u)" == 600 ]]; holds $? "the credentials are mode 600"
+wrong="$work/cred/wrong"
+pg psql -U grit -d postgres -q -c "CREATE DATABASE $joindb" >/dev/null
 serve_env=(env -i PATH=/usr/bin:/bin HOME="$work/home" KALANDRA_CHECKOUT="$grit_checkout"
-  GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/$restored" KALANDRA_LISTEN="$listen"
+  GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/$joindb" KALANDRA_LISTEN="$listen"
   ANTHROPIC_API_KEY=edge-proof-no-key JEV_API_KEY=edge-proof-no-key)
 for missing in KALANDRA_OWNER_DIGEST KALANDRA_SESSIONS_DIGEST; do
-  digests=(KALANDRA_OWNER_DIGEST="$(d "$own")" KALANDRA_SESSIONS_DIGEST="$(d "$ses")")
+  digests=(KALANDRA_OWNER_DIGEST="$(d "$work/cred/a")" KALANDRA_SESSIONS_DIGEST="$(d "$work/cred/b")")
   digests=("${digests[@]/#$missing=*/}")
   rc=0
   (cd "$work/run" && exec timeout 120 "${serve_env[@]}" ${digests[@]} "$wt/bin/kalandra" serve) >"$work/refused.log" 2>&1 || rc=$?
   [[ "$rc" == 1 ]] && grep -qxF "[kalandra] $missing is not set: the SHA-256 digest, 64 lowercase hex, of $([[ $missing == *OWNER* ]] && echo "the command line's" || echo "the sessions'") credential" "$work/refused.log"
   holds $? "serve without $missing exits 1, its log naming the variable: $(tail -1 "$work/refused.log")"
 done
-(cd "$work/run" && exec "${serve_env[@]}" KALANDRA_OWNER_DIGEST="$(d "$own")" KALANDRA_SESSIONS_DIGEST="$(d "$ses")" \
-  "$wt/bin/kalandra" serve) >"$work/serve.log" 2>&1 &
+# serve_up <pid> <log>: 0 once the log says it serves, 1 when the pid ends or 120 s pass first.
+serve_up() {
+  for _ in $(seq 1 240); do
+    if grep -q "commands: serving on http://$listen" "$2"; then return 0; fi
+    kill -0 "$1" 2>/dev/null || return 1
+    sleep 0.5
+  done
+  return 1
+}
+(cd "$work/run" && exec "${serve_env[@]}" KALANDRA_OWNER_DIGEST="$(d "$work/cred/a")" KALANDRA_SESSIONS_DIGEST="$(d "$work/cred/b")" \
+  "$wt/bin/kalandra" serve) >"$work/join-serve.log" 2>&1 &
 started+=("$!")
-serve_pid="$!"
-up=1
-for _ in $(seq 1 240); do
-  if grep -q "commands: serving on http://$listen" "$work/serve.log"; then up=0; break; fi
-  kill -0 "$serve_pid" 2>/dev/null || break
-  sleep 0.5
-done
-holds "$up" "serve logs commands: serving on http://$listen"
+join_pid="$!"
+serve_up "$join_pid" "$work/join-serve.log"; up=$?
+holds "$up" "the proved jar serves an empty database: commands: serving on $edge"
+curl -q -fsS --noproxy '*' --max-time 10 -H @<(printf 'Authorization: Bearer %s\n' "$(<"$work/cred/b")") "$edge/join/claude-code" >"$work/join.sh"
+holds $? "  and serves its join script to a credential it takes"
+stop "$join_pid"
+pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $joindb WITH (FORCE)" >/dev/null
+keep_file "$work/join.sh" join.sh
 if [[ "$up" != 0 ]]; then
-  tail -30 "$work/serve.log" >&2
+  tail -30 "$work/join-serve.log" >&2
   exit 1
 fi
-grep -qxF "[kalandra] grit $version at $at" "$work/serve.log"; holds $? "serve logs [kalandra] grit $version at $at"
 
-# ---- 4. 401 everywhere, with no credential and with a wrong one; nothing kept.
+# ---- 3. The live checkout's copy: a clone at its commit, its jar, keys that are no keys; serving
+# the copy on 7318, and two checkouts of a repository joined to it with its own join script. A
+# deploy's HOME is $dhome, where `claude` is a stand-in that keeps local-scope MCP entries in
+# ~/.claude.json, keyed by the repository, as Claude Code does.
+clone="$work/live"
+git clone -q "$live" "$clone"
+old_head="$(git -C "$clone" rev-parse HEAD)"
+old_branch="$(git -C "$clone" symbolic-ref -q --short HEAD)"
+mkdir -p "$clone/out/assembly.dest"
+cp -- "$live/out/assembly.dest/out.jar" "$clone/out/assembly.dest/out.jar"
+old_jar="$(sha "$clone/out/assembly.dest/out.jar")"
+(umask 077; printf 'ANTHROPIC_API_KEY=edge-proof-no-key\nJEV_API_KEY=edge-proof-no-key\n' >"$clone/.env")
+say "live  $clone, a clone of $live at $old_head on $old_branch, its jar $old_jar"
+git -C "$clone" merge-base --is-ancestor "$old_head" "$proved"; holds $? "the proved commit descends from the live checkout's"
+dhome="$work/dhome"
+mkdir -p "$work/shim" "$dhome" "$work/jhome2"
+cat >"$work/shim/claude" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+f="$HOME/.claude.json"; [ -f "$f" ] || echo '{}' >"$f"
+top="$(git rev-parse --show-toplevel)"
+put() { jq --arg p "$top" --arg n "$1" --argjson e "$2" '.projects[$p].mcpServers[$n] = $e' "$f" >"$f.t" && mv "$f.t" "$f"; }
+# The planted failure, once: while a deploy joins, a keep through the serve it started, and a key
+# a session writes into the settings; then the add fails.
+if [[ -n "${EDGE_PROOF_PLANT-}" && -e "$EDGE_PROOF_PLANT" && "$1 $2" == "mcp add-json" ]]; then
+  rm -f -- "$EDGE_PROOF_PLANT"
+  "$EDGE_PROOF_WT/bin/kalandra" new '{"project":"edge-proof-window"}' >/dev/null
+  "$EDGE_PROOF_WT/bin/kalandra" keep '{"key":"edge-proof-window/m","kind":"milestone","title":"Window","body":"window-text-1"}' >/dev/null
+  s="$top/.claude/settings.local.json"
+  jq '. + {proofMidDeploy: "kept"}' "$s" >"$s.t" && mv "$s.t" "$s"
+  exit 1
+fi
+case "$1 $2" in
+  "mcp remove") n="${!#}"
+    jq -e --arg p "$top" --arg n "$n" '.projects[$p].mcpServers[$n]' "$f" >/dev/null || exit 1
+    jq --arg p "$top" --arg n "$n" 'del(.projects[$p].mcpServers[$n])' "$f" >"$f.t" && mv "$f.t" "$f" ;;
+  "mcp add") put "${@: -2:1}" "$(jq -nc --arg u "${!#}" '{type: "http", url: $u}')" ;;
+  "mcp add-json") put "${@: -2:1}" "${!#}" ;;
+  *) exit 1 ;;
+esac
+SH
+chmod +x "$work/shim/claude"
+plant="$work/plant-join"
+docker_dir="$(dirname "$(command -v docker)")"
+# A deploy's environment, and the copy's serve's: nothing but what the proof names.
+denv=(env -i PATH="$work/shim:$docker_dir:/usr/bin:/bin" HOME="$dhome" DOCKER_CONFIG="$HOME/.docker"
+  GRIT_COMPOSE_DIR="$compose" KALANDRA_LISTEN="$listen" GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/$restored"
+  KALANDRA_CHECKOUT="$grit_checkout" EDGE_PROOF_WT="$wt" EDGE_PROOF_PLANT="$plant")
+rc=0; (cd "$work/run" && exec "${denv[@]}" "$clone/bin/kalandra" start) >"$work/old-start.out" 2>&1 || rc=$?
+holds "$rc" "the live checkout's copy starts its serve on the copy: $(tail -1 "$work/old-start.out")"
+init() { git init -q "$1" && git -C "$1" -c user.name=proof -c user.email=proof@example.invalid commit -q --allow-empty -m 'edge proof start'; }
+repo="$work/repo"
+repo_wt="$work/repo-wt"
+init "$repo"; init "$work/repo2"
+git -C "$repo" worktree add -q "$repo_wt" -b proof-wt
+J() { local dir="$1" home="$2"; shift 2; (cd "$dir" && HOME="$home" PATH="$work/shim:/usr/bin:/bin" bash -s -- "$@"); }
+entry() { jq -c --arg p "$1" '.projects[$p].mcpServers.kalandra // null' "$2/.claude.json" 2>/dev/null; }
+curl -q -fsS --noproxy '*' --max-time 10 "$edge/join/claude-code" >"$work/old-join.sh"
+holds $? "the copy's serve serves its join script, $(sha "$work/old-join.sh")"
+for w in "$repo" "$repo_wt"; do
+  rc=0; J "$w" "$dhome" "$edge" --mcp-name kalandra <"$work/old-join.sh" >"$work/join-old.out" 2>&1 || rc=$?
+  holds "$rc" "the copy's join in $w exits 0"
+done
+hook="$repo/.git/grit/claude-code/hook"
+
+# What a rollback must leave as it found: the clone's commit and jar, every file the join writes
+# and its MCP entries, but a key a session writes mid-deploy; .env but the digests a deploy adds.
+fingerprint() {
+  local w f
+  echo "head $(git -C "$clone" symbolic-ref -q --short HEAD) $(git -C "$clone" rev-parse HEAD)"
+  echo "jar $(sha "$clone/out/assembly.dest/out.jar")"
+  echo "env $(grep -vE '^(KALANDRA_(OWNER|SESSIONS)_DIGEST=.*)?$' "$clone/.env" | sha256sum | cut -d' ' -f1)"
+  for w in "$repo" "$repo_wt"; do
+    echo "settings $w $(jq -S -c 'del(.proofMidDeploy)' "$w/.claude/settings.local.json" | sha256sum | cut -d' ' -f1)"
+    echo "mcp $w $(entry "$w" "$dhome")"
+  done
+  for f in "$hook" "$repo/.git/hooks/post-commit" "$repo/.git/hooks/post-rewrite" "$repo/.git/info/exclude"; do
+    echo "file $f $(sha "$f")"
+  done
+  echo "places changed: $(sql "$changed_q" | tr '\n' ' ')"
+  echo "places under machine: $(under machine)"
+}
+fingerprint >"$work/began.txt"
+say "began $(grep -c . "$work/began.txt") facts of the copy as it began"
+mkdir -p "$work/proved"
+for f in serve.jar join.sh machine-from-worker.sql worker-from-machine.sql; do
+  cp -- "$proof/$f" "$proof/$f.sha256" "$work/proved/"
+done
+# The deploys read this proof's files and its lines so far, which end as a passed proof's do: a
+# deploy runs only a proved commit, and the checks it is proved by follow.
+stage_proof() {
+  cp -- "$proof/proof.txt" "$work/proved/proof.txt"
+  echo "edge-proof: passed" >>"$work/proved/proof.txt"
+}
+# deploy <name>: the deploy, run as a person runs it, into the clone; its exit in $drc, its last
+# line in $dlast, its log in $dlog.
+deploy() {
+  drc=0
+  (cd "$work/run" && exec timeout 900 "${denv[@]}" "$wt/bin/kalandra" deploy --checkout "$clone" --grit "$repo" "$work/proved") \
+    >"$work/deploy-$1.out" 2>&1 || drc=$?
+  local full
+  full="$(tail -n 1 "$work/deploy-$1.out")"
+  dlog="$(sed -n 's/^deploy: log //p' "$work/deploy-$1.out")"
+  say "dep   $1: exit $drc: $full"
+  dlast="${full%; took *}"
+  [[ "$full" =~ \;\ took\ [0-9]+\.[0-9]\ s,\ serve\ down\ [0-9]+\.[0-9]\ s$ ]]
+  holds $? "($1) its last line says the seconds it took and those serve was down"
+}
+began_as() {
+  fingerprint >"$work/now.txt"
+  cmp -s "$work/began.txt" "$work/now.txt"
+  holds $? "  and the copy is as it began$(diff "$work/began.txt" "$work/now.txt" | grep '^>' | head -3 | tr '\n' ' ')"
+}
+stage_proof
+if [[ "$failed" != 0 ]]; then
+  say "edge-proof: $failed checks failed before the deploys"
+  exit 1
+fi
+
+# ---- 4. (a) A data file that would drop a row's subject stops the deploy: one commit event under
+# worker given a shape of 300 bytes, which the rename must take past the bound.
+planted="$(sql "WITH e AS (SELECT session, regexp_replace(shape::text, ',\"subject\":\"[^\"\\\\]*\"\\}\$', '') AS head FROM grit.session_events WHERE kind = 'commit' AND shape ->> 'worktree' LIKE 'worker:%' AND shape::text ~ ',\"subject\":\"[^\"\\\\]*\"\\}\$' AND session IN (SELECT session FROM grit.session_events GROUP BY session HAVING max(seq) < 5000) ORDER BY session DESC, seq DESC LIMIT 1) INSERT INTO grit.session_events (session, seq, n, at, kind, shape) SELECT e.session, (SELECT max(seq) + 1 FROM grit.session_events WHERE session = e.session), (SELECT max(n) + 1 FROM grit.session_events WHERE session = e.session), now(), 'commit', (e.head || ',\"subject\":\"' || repeat('x', 300 - octet_length(e.head) - 14) || '\"}')::json FROM e RETURNING session || ' ' || seq || ' ' || octet_length(shape::text)")"
+read -r p_session p_seq p_len <<<"$planted"
+[[ "$p_len" == 300 ]]; holds $? "a commit event of 300 bytes under worker planted in the copy: $planted"
+deploy a
+[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: machine-from-worker.sql would lose rows (grit.session_events rewritten without their subject 1); its counts are in the log, a person decides; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, serve answering on $listen" ]]
+holds $? "(a) the deploy stops at the row that would lose its subject, exit 2"
+grep -qxF "deploy: dry  machine-from-worker.sql  grit.session_events rewritten without their subject  1" "$dlog"; holds $? "  its log has the dry run's count"
+[[ "$(stat -c %a "$dhome/.config/kalandra/credential" "$dhome/.config/grit/credential" | sort -u)" == 600 ]]
+holds $? "  it made the two credentials, mode 600"
+[[ "$(grep -cxE 'KALANDRA_(OWNER|SESSIONS)_DIGEST=[0-9a-f]{64}' "$clone/.env")" == 2 ]]; holds $? "  and appended their two digests to the copy's .env"
+grep -qF "$(<"$dhome/.config/kalandra/credential")" "$dlog" "$work/deploy-a.out"; [[ $? == 1 ]]; holds $? "  and neither log holds the command line's credential"
+began_as
+sql "DELETE FROM grit.session_events WHERE session = $p_session AND seq = $p_seq" >/dev/null
+
+# ---- 5. (b) A failure after the data file is kept and the new serve is up: the join's MCP add
+# fails, after a keep through the new serve and a key a session writes into the settings.
+touch "$plant"
+stage_proof
+deploy b
+[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: the join in $repo exited 1: grit claude-code: claude mcp add failed"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, machine-from-worker.sql reversed, joins as before in 1 checkouts, serve answering on $listen" ]]
+holds $? "(b) the deploy rolls back from a failed join, exit 2"
+grep -qxF "deploy: machine-from-worker.sql: kept" "$dlog"; holds $? "  after it kept the data file"
+[[ ! -e "$plant" ]]; holds $? "  the plant fired"
+[[ "$(jq -r '.proofMidDeploy' "$repo/.claude/settings.local.json")" == kept ]]; holds $? "  the key written mid-deploy is still in the settings"
+began_as
+O() { env -i PATH=/usr/bin:/bin HOME="$dhome" KALANDRA_LISTEN="$listen" "$clone/bin/kalandra" "$@"; }
+expect 0 "the copy's serve, rolled back, shows what the new serve kept in its window" O show '{"key":"edge-proof-window/m"}'
+grep -q "window-text-1" <<<"$out"; holds $? "  as it kept it"
+
+# ---- 6. (c) The whole deploy; (d) again, with nothing to rewrite.
+stage_proof
+deploy c
+X12="${proved:0:12}"
+[[ "$drc" == 0 && "$dlast" == "deploy: held: kalandra $X12 with grit $version at ${at:0:12} serving on $listen; 1 data files kept, 2 checkouts joined" ]]
+holds $? "(c) the deploy holds, exit 0"
+sed -n 's/^deploy: \([a-z]* took .*\)/time  (c) \1/p' "$dlog" | tee -a "$proof/proof.txt"
+sed -n 's/^deploy: dry  machine-from-worker.sql  //p' "$dlog" >"$proof/forward-dry.txt"
+sed 's/^/dry     /' "$proof/forward-dry.txt" | tee -a "$proof/proof.txt"
+[[ "$(git -C "$clone" symbolic-ref -q --short HEAD) $(git -C "$clone" rev-parse HEAD)" == "$old_branch $proved" ]]
+holds $? "  the copy's $old_branch is at the proved commit, checked out"
+[[ "$(sha "$clone/out/assembly.dest/out.jar")" == "$(sha "$proof/serve.jar")" ]]; holds $? "  its jar is the proved jar"
+grep -qxF "[kalandra] grit $version at $at" "$clone/logs/serve.log"; holds $? "  its serve logs [kalandra] grit $version at $at"
+w_left="$(under worker)"; m_now="$(under machine)"
+[[ "$w_left" == 0 && "$m_now" != 0 ]]; holds $? "  no place is under worker, $m_now under machine"
+own="$dhome/.config/kalandra/credential"; ses="$dhome/.config/grit/credential"
+grep -qxF "deploy: join    credential $ses, sent with every request" "$dlog"; holds $? "  the join reports the sessions' credential"
+grep -qxF "deploy: join    mcp       kalandra at $edge/mcp, local scope, replacing kalandra at $edge/mcp" "$dlog"; holds $? "  and replaces the copy's MCP entry"
+for w in "$repo" "$repo_wt"; do
+  [[ "$(entry "$w" "$dhome")" == "$(jq -nc --arg u "$edge/mcp" --arg h "'$hook' header" '{type: "http", url: $u, headersHelper: $h}')" ]]
+  holds $? "  $w's MCP entry is $edge/mcp with the hook's header as its headersHelper"
+done
+stage_proof
+deploy d
+[[ "$drc" == 0 && "$dlast" == "deploy: held: kalandra $X12 with grit $version at ${at:0:12} serving on $listen; 0 data files kept, 2 checkouts joined" ]]
+holds $? "(d) a second deploy holds, exit 0"
+grep -qxF "deploy: machine-from-worker.sql: nothing to rewrite" "$dlog" && ! grep -q "machine-from-worker.sql: kept" "$dlog"
+holds $? "  its dry run counts 0, and nothing is kept"
+grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$dlog"; holds $? "  and the credentials are kept as they are"
+
+# ---- 7. 401 everywhere, with no credential and with a wrong one; nothing kept.
 kept_q="SELECT (SELECT count(*) FROM grit.documents) || '/' || (SELECT count(*) FROM grit.sessions) || '/' || (SELECT count(*) FROM grit.session_events) || '/' || (SELECT count(*) FROM grit.claims)"
 kept_before="$(sql "$kept_q")"
 routes=(
@@ -337,7 +464,7 @@ asked="$(curl -q -s --noproxy '*' --max-time 10 -X POST -d '{}' "$edge/command/p
 [[ "$asked" == "refused: this edge needs a credential: send Authorization: Bearer <your credential>" ]]
 holds $? "  with no credential the edge says: $asked"
 
-# ---- 5. Each credential gets its caller.
+# ---- 8. Each credential the deploy made gets its caller.
 K() { env -u CLAUDE_CODE_SESSION_ID KALANDRA_LISTEN="$listen" KALANDRA_CREDENTIAL="$own" "$wt/bin/kalandra" "$@"; }
 mkdir -p "$work/shome/.config/grit"
 (umask 077; cp "$ses" "$work/shome/.config/grit/credential")
@@ -375,7 +502,6 @@ expect 0 "wait for edge-proof/n in $state" K wait "{\"artifact\":\"edge-proof/n\
 expect 3 "wait for edge-proof/n in folded lapses" K wait '{"artifact":"edge-proof/n","state":["folded"],"within":2}'
 expect 1 "a wait with a key it does not read is refused" K wait '{"artifact":"edge-proof/n","state":["open"],"slot":"x"}'
 grep -q "reads no slot" <<<"$out"; holds $? "  and names the key"
-repo="$work/repo"
 H="$(K holder "{\"dir\":\"$repo\"}")" || H=""
 [[ "$H" =~ ^local/repo-[0-9a-f]{8}$ ]]; holds $? "holder for the repository is local/repo-<8 hex>: $H"
 expect 0 "claim edge-proof/n as manager for $H" K claim "{\"key\":\"edge-proof/n\",\"role\":\"manager\",\"holder\":\"$H\"}"
@@ -397,7 +523,7 @@ expect 1 "the jar's command with a credential serve does not know is refused" en
 [[ "$out" == *"[kalandra] serve refused the credential in $wrong (401) for project_export; ask whoever runs serve for this credential and put it in $wrong" ]]
 holds $? "  and says: $(tail -1 <<<"$out")"
 
-# ---- 6. The lower credential is refused adopt, and reaches the other own commands.
+# ---- 9. The lower credential is refused adopt, and reaches the other own commands.
 expect 1 "a session's adopt is refused" S adopt '{"key":"edge-proof/n"}'
 say "fact  the session's adopt answered: $(head -1 <<<"$out")"
 grep -q "answered 403" <<<"$out" && grep -q "project_adopt" <<<"$out" && grep -q "authority" <<<"$out"
@@ -409,54 +535,19 @@ grep -q "answered 409" <<<"$out" && grep -q project_adopt <<<"$out"; holds $? " 
 expect 0 "a session's standing reaches the command" S standing '{"key":"grit/roadmap-grit-coder"}'
 [[ "$(K show '{"key":"edge-proof/n"}')" == "$before" ]]; holds $? "edge-proof/n unchanged after the adopts"
 
-# ---- 7. The join: 0.2.0's, then the re-join with --credential over it, beside a fresh join; then
-# the hook. `claude` on PATH is a stand-in that keeps local-scope MCP entries in HOME's
-# ~/.claude.json, keyed by the repository, as Claude Code does.
-mkdir -p "$work/shim" "$work/jhome" "$work/jhome2"
-cat >"$work/shim/claude" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-f="$HOME/.claude.json"; [ -f "$f" ] || echo '{}' >"$f"
-top="$(git rev-parse --show-toplevel)"
-put() { jq --arg p "$top" --arg n "$1" --argjson e "$2" '.projects[$p].mcpServers[$n] = $e' "$f" >"$f.t" && mv "$f.t" "$f"; }
-case "$1 $2" in
-  "mcp remove") n="${!#}"
-    jq -e --arg p "$top" --arg n "$n" '.projects[$p].mcpServers[$n]' "$f" >/dev/null || exit 1
-    jq --arg p "$top" --arg n "$n" 'del(.projects[$p].mcpServers[$n])' "$f" >"$f.t" && mv "$f.t" "$f" ;;
-  "mcp add") put "${@: -2:1}" "$(jq -nc --arg u "${!#}" '{type: "http", url: $u}')" ;;
-  "mcp add-json") put "${@: -2:1}" "${!#}" ;;
-  *) exit 1 ;;
-esac
-SH
-chmod +x "$work/shim/claude"
-init() { git init -q "$1" && git -C "$1" -c user.name=proof -c user.email=proof@example.invalid commit -q --allow-empty -m 'edge proof start'; }
-init "$repo"; init "$work/repo2"
-J() { local dir="$1" home="$2"; shift 2; (cd "$dir" && HOME="$home" PATH="$work/shim:/usr/bin:/bin" bash -s -- "$@"); }
-entry() { jq -c --arg p "$1" '.projects[$p].mcpServers.kalandra // null' "$2/.claude.json" 2>/dev/null; }
-rc=0; J "$repo" "$work/jhome" "$edge" --mcp-name kalandra <"$e4c/join.sh" >"$work/join-old.out" 2>&1 || rc=$?
-holds "$rc" "0.2.0's join exits 0"
-old_entry="$(entry "$repo" "$work/jhome")"
-say "fact  0.2.0's join left the MCP entry $old_entry"
-curl -q -fsS --noproxy '*' --max-time 10 -H @<(printf 'Authorization: Bearer %s\n' "$(<"$ses")") "$edge/join/claude-code" >"$work/join.sh"
-keep_file "$work/join.sh" join.sh
-rc=0; J "$repo" "$work/jhome" "$edge" --credential "$ses" --mcp-name kalandra <"$work/join.sh" >"$work/join.out" 2>&1 || rc=$?
-holds "$rc" "the re-join with --credential over 0.2.0's exits 0"
-sed "s|$work|<work>|g" "$work/join.out" >"$proof/join.txt"
-sed 's/^/join    /' "$proof/join.txt" | tee -a "$proof/proof.txt"
-grep -qxF "  credential $ses, sent with every request" "$work/join.out"; holds $? "  it reports the credential"
-grep -qxF "  mcp       kalandra at $edge/mcp, local scope, replacing kalandra at $edge/mcp" "$work/join.out"; holds $? "  it replaces 0.2.0's MCP entry"
-hook="$repo/.git/grit/claude-code/hook"
-new_entry="$(entry "$repo" "$work/jhome")"
-[[ "$new_entry" == "$(jq -nc --arg u "$edge/mcp" --arg h "'$hook' header" '{type: "http", url: $u, headersHelper: $h}')" ]]
-holds $? "  the MCP entry is $edge/mcp with the hook's header as its headersHelper"
-rc=0; J "$work/repo2" "$work/jhome2" "$edge" --credential "$ses" --mcp-name kalandra <"$work/join.sh" >"$work/join2.out" 2>&1 || rc=$?
+# ---- 10. The deploy's join beside a fresh join; then the hook.
+new_entry="$(entry "$repo" "$dhome")"
+rc=0; J "$work/repo2" "$work/jhome2" "$edge" --credential "$ses" --mcp-name kalandra <"$proof/join.sh" >"$work/join2.out" 2>&1 || rc=$?
 holds "$rc" "a fresh join with --credential exits 0"
+sed "s|$work|<work>|g" "$work/join2.out" >"$proof/join.txt"
+sed 's/^/join    /' "$proof/join.txt" | tee -a "$proof/proof.txt"
 norm() { sed "s|$2|<repo>|g" "$1"; }
-cmp -s <(norm "$repo/.claude/settings.local.json" "$repo") <(norm "$work/repo2/.claude/settings.local.json" "$work/repo2") &&
+settings_of() { jq -S 'del(.proofMidDeploy)' "$1/.claude/settings.local.json" | sed "s|$1|<repo>|g"; }
+cmp -s <(settings_of "$repo") <(settings_of "$work/repo2") &&
   cmp -s <(norm "$hook" "$repo") <(norm "$work/repo2/.git/grit/claude-code/hook" "$work/repo2") &&
   [[ "$(sed "s|$repo|<repo>|g" <<<"$new_entry")" == "$(sed "s|$work/repo2|<repo>|g" <<<"$(entry "$work/repo2" "$work/jhome2")")" ]] &&
   cmp -s <(norm "$repo/.git/hooks/post-commit" "$repo") <(norm "$work/repo2/.git/hooks/post-commit" "$work/repo2")
-holds $? "  the re-joined repository's settings, hook, git hooks and MCP entry are a fresh join's"
+holds $? "  the deployed repository's settings (but the key a session wrote), hook, git hooks and MCP entry are a fresh join's"
 handlers="$(jq --arg h "'$hook'" '[.hooks[][].hooks[] | select(.command | startswith($h))] | length' "$repo/.claude/settings.local.json")"
 [[ "$handlers" == "$(jq '[.hooks[][].hooks[]] | length' "$repo/.claude/settings.local.json")" ]]; holds $? "  every handler in the settings is the hook's ($handlers)"
 
@@ -520,7 +611,7 @@ foreign="$(GRIT_EDGE=http://127.0.0.1:7399 fire brief <<<"$start" 2>&1 >/dev/nul
 [[ "$foreign" == "grit claude-code hook: GRIT_EDGE names http://127.0.0.1:7399, but this checkout's credential is sent only to the edge it was joined to, $edge; it did nothing" ]]
 holds $? "a foreign GRIT_EDGE makes the hook do nothing, saying so"
 
-# ---- 8. A real Claude Code run, its MCP client through the join's headersHelper, by a forwarder
+# ---- 11. A real Claude Code run, its MCP client through the join's headersHelper, by a forwarder
 # that checks each request's credential by its digest and never logs it.
 cat >"$work/forward.py" <<'PY'
 import hashlib, http.client, http.server, json, sys, threading
@@ -588,96 +679,44 @@ say "fact  sessions the real run's hooks recorded at machine:local$repo: $s_plac
 if [[ -d "$transcripts" ]]; then rm -rf -- "$transcripts"; say "clean deleted the run's transcripts, $transcripts"; fi
 transcripts=""
 
-# ---- 9. The join's undo, the line it printed run as printed; the claims.
-undo_line="$(sed -n 's/^Undo: //p' "$work/join.out")"
+# ---- 12. The join's undo, the line the deploy's join printed run as printed, in both checkouts;
+# what the deploys wrote; the claims.
+undo_line="$(sed -n 's/^deploy: join  Undo: //p' "$dlog" | head -n 1)"
 [[ "$undo_line" == "curl -fsS -H @<(printf 'Authorization: Bearer %s' \"\$(<'$ses')\") $edge/join/claude-code | bash -s -- --undo --mcp-name kalandra" ]]
 holds $? "the join's printed undo fetches the script with the sessions' credential, by its file"
 # pipefail, so a refused fetch fails the run rather than piping nothing to a bash that exits 0.
-rc=0; (cd "$repo" && HOME="$work/jhome" PATH="$work/shim:/usr/bin:/bin" bash -o pipefail -c "$undo_line") >"$work/undo.out" 2>&1 || rc=$?
-holds "$rc" "the printed undo, run as printed, exits 0"
+for w in "$repo_wt" "$repo"; do
+  rc=0; (cd "$w" && HOME="$dhome" PATH="$work/shim:/usr/bin:/bin" bash -o pipefail -c "$undo_line") >"$work/undo.out" 2>&1 || rc=$?
+  holds "$rc" "the printed undo, run as printed in $w, exits 0"
+done
 [[ ! -e "$hook" && ! -e "$repo/.git/hooks/post-commit" && ! -e "$repo/.git/hooks/post-rewrite" ]]
 holds $? "  the hook and its git hooks are gone"
-[[ "$(jq '[.hooks // {} | .[][].hooks[]] | length' "$repo/.claude/settings.local.json")" == 0 && "$(entry "$repo" "$work/jhome")" == null ]]
+[[ "$(jq '[.hooks // {} | .[][].hooks[]] | length' "$repo/.claude/settings.local.json")" == 0 && "$(entry "$repo" "$dhome")" == null && "$(entry "$repo_wt" "$dhome")" == null ]]
 holds $? "  no handler and no MCP entry is left"
-[[ -z "$(find "$work/home" -mindepth 1 -print -quit)" ]]; holds $? "serve's HOME is still empty"
+# serve writes no files: what the deploys' HOME holds is the credentials, Claude Code's file the
+# stand-in writes, and the deploys' state.
+extra="$(cd "$dhome" && find . -type f -not -path ./.config/kalandra/credential -not -path ./.config/grit/credential \
+  -not -path ./.claude.json -not -path './.local/state/kalandra-deploy/*' | head -5)"
+[[ -z "$extra" ]]; holds $? "the deploys' HOME holds nothing but the credentials, ~/.claude.json and the deploys' runs${extra:+: $extra}"
+[[ "$(ls -1 "$dhome/.local/state/kalandra-deploy/runs" | wc -l)" == 3 ]]; holds $? "  of which the three newest are kept"
 sql "$claims_q" | grep -v '|edge-proof/' >"$work/claims-after.txt"
 cmp -s <(grep -v '|edge-proof/' "$work/claims-before.txt") "$work/claims-after.txt"; holds $? "every claim but the proof's is as it was ($(wc -l <"$work/claims-after.txt"))"
 written="$(find "$wt" -newer "$work/start" -type f -not -path "$wt/out/*" -not -path "$wt/logs/*" -not -path "$wt/.git/*")"
 [[ -z "$written" ]]; holds $? "nothing written in the checkout${written:+: $written}"
 
-# ---- 10. The rollback: serve stopped, the reverse rewrite, the old jar serving the copy.
-ours "$serve_pid"; holds $? "serve still runs in the proof's directory, pid $serve_pid"
-stop "$serve_pid"
-! kill -0 "$serve_pid" 2>/dev/null; holds $? "serve stopped by its pid"
-rc=0; psw -f - <"$R" >"$work/rdry.txt" 2>&1 || rc=$?
-holds "$rc" "the reverse dry run exits 0"
-sed 's/^/rdry    /' "$work/rdry.txt" | tee -a "$proof/proof.txt"
-m_left="$(under machine)"
-[[ "$m_left" != 0 ]]; holds $? "  and rolled back: $m_left places under machine remain"
-rc=0; psw -f - -c COMMIT <"$R" >"$work/rkept.txt" 2>&1 || rc=$?
-holds "$rc" "the reverse run, kept, exits 0"
-cmp -s <(grep -v '^COMMIT' "$work/rkept.txt") "$work/rdry.txt"; holds $? "  and its counts are its dry run's"
-rc=0; psw -f - <"$R" >"$work/ragain.txt" 2>&1 || rc=$?
-zeros "$work/ragain.txt" && [[ "$rc" == 0 ]]
-holds $? "a second reverse run counts 0 everywhere"
-changed="$(sql "SELECT b.tbl || ' ' || b.k FROM e7proof.before b LEFT JOIN e7proof.placed p ON p.tbl = b.tbl AND p.k = b.k WHERE p.v IS DISTINCT FROM b.v ORDER BY 1")"
-expected="$(tail -n +2 "$work/dropped.csv" | awk -F, '{ print "grit.session_events " $1 "/" $2 }' | sort)"
-[[ "$(sort <<<"$changed")" == "$expected" ]]
-holds $? "every place as it was before the rename, but the $saved counted drops ($(grep -c . <<<"$changed") rows differ)"
-old="$work/old"
-mkdir -p "$old/home" "$old/logs" "$old/bin" "$old/out/assembly.dest"
-old_up=1
-if cp -- "$live/out/assembly.dest/out.jar" "$old/out/assembly.dest/out.jar" 2>/dev/null &&
-  cp -- "$live/bin/kalandra" "$old/bin/kalandra"; then
-  chmod a-w "$old/out/assembly.dest/out.jar"
-  say "old   $(sha256sum "$old/out/assembly.dest/out.jar" | cut -d' ' -f1)  the live checkout's jar, copied, with its bin/kalandra"
-  (cd "$old" && exec env -i PATH=/usr/bin:/bin HOME="$old/home" KALANDRA_CHECKOUT="$grit_checkout" \
-    GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/$restored" KALANDRA_LISTEN="$listen" KALANDRA_LOGS="$old/logs" \
-    ANTHROPIC_API_KEY=edge-proof-no-key JEV_API_KEY=edge-proof-no-key \
-    "$java" --sun-misc-unsafe-memory-access=allow -jar "$old/out/assembly.dest/out.jar" serve) >"$work/old-serve.log" 2>&1 &
-  started+=("$!")
-  old_pid="$!"
-  for _ in $(seq 1 240); do
-    if grep -q "commands: serving on http://$listen" "$work/old-serve.log"; then old_up=0; break; fi
-    kill -0 "$old_pid" 2>/dev/null || break
-    sleep 0.5
-  done
-fi
-holds "$old_up" "the old jar serves the copy: commands: serving on http://$listen"
-if [[ "$old_up" == 0 ]]; then
-  O() { env -u CLAUDE_CODE_SESSION_ID KALANDRA_LISTEN="$listen" "$old/bin/kalandra" "$@"; }
-  expect 0 "old: list edge-proof, with no credential" O list '{"project":"edge-proof"}'
-  grep -q "edge-proof/n" <<<"$out" && grep -q "edge-proof/w" <<<"$out" && grep -q "edge-proof/by-session" <<<"$out"
-  holds $? "  and it lists what the new serve kept"
-  expect 0 "old: show edge-proof/n" O show '{"key":"edge-proof/n"}'
-  grep -q "note-text-2" <<<"$out"; holds $? "  as the new serve kept it last"
-  expect 0 "old: claims of edge-proof" O claims '{"project":"edge-proof"}'
-  grep -qF "$H" <<<"$out" && grep -qF "$AH" <<<"$out"; holds $? "  and they name the new serve's holders $H and $AH"
-  OH="$(O holder "{\"dir\":\"$repo\"}")" || OH=""
-  [[ "$OH" == "$H" ]]; holds $? "old: the repository's holder is the new serve's, $OH"
-  old_s="$(sql "SELECT array_to_string(place, '/') FROM grit.sessions WHERE local = 'proof-s1'")"
-  [[ "$old_s" == "worker/local$repo" ]]; holds $? "the new serve's session is under worker again: $old_s"
-  rc=0; J "$repo" "$work/jhome" "$edge" --mcp-name kalandra <"$e4c/join.sh" >"$work/join-back.out" 2>&1 || rc=$?
-  holds "$rc" "0.2.0's join again, against the rolled-back serve, exits 0"
-  [[ "$(entry "$repo" "$work/jhome")" == "$old_entry" ]]; holds $? "  and its MCP entry is the one 0.2.0's join first left"
-  hb="$(payload proof-s3 SessionStart | jq -c '. + {source: "startup"}' | CLAUDE_PROJECT_DIR="$repo" PATH=/usr/bin:/bin "$hook" brief | jq -r '.hookSpecificOutput.additionalContext // empty')" || hb=""
-  grep -q "note-text-2" <<<"$hb"; holds $? "  and its hook's brief, from the old serve, holds the claimed note"
-  ours "$old_pid"; holds $? "the old serve still runs in its directory, pid $old_pid"
-  stop "$old_pid"
-  ! kill -0 "$old_pid" 2>/dev/null; holds $? "the old serve stopped by its pid"
-  [[ -z "$(find "$old/home" -mindepth 1 -print -quit)" ]]; holds $? "the old serve's HOME is still empty"
-fi
-
+say "time  edge-proof took $((SECONDS - began_at)) s"
 say "total $(grep -c '^ok ' "$proof/proof.txt") checks passed, $failed failed"
 if [[ "$failed" == 0 ]]; then
   say "edge-proof: passed"
 else
   say "edge-proof: $failed checks failed"
-  echo "serve's log ends:" >&2
-  tail -20 "$work/serve.log" >&2
-  if [[ -f "$work/old-serve.log" ]]; then
-    echo "the old serve's log ends:" >&2
-    tail -20 "$work/old-serve.log" >&2
+  for f in "$work"/deploy-*.out; do
+    l="$(sed -n 's/^deploy: log //p' "$f")"
+    if [[ -f "$l" ]]; then echo "$(basename "$f")'s log ends:" >&2; tail -20 "$l" >&2; fi
+  done
+  if [[ -f "$clone/logs/serve.log" ]]; then
+    echo "the copy's serve log ends:" >&2
+    tail -20 "$clone/logs/serve.log" >&2
   fi
   exit 1
 fi
