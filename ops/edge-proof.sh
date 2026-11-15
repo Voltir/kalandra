@@ -138,7 +138,7 @@ cleanup() {
   for pid in "${started[@]}"; do stop "$pid"; done
   for pid in $(strays); do stop "$pid"; done
   if [[ "$copied" == 1 ]]; then
-    for d in $restored $joindb $(pg psql -U grit -d postgres -At -c "SELECT datname FROM pg_database WHERE datname LIKE '${restored}\\_rolled\\_back\\_%'" 2>/dev/null); do
+    for d in $restored $joindb $(pg psql -U grit -d postgres -At -c "SELECT datname FROM pg_database WHERE datname LIKE '${restored}\\_%'" 2>/dev/null); do
       pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $d WITH (FORCE)" >/dev/null || true
     done
   fi
@@ -359,7 +359,7 @@ deploy() {
   dlog="$(sed -n 's/^deploy: log //p' "$work/deploy-$1.out")"
   say "dep   $1: exit $drc: $full"
   dlast="${full%; took *}"
-  [[ "$full" =~ \;\ took\ [0-9]+\.[0-9]\ s,\ serve\ down\ [0-9]+\.[0-9]\ s$ ]]
+  [[ "$full" =~ \;\ took\ [0-9]+\.[0-9]\ s,\ serve\ down\ [0-9]+\.[0-9]\ s(\ and\ not\ answering)?$ ]]
   holds $? "($1) its last line says the seconds it took and those serve was down"
 }
 began_as() {
@@ -379,7 +379,7 @@ planted="$(sql "WITH e AS (SELECT session, regexp_replace(shape::text, ',\"subje
 read -r p_session p_seq p_len <<<"$planted"
 [[ "$p_len" == 300 ]]; holds $? "a commit event of 300 bytes under worker planted in the copy: $planted"
 deploy a
-[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: machine-from-worker.sql would lose rows (grit.session_events rewritten without their subject 1); its counts are in the log, a person decides; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, serve answering on $listen" ]]
+[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: machine-from-worker.sql would lose rows (grit.session_events rewritten without their subject 1); its counts are in the log, a person decides; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, serve answering on $listen; the credentials it made and the digest lines it added to $clone/.env stay, which the old serve ignores" ]]
 holds $? "(a) the deploy stops at the row that would lose its subject, exit 2"
 grep -qxF "deploy: dry  machine-from-worker.sql  grit.session_events rewritten without their subject  1" "$dlog"; holds $? "  its log has the dry run's count"
 [[ "$(stat -c %a "$dhome/.config/kalandra/credential" "$dhome/.config/grit/credential" | sort -u)" == 600 ]]
@@ -403,6 +403,66 @@ began_as
 O() { env -i PATH=/usr/bin:/bin HOME="$dhome" KALANDRA_LISTEN="$listen" "$clone/bin/kalandra" "$@"; }
 expect 0 "the copy's serve, rolled back, shows what the new serve kept in its window" O show '{"key":"edge-proof-window/m"}'
 grep -q "window-text-1" <<<"$out"; holds $? "  as it kept it"
+
+# ---- 5b. (e) A reverse that raises: one session event naming its worktree under machine in a form
+# the reverse refuses, and the join's failure after the keep; the rollback restores the dump into
+# <copy>_restoring, then renames the copy aside and the restored one into its name. (f) The same,
+# with a <copy>_restoring held open, so the restore fails before any rename.
+psw() { pg psql -U grit -q -v ON_ERROR_STOP=1 -d "$restored" "$@"; }
+plant_raise() {
+  sql "INSERT INTO grit.session_events (session, seq, n, at, kind, shape) SELECT x.s, (SELECT max(seq) + 1 FROM grit.session_events WHERE session = x.s), (SELECT max(n) + 1 FROM grit.session_events WHERE session = x.s), now(), 'read', '{\"worktree\" : \"machine:local/edge-proof-plant\"}'::json FROM (SELECT session AS s FROM grit.session_events GROUP BY session HAVING max(seq) < 5000 ORDER BY session DESC LIMIT 1) x RETURNING session || ' ' || seq"
+}
+read -r r_session r_seq <<<"$(plant_raise)"
+[[ -n "$r_seq" ]]; holds $? "a session event the reverse refuses planted in the copy: $r_session $r_seq"
+touch "$plant"
+stage_proof
+deploy e
+aside="$(sed -n "s/.*kept as \(${restored}_rolled_back_[0-9]*\), for a person.*/\1/p" <<<"$dlast")"
+[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: the join in $repo exited 1: grit claude-code: claude mcp add failed"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, $restored restored from the dump taken before the deploy (the database as the deploy left it is kept as $aside, for a person to drop once satisfied), joins as before in 1 checkouts, serve answering on $listen" ]]
+holds $? "(e) the deploy rolls back by restoring the dump, exit 2, naming the aside database $aside"
+grep -q "^deploy: rollback: worker-from-machine.sql raised: .*ERROR: " "$dlog"; holds $? "  after the reverse raised a server error"
+[[ -n "$aside" && "$(pg psql -U grit -d postgres -At -c "SELECT count(*) FROM pg_database WHERE datname IN ('$aside', '${restored}_restoring')")" == 1 ]]
+holds $? "  the aside database exists, and no ${restored}_restoring is left"
+[[ "$(pg psql -U grit -d "$aside" -At -c "SELECT count(*) FROM grit.sessions WHERE place[1] = 'machine'")" != 0 ]]; holds $? "  the aside database holds the copy as the deploy left it, under machine"
+[[ "$(sql "SELECT count(*) FROM grit.session_events WHERE session = $r_session AND seq = $r_seq")" == 1 && "$(sql "SELECT count(*) FROM grit.sessions WHERE place[1] = 'machine'")" == 0 ]]
+holds $? "  the copy's name holds the dump's content: the planted event, no session under machine"
+expect 0 "  the old jar answers on the restored copy" O show '{"key":"edge-proof-window/m"}'
+sql "DELETE FROM grit.session_events WHERE session = $r_session AND seq = $r_seq" >/dev/null
+began_as
+pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $aside WITH (FORCE)" >/dev/null
+
+read -r r_session r_seq <<<"$(plant_raise)"
+pg psql -U grit -d postgres -q -c "CREATE DATABASE ${restored}_restoring" >/dev/null
+(cd "$work/run" && exec timeout 600 docker compose --project-directory "$compose" exec -T postgres \
+  psql -U grit -d "${restored}_restoring" -q -c 'SELECT pg_sleep(600)') >/dev/null 2>&1 &
+started+=("$!")
+holder="$!"
+for _ in $(seq 1 40); do
+  [[ "$(pg psql -U grit -d postgres -At -c "SELECT count(*) FROM pg_stat_activity WHERE datname = '${restored}_restoring'")" == 0 ]] || break
+  sleep 0.25
+done
+touch "$plant"
+stage_proof
+deploy f
+[[ "$drc" == 3 && "$dlast" == "deploy: rollback incomplete: worker-from-machine.sql raised: "*", and making ${restored}_restoring for the restore failed: "*"; $restored is untouched, as the deploy left it, with machine-from-worker.sql kept and not reversed; ${restored}_restoring is left as it was, not the deploy's; serve is stopped, with the old code and jar in place; a person must put $restored right (the dump from before the deploy is "*"), then start serve: bin/kalandra start in $clone" ]]
+holds $? "(f) a restore that fails before any rename ends rollback incomplete, exit 3"
+[[ "$(sql "SELECT count(*) FROM grit.sessions WHERE place[1] = 'machine'")" != 0 && -z "$(pg psql -U grit -d postgres -At -c "SELECT datname FROM pg_database WHERE datname LIKE '${restored}\\_rolled\\_back\\_%'")" ]]
+holds $? "  the copy's name is untouched, as the deploy left it, and nothing was renamed aside"
+[[ "$(git -C "$clone" rev-parse HEAD) $(sha "$clone/out/assembly.dest/out.jar")" == "$old_head $old_jar" ]]; holds $? "  the old code and jar are in place"
+! curl -q -s --noproxy '*' --max-time 5 -o /dev/null "$edge/command/project_list"; holds $? "  and serve is stopped"
+[[ -e "$dhome/.local/state/kalandra-deploy/running" ]]; holds $? "  the next deploy is refused until a person clears it"
+# A person's recovery, as the line says: the copy put right by hand, then serve started.
+pg psql -U grit -d postgres -q -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${restored}_restoring'" >/dev/null
+stop "$holder"
+pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS ${restored}_restoring" >/dev/null
+sql "DELETE FROM grit.session_events WHERE session = $r_session AND seq = $r_seq" >/dev/null
+psw -f - -c COMMIT <"$proof/worker-from-machine.sql" >/dev/null; holds $? "  the reverse, run by hand once the plant is gone, exits 0"
+rm -f -- "$dhome/.local/state/kalandra-deploy/running"
+rc=0; (cd "$work/run" && exec "${denv[@]}" "$clone/bin/kalandra" start) >"$work/old-start.out" 2>&1 || rc=$?
+holds "$rc" "  the old serve starts again"
+rc=0; J "$repo" "$dhome" "$edge" --mcp-name kalandra <"$work/old-join.sh" >"$work/join-old.out" 2>&1 || rc=$?
+holds "$rc" "  and the copy's join again in $repo exits 0"
+began_as
 
 # ---- 6. (c) The whole deploy; (d) again, with nothing to rewrite.
 stage_proof
@@ -537,8 +597,13 @@ expect 0 "a session's standing reaches the command" S standing '{"key":"grit/roa
 
 # ---- 10. The deploy's join beside a fresh join; then the hook.
 new_entry="$(entry "$repo" "$dhome")"
-rc=0; J "$work/repo2" "$work/jhome2" "$edge" --credential "$ses" --mcp-name kalandra <"$proof/join.sh" >"$work/join2.out" 2>&1 || rc=$?
-holds "$rc" "a fresh join with --credential exits 0"
+# This join's `claude` is the installed Claude Code, in a HOME of its own, so the CLI call the live
+# join makes (`claude mcp add-json --scope local` of an entry with a headersHelper) is run for real.
+real_claude="$(dirname "$(command -v claude)")"
+R2() { (cd "$work/repo2" && HOME="$work/jhome2" PATH="$real_claude:/usr/bin:/bin" "$@"); }
+rc=0; R2 bash -s -- "$edge" --credential "$ses" --mcp-name kalandra <"$proof/join.sh" >"$work/join2.out" 2>&1 || rc=$?
+holds "$rc" "a fresh join with --credential, through the installed claude $(R2 claude --version 2>/dev/null), exits 0"
+grep -qxF "  mcp       kalandra at $edge/mcp, local scope" "$work/join2.out"; holds $? "  and the installed claude took its MCP entry"
 sed "s|$work|<work>|g" "$work/join2.out" >"$proof/join.txt"
 sed 's/^/join    /' "$proof/join.txt" | tee -a "$proof/proof.txt"
 norm() { sed "s|$2|<repo>|g" "$1"; }
@@ -693,6 +758,10 @@ done
 holds $? "  the hook and its git hooks are gone"
 [[ "$(jq '[.hooks // {} | .[][].hooks[]] | length' "$repo/.claude/settings.local.json")" == 0 && "$(entry "$repo" "$dhome")" == null && "$(entry "$repo_wt" "$dhome")" == null ]]
 holds $? "  no handler and no MCP entry is left"
+undo2="$(sed -n 's/^Undo: //p' "$work/join2.out")"
+rc=0; R2 bash -o pipefail -c "$undo2" >"$work/undo2.out" 2>&1 || rc=$?
+[[ "$rc" == 0 && "$(entry "$work/repo2" "$work/jhome2")" == null ]]
+holds $? "the fresh join's printed undo, through the installed claude, removes its MCP entry"
 # serve writes no files: what the deploys' HOME holds is the credentials, Claude Code's file the
 # stand-in writes, and the deploys' state.
 extra="$(cd "$dhome" && find . -type f -not -path ./.config/kalandra/credential -not -path ./.config/grit/credential \
