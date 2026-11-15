@@ -38,7 +38,9 @@ Paste each block whole: its commands are chained with `&&`, so one that fails st
   ```
 
   It prints `edge-proof: passed`, `same` and four `OK` lines. Anything else, and the proof is run
-  again from `~/Projects/kalandra-e7` after `bin/kalandra build` there.
+  again from `~/Projects/kalandra-e7` after `bin/kalandra build` there. The proof of 2026-11-14
+  passed the jar `309053236ee657188015df804ae2315781a850f5e168e8d5627372c9211d62ae`, built
+  against grit 0.3.0-SNAPSHOT at `5e81aeef1abaf871ae60bc7d7cbe6e1392b551be`, its second line.
 - `git -C ~/Projects/kalandra merge-base --is-ancestor main e7-repin` exits 0, so the merge at
   step 7 is a fast-forward.
 - **No `bin/kalandra chat` or `work` is running**: serve waits on the engine lock they hold. This
@@ -183,9 +185,9 @@ The first prints the counts table and rolls back. On the copy of 2026-11-14 the 
  grit.piece_sets rewritten                           |   0
  grit.places rewritten                               |   0
  grit.session_events deleted, too long to rewrite    |   0
- grit.session_events rewritten                       | 202
+ grit.session_events rewritten                       | 210
  grit.session_events rewritten without their subject |   0
- grit.sessions rewritten                             |  12
+ grit.sessions rewritten                             |  14
  grit.visibility_changes rewritten                   |   0
 (9 rows)
 ```
@@ -274,17 +276,20 @@ grit claude-code: joined <work>/repo to http://127.0.0.1:7318
   credential <work>/cred/sessions, sent with every request
   mcp       kalandra at http://127.0.0.1:7318/mcp, local scope, replacing kalandra at http://127.0.0.1:7318/mcp
 Sessions pick the hooks up at once; run /mcp in a running session to connect kalandra.
-Undo: curl -fsS http://127.0.0.1:7318/join/claude-code | bash -s -- --undo --mcp-name kalandra
+Undo: curl -fsS -H @<(printf 'Authorization: Bearer %s' "$(<'<work>/cred/sessions')") http://127.0.0.1:7318/join/claude-code | bash -s -- --undo --mcp-name kalandra
 ```
 
-Here it names `http://127.0.0.1:7317` and `~/.config/grit/credential`. Its last line's undo asks
-`/join` with no credential, which the new serve refuses: use the undo below instead.
+Here it names `http://127.0.0.1:7317` and the full path of `~/.config/grit/credential`. Its last
+line is the undo: it fetches the script with the sessions' credential, read from its file, and
+the proof ran it as printed and saw it undo the join.
 
 Run the same command in each worktree found at step 4. The hook file is shared, so every
 worktree sends the same credential.
 
-Undo (the second line puts the 0.2.0 join back; compare `claude mcp get kalandra` with
-`$B/mcp.txt`):
+Undo: while the new serve answers, the join's printed last line will do. Once it is stopped, as
+in the rollback, the block's first line, the proven script's undo, which asks no serve. Either
+way, the block's second line then puts the 0.2.0 join back; compare `claude mcp get kalandra`
+with `$B/mcp.txt`:
 
 ```bash
 bash -s -- --undo --mcp-name kalandra < $P/join.sh &&
