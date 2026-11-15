@@ -162,8 +162,19 @@ serve_pids() {
 # Whether serve answers at all: asked with no credential, any HTTP answer counts, the 401 a
 # credentialed edge gives it included; only no answer does not.
 serve_answers() {
-  curl -q -s --noproxy '*' --max-time 5 -o /dev/null -X POST -d '{}' \
+  curl -q -s --noproxy '*' --max-time "${1:-5}" -o /dev/null -X POST -d '{}' \
     "http://$listen/command/project_list" 2>/dev/null
+}
+
+# Whether serve answers within 120 s of wall clock, asked every 2 s.
+answers_within_120() {
+  local deadline=$((SECONDS + 120))
+  while ((SECONDS < deadline)); do
+    serve_answers 2 && return 0
+    ((SECONDS + 2 < deadline)) || break
+    sleep 2
+  done
+  return 1
 }
 
 serve_stop() {
@@ -194,15 +205,12 @@ serve_start() {
   cd "$root"
   mkdir -p logs
   ( setsid nohup "$root/bin/kalandra" serve >> logs/serve.log 2>&1 < /dev/null & )
-  for _ in $(seq 60); do
-    if serve_answers; then
-      local first
-      first="$(serve_pids | head -n 1)"
-      echo "serve started (pid ${first:-?})"
-      return 0
-    fi
-    sleep 2
-  done
+  if answers_within_120; then
+    local first
+    first="$(serve_pids | head -n 1)"
+    echo "serve started (pid ${first:-?})"
+    return 0
+  fi
   echo "serve did not answer within 120 s; see $root/logs/serve.log" >&2
   return 1
 }
@@ -218,13 +226,10 @@ managed() {
 unit_do() {
   systemctl --user "$1" "$unit" || return 1
   [[ "$1" == stop ]] && { echo "Stopped serve ($unit)."; return 0; }
-  for _ in $(seq 60); do
-    if serve_answers; then
-      echo "serve ${1}ed by $unit (pid $(serve_pids | head -n 1))"
-      return 0
-    fi
-    sleep 2
-  done
+  if answers_within_120; then
+    echo "serve ${1}ed by $unit (pid $(serve_pids | head -n 1))"
+    return 0
+  fi
   echo "serve did not answer within 120 s; see journalctl --user -u $unit and $root/logs/serve.log" >&2
   return 1
 }

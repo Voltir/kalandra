@@ -30,6 +30,13 @@
 # (~/.config/grit/credential); one that is missing is made, and its SHA-256 digest appended to the
 # checkout's .env, whose other lines are never read or printed. No credential's text is put on a
 # command line, in an environment or in the log.
+#
+# Every step that waits is bounded: a Postgres statement or data file 300 s, a dump or restore
+# 900 s, a stop 120 s, a start until serve answers 130 s, a join (its `claude mcp` calls with it)
+# 120 s. When a data file's reverse raises, the rollback restores the dump into <db>_restoring and
+# only then renames <db> aside as <db>_rolled_back_<stamp>, a person's to drop, and the restored
+# one into its place. A rollback that cannot put the database right ends `rollback incomplete`
+# with serve stopped, the old code and jar in place, and the unit disabled when it owns serve.
 set -uo pipefail
 
 usage() {
@@ -75,12 +82,12 @@ health_ask='{"project":"grit","state":"now"}'
 # The last line of a run that ends, and the exit it means.
 finish() {
   stage=ended
-  printf '%s\n' "$1"
+  prune
   case "$1" in
     "deploy: rollback incomplete:"*) ;;
     *) rm -f -- "$state/running" ;;
   esac
-  prune
+  printf '%s\n' "$1"
   exit 0
 }
 refuse() {
@@ -97,7 +104,10 @@ prune() {
   done < <(ls -1 "$state/runs" | sort | head -n -3)
 }
 
-pg() { docker compose --project-directory "$compose" exec -T postgres "$@"; }
+# Every Postgres call is bounded, so a hung Docker cannot hold serve down: a statement or a data
+# file 300 s, a dump or a restore 900 s.
+pg() { timeout 300 docker compose --project-directory "$compose" exec -T postgres "$@"; }
+pg_long() { timeout 900 docker compose --project-directory "$compose" exec -T postgres "$@"; }
 psql_db() { pg psql -U grit -d "$db" -q -v ON_ERROR_STOP=1 "$@"; }
 sql() { psql_db -At -c "$1"; }
 sha() { sha256sum <"$1" | cut -d' ' -f1; }
@@ -110,8 +120,24 @@ cred_curl() {
   curl -q -s --noproxy '*' --max-time 15 -H @<(printf 'Authorization: Bearer %s\n' "$(<"$f")") "$@"
 }
 answers() { curl -q -s --noproxy '*' --max-time 5 -o /dev/null -X POST -d '{}' "$edge/command/project_list" 2>/dev/null; }
-managed() { [[ "$listen" == 127.0.0.1:7317 ]] && systemctl --user is-enabled --quiet "$unit" 2>/dev/null; }
-kalandra() { KALANDRA_LISTEN="$listen" "$checkout/bin/kalandra" "$@" 9>&-; }
+unit_file="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$unit"
+# Whether the unit owns serve, as bin/kalandra decides it, asked of systemd now; `managed` is the
+# answer preflight got, which the whole run keeps.
+managed_now() { [[ "$listen" == 127.0.0.1:7317 ]] && timeout 30 systemctl --user is-enabled --quiet "$unit" 2>/dev/null; }
+is_managed=0
+managed() { ((is_managed == 1)); }
+same_manager() {
+  local n=0
+  if managed_now; then n=1; fi
+  ((n == is_managed))
+}
+manager() { if managed; then echo "the unit $unit (systemctl --user)"; else echo "its pids (bin/kalandra)"; fi; }
+# bin/kalandra $2… under a wall-clock bound of $1 seconds, the lock's descriptor closed.
+kalandra() {
+  local bound="$1"
+  shift
+  KALANDRA_LISTEN="$listen" timeout "$bound" "$checkout/bin/kalandra" "$@" 9>&-
+}
 
 # ---- What is checked before anything changes, by the command and again by the run.
 checksum() {
@@ -163,11 +189,21 @@ preflight() {
   [[ -f "$checkout/out/assembly.dest/out.jar" ]] || refuse "$checkout has no jar at out/assembly.dest/out.jar to roll back to"
 
   local url
+  is_managed=0
+  if [[ "$listen" == 127.0.0.1:7317 && ( -e "$unit_file" || -L "$unit_file" ) ]]; then
+    timeout 30 systemctl --user show-environment >/dev/null 2>&1 ||
+      refuse "$unit is installed for $listen, but systemctl --user cannot be reached (is XDG_RUNTIME_DIR set?); a stop by pid would be undone by its Restart=always"
+    if managed_now; then
+      is_managed=1
+    elif timeout 30 systemctl --user is-active --quiet "$unit"; then
+      refuse "$unit runs but is not enabled, so bin/kalandra would stop serve by pid, which its Restart=always undoes"
+    fi
+  fi
   if managed; then
-    url="$(systemctl --user show -p Environment --value "$unit" | tr ' ' '\n' | sed -n 's/^GRIT_DATABASE_URL=//p')"
+    url="$(timeout 30 systemctl --user show -p Environment --value "$unit" | tr ' ' '\n' | sed -n 's/^GRIT_DATABASE_URL=//p')"
     [[ -z "${GRIT_DATABASE_URL:-}" || "$GRIT_DATABASE_URL" == "$url" ]] ||
       refuse "the unit's database $url is not GRIT_DATABASE_URL's $GRIT_DATABASE_URL"
-    ! systemctl --user is-active --quiet kalandra-backup.service || refuse "the nightly backup is running; deploy after it"
+    ! timeout 30 systemctl --user is-active --quiet kalandra-backup.service || refuse "the nightly backup is running; deploy after it"
   else
     [[ "$listen" == 127.0.0.1:7317 || -n "${GRIT_DATABASE_URL:-}" ]] || refuse "GRIT_DATABASE_URL is not set for serve on $listen"
     url="${GRIT_DATABASE_URL:-jdbc:postgresql://localhost:5432/grit_kalandra}"
@@ -303,10 +339,10 @@ trap '[[ "$stage" == ended ]] || printf "deploy: rollback incomplete: the run st
 log "run $$ in $run"
 preflight
 log "deploying kalandra $X with grit $gv at $gc, jar $jar_sha, from $proof into $checkout"
-log "serve at $listen on $db$(managed && echo ", by $unit")"
+log "serve at $listen on $db, stopped and started by $(manager)"
 if ((${#joined[@]} == 0)); then log "join: no checkout of $grit is joined to $edge"; else log "join: joined to $edge: ${joined[*]}"; fi
 
-stopped=0 started=0 code_switched=0 jar_switched=0 restored=""
+stopped=0 started=0 code_switched=0 jar_switched=0 made_creds=0
 kept=() joined_new=()
 old_jar_sha=""
 why=""
@@ -327,6 +363,7 @@ stage_credentials() {
     esac
   done
   ((${#appended[@]} > 0)) || return 0
+  made_creds=1
   [[ -e "$env_file" ]] || (umask 077 && : >"$env_file") || { why="making $env_file failed"; return 1; }
   {
     printf '\n'
@@ -356,10 +393,16 @@ stage_backup() {
 }
 
 stage_stop() {
+  if managed && timeout 30 systemctl --user is-active --quiet kalandra-backup.service; then
+    why="the nightly backup started; deploy after it"
+    return 1
+  fi
+  same_manager || { why="systemctl --user's answer changed since the deploy began, so serve was not stopped"; return 1; }
   stopped=1
   down_at="$(now)"
-  kalandra stop || { why="bin/kalandra stop failed"; return 1; }
+  kalandra 120 stop || { why="bin/kalandra stop failed or took over 120 s"; return 1; }
   ! answers || { why="serve still answers at $listen after the stop"; return 1; }
+  log "stop: serve stopped by $(manager)"
 }
 
 stage_connections() {
@@ -376,20 +419,27 @@ stage_connections() {
 }
 
 stage_dump() {
-  pg pg_dump -U grit -Fc "$db" >"$run/before.dump" && pg pg_restore --list <"$run/before.dump" >/dev/null ||
-    { why="the dump failed: $(tail -n 1 "$run/before.dump" 2>/dev/null | head -c 200)"; return 1; }
+  pg_long pg_dump -U grit -Fc "$db" >"$run/before.dump" 2>"$run/dump.err" &&
+    pg_long pg_restore --list <"$run/before.dump" >/dev/null 2>>"$run/dump.err" ||
+    { why="the dump failed: $(tail -n 1 "$run/dump.err" | head -c 200)"; return 1; }
   log "dump: $db to $run/before.dump, $(du -h "$run/before.dump" | cut -f1)"
 }
 
 # Runs the data file $1 (any more arguments go to psql); sets `rows`, its counts as `name|n` lines,
-# and `err`, what went wrong. Returns 1 when psql failed, so nothing was kept; 2 when it ran but
-# printed something other than its counts.
+# and `err`, what went wrong. Returns 1 when the server reported an ERROR, so the file's
+# transaction did not commit; 3 when psql failed otherwise (Docker, the stream, the bound), so
+# whether a COMMIT after it was kept is not known; 2 when it ran but printed something other than
+# its counts.
 data_run() {
   local out rc=0
   out="$(psql_db -At -F'|' -f - "${@:2}" <"$1" 2>"$run/psql.err")" || rc=$?
-  err="$(grep -m 1 'ERROR' "$run/psql.err" || tail -n 1 "$run/psql.err")"
+  err="$(grep -m 1 'ERROR:' "$run/psql.err" || tail -n 1 "$run/psql.err")"
   rows="$(grep -E '^[^|]+\|[0-9]+$' <<<"$out")"
-  ((rc == 0)) || return 1
+  if ((rc != 0)); then
+    grep -q 'ERROR:' "$run/psql.err" && return 1
+    err="psql failed with no server error (exit $rc${err:+: $err})"
+    return 3
+  fi
   if grep -vqE '^([^|]+\|[0-9]+|COMMIT|)$' <<<"$out" || [[ -z "$rows" ]]; then
     err="it printed something other than its counts"
     return 2
@@ -401,7 +451,7 @@ stage_data() {
   local i f r name n lost
   for i in "${!fwd[@]}"; do
     f="${fwd[i]}"
-    data_run "$proof/$f" || { why="$f raised: $err"; return 1; }
+    data_run "$proof/$f" || { why="$f's dry run failed: $err"; return 1; }
     while IFS='|' read -r name n; do log "dry  $f  $name  $n"; done <<<"$rows"
     if [[ -z "$(nonzero "$rows")" ]]; then log "$f: nothing to rewrite"; continue; fi
     n="$(sql "SELECT count(*) FROM dbos.workflow_status WHERE status IN ('PENDING', 'ENQUEUED')")" || { why="Postgres did not answer"; return 1; }
@@ -419,10 +469,11 @@ stage_data() {
       return 1
     fi
     local dry="$rows" rc=0
-    data_run "$proof/$f" -c COMMIT || rc=$?
-    ((rc != 1)) || { why="$f raised: $err"; return 1; }
+    # Counted as kept before it runs, so a rollback reverses it whatever this run did: its reverse
+    # is idempotent (ops/data.tsv), so reversing a run that did not commit changes nothing.
     kept+=("$i")
-    ((rc == 0)) || { why="$f, kept, $err"; return 1; }
+    data_run "$proof/$f" -c COMMIT || rc=$?
+    ((rc == 0)) || { why="$f did not run whole: $err"; return 1; }
     [[ "$rows" == "$dry" ]] || { why="$f kept counts other than its dry run's"; return 1; }
     log "$f: kept"
     data_run "$proof/$f" || { why="$f raised on its second run: $err"; return 1; }
@@ -441,24 +492,38 @@ stage_code() {
   git -C "$checkout" switch -q --detach "$X" || { why="git could not check out ${X:0:12} in $checkout"; return 1; }
   jar_switched=1
   put_jar "$proof/serve.jar" "$jar_sha" || { why="the proved jar did not go into $checkout"; return 1; }
-  if managed; then systemctl --user daemon-reload || { why="systemctl daemon-reload failed"; return 1; }; fi
+  if managed; then timeout 30 systemctl --user daemon-reload || { why="systemctl daemon-reload failed"; return 1; }; fi
   log "code: $checkout at $X, detached; jar $jar_sha"
 }
 
+# The bound on a start: bin/kalandra start, and serve answering, within 130 s of wall clock.
+start_serve() { kalandra 130 start || answers; }
+
 stage_start() {
+  same_manager || incomplete "systemctl --user's answer changed since the deploy began, so serve was not started" \
+    "start serve (bin/kalandra start in $checkout) once systemctl --user answers, and read this log"
   serve_log_size="$(stat -c %s "$checkout/logs/serve.log" 2>/dev/null || echo 0)"
   started=1
-  kalandra start || { why="serve did not answer within 120 s"; return 1; }
+  start_serve || { why="serve did not answer within 130 s"; return 1; }
   up_at="$(now)"
+  log "start: serve started by $(manager), answering"
+}
+
+# The join script $1 run in the checkout $2 with the arguments after, under a bound of 120 s,
+# which covers its `claude mcp` calls; its output in `out`, its exit in `rc`.
+join_in() {
+  local script="$1" w="$2"
+  shift 2
+  rc=0
+  out="$(cd "$w" && timeout 120 bash -s -- "$@" <"$script" 2>&1 9>&-)" || rc=$?
+  sed 's/^/deploy: join  /' <<<"$out"
 }
 
 stage_join() {
   local w out rc
   for w in "${joined[@]}"; do
     joined_new+=("$w")
-    rc=0
-    out="$(cd "$w" && bash -s -- "$edge" --credential "$sessions_cred" --mcp-name "$mcp" <"$proof/join.sh" 2>&1)" || rc=$?
-    sed 's/^/deploy: join  /' <<<"$out"
+    join_in "$proof/join.sh" "$w" "$edge" --credential "$sessions_cred" --mcp-name "$mcp"
     ((rc == 0)) || { why="the join in $w exited $rc: $(tail -n 1 <<<"$out")"; return 1; }
   done
 }
@@ -488,31 +553,68 @@ incomplete() {
   finish "deploy: rollback incomplete: $1; a person must $2; $(timing)"
 }
 
+# The names of the data files kept, as a person reads them.
+kept_names() {
+  local i names=()
+  for i in "${kept[@]}"; do names+=("${fwd[i]}"); done
+  local IFS=,
+  echo "${names[*]}" | sed 's/,/, /g'
+}
+
+# A rollback that cannot put the database right: serve is left stopped, with the old code and jar
+# in place (the rollback puts them back before it touches the data), and the unit, when it owns
+# serve, disabled, so that nothing starts any jar on a database not known to be good.
+bad_db() {
+  local held="serve is stopped, with the old code and jar in place" start="bin/kalandra start in $checkout"
+  if managed; then
+    if timeout 30 systemctl --user disable --quiet "$unit" 2>/dev/null; then
+      held+=", and $unit is disabled, so nothing starts it"
+      start="systemctl --user enable --now $unit"
+    else
+      held+=", but $unit could not be disabled, so the next boot starts it"
+    fi
+  fi
+  incomplete "$1; $2; $held" "put $db right (the dump from before the deploy is $run/before.dump), then start serve: $start"
+}
+
+# The rollback's last resort, when a reverse raised: the dump restored into ${db}_restoring, and
+# only once that has succeeded, $db renamed aside and the restored one renamed into its place.
+restore_dump() {
+  local tmp="${db}_restoring" aside="${db}_rolled_back_$(date -u +%Y%m%d%H%M%S)" untouched there names e
+  untouched="$db is untouched, as the deploy left it, with $(kept_names) kept and not reversed"
+  log "rollback: $1; restoring the dump from before the deploy into $tmp"
+  if ! pg psql -U grit -d postgres -q -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS $tmp" -c "CREATE DATABASE $tmp" 2>"$run/restore.err"; then
+    e="$(grep -m 1 'ERROR:' "$run/restore.err" || tail -n 1 "$run/restore.err")"
+    there="$(pg psql -U grit -d postgres -At -c "SELECT count(*) FROM pg_database WHERE datname = '$tmp'" 2>/dev/null)"
+    if [[ "$there" == 1 ]]; then there="$tmp is left as it was, not the deploy's"; else there="no $tmp was made"; fi
+    bad_db "$1, and making $tmp for the restore failed: $e" "$untouched; $there"
+  fi
+  if ! pg_long pg_restore -U grit -d "$tmp" --no-owner --exit-on-error <"$run/before.dump" 2>"$run/restore.err"; then
+    e="$(grep -m 1 'error:' "$run/restore.err" || tail -n 1 "$run/restore.err")"
+    if pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $tmp" 2>/dev/null; then there="$tmp removed"; else there="$tmp left, partly restored"; fi
+    bad_db "$1, and restoring the dump into $tmp failed: $e" "$untouched; $there"
+  fi
+  if ! pg psql -U grit -d postgres -q -v ON_ERROR_STOP=1 -c "ALTER DATABASE $db RENAME TO $aside" -c "ALTER DATABASE $tmp RENAME TO $db" 2>"$run/restore.err"; then
+    e="$(grep -m 1 'ERROR:' "$run/restore.err" || tail -n 1 "$run/restore.err")"
+    names="$(pg psql -U grit -d postgres -At -c "SELECT string_agg(datname, ', ' ORDER BY datname) FROM pg_database WHERE datname IN ('$db', '$aside', '$tmp')" 2>/dev/null)"
+    bad_db "$1, the dump restored into $tmp, and renaming it into place failed: $e" "the databases named now are: ${names:-not known}"
+  fi
+  log "rollback: $db restored from the dump; the database as the deploy left it is $aside"
+  left+=("$db restored from the dump taken before the deploy (the database as the deploy left it is kept as $aside, for a person to drop once satisfied)")
+}
+
 rollback() {
   local left=() i r w rc out
   stage=rollback
   log "rollback: $1"
   if ((started)); then
-    kalandra stop || incomplete "stopping the new serve failed" "stop serve (bin/kalandra stop in $checkout), then read this log"
+    same_manager || incomplete "systemctl --user's answer changed since the deploy began, so the new serve was not stopped" \
+      "stop serve once systemctl --user answers, then read this log"
+    kalandra 120 stop || incomplete "stopping the new serve failed or took over 120 s" "stop serve (bin/kalandra stop in $checkout), then read this log"
+    log "rollback: the new serve stopped by $(manager)"
   fi
-  for ((i = ${#kept[@]} - 1; i >= 0; i--)); do
-    r="${rev[${kept[i]}]}"
-    rc=0
-    data_run "$proof/$r" -c COMMIT || rc=$?
-    if ((rc == 1)); then
-      log "rollback: $r raised: $err; restoring the dump"
-      restored="${db}_rolled_back_$(date -u +%Y%m%d%H%M%S)"
-      pg psql -U grit -d postgres -q -v ON_ERROR_STOP=1 -c "ALTER DATABASE $db RENAME TO $restored" -c "CREATE DATABASE $db" &&
-        pg pg_restore -U grit -d "$db" --no-owner --exit-on-error <"$run/before.dump" ||
-        incomplete "restoring $db from $run/before.dump failed" "restore it by hand; the database as the deploy left it is $restored"
-      left+=("$db restored from the dump, the deploy's kept as $restored")
-      break
-    fi
-    data_run "$proof/$r" && [[ -z "$(nonzero "$rows")" ]] ||
-      incomplete "$r counts other than 0 after it ran" "read this log; the dump from before the deploy is $run/before.dump"
-    log "rollback: $r kept"
-    left+=("${fwd[${kept[i]}]} reversed")
-  done
+  # The old code and jar first, so that whatever becomes of the data, the new jar is not left to
+  # start on it.
   if ((code_switched)); then
     if [[ -n "$B" ]]; then git -C "$checkout" switch -q "$B"; else git -C "$checkout" switch -q --detach "$H"; fi ||
       incomplete "git could not check out ${B:-$H} in $checkout" "check out ${B:-$H} there and put $run/before/out.jar back as out/assembly.dest/out.jar"
@@ -521,28 +623,48 @@ rollback() {
     put_jar "$run/before/out.jar" "$old_jar_sha" ||
       incomplete "the old jar did not go back" "copy $run/before/out.jar to $checkout/out/assembly.dest/out.jar"
   fi
-  if ((code_switched)) && managed; then systemctl --user daemon-reload || true; fi
+  if ((code_switched)) && managed; then timeout 30 systemctl --user daemon-reload || true; fi
+  for ((i = ${#kept[@]} - 1; i >= 0; i--)); do
+    r="${rev[${kept[i]}]}"
+    rc=0
+    data_run "$proof/$r" -c COMMIT || rc=$?
+    case "$rc" in
+      0)
+        data_run "$proof/$r" && [[ -z "$(nonzero "$rows")" ]] ||
+          bad_db "$r, run to reverse ${fwd[${kept[i]}]}, counts other than 0 on a second run" "$db is as the reverse left it"
+        log "rollback: $r kept"
+        left+=("${fwd[${kept[i]}]} reversed")
+        ;;
+      1)
+        restore_dump "$r raised: $err"
+        break
+        ;;
+      *)
+        bad_db "$r, run to reverse ${fwd[${kept[i]}]}, did not run: $err" \
+          "$db is as the deploy left it, with $(kept_names) kept and perhaps not reversed"
+        ;;
+    esac
+  done
   if ((stopped)) && ! answers; then
     up_at=""
-    kalandra start || incomplete "the old serve did not start" "start serve (bin/kalandra start in $checkout) and read this log"
+    start_serve || incomplete "the old serve did not answer within 130 s" "start serve (bin/kalandra start in $checkout) and read this log"
     up_at="$(now)"
+    log "rollback: the old serve started by $(manager), answering"
   fi
   for i in "${!joined_new[@]}"; do
     w="${joined_new[i]}"
-    rc=0
     local args=("$edge")
     [[ -z "${old_cred[i]}" ]] || args+=(--credential "${old_cred[i]}")
-    out="$(cd "$w" && bash -s -- "${args[@]}" --mcp-name "$mcp" <"$run/before/join.sh" 2>&1)" || rc=$?
-    sed 's/^/deploy: join  /' <<<"$out"
+    join_in "$run/before/join.sh" "$w" "${args[@]}" --mcp-name "$mcp"
     ((rc == 0)) || incomplete "joining $w again as before exited $rc: $(tail -n 1 <<<"$out")" \
       "join it again: cd $w && bash -s -- ${args[*]} --mcp-name $mcp < $run/before/join.sh"
   done
   ((${#joined_new[@]} == 0)) || left+=("joins as before in ${#joined_new[@]} checkouts")
-  stage=ended
   local said
   said="kalandra ${H:0:12}, jar ${old_jar_sha:0:12}"
   for r in "${left[@]}"; do said+=", $r"; done
   if ((stopped)); then said+=", serve answering on $listen"; fi
+  if ((made_creds)); then said+="; the credentials it made and the digest lines it added to $env_file stay, which the old serve ignores"; fi
   finish "deploy: rolled back: $1; left as it began: $said; $(timing)"
 }
 
