@@ -32,6 +32,8 @@ It refuses before changing anything, and says why, exiting 1, when:
 - the proof did not pass, its files do not match their sha256, or it ran on uncommitted changes;
 - the checkout has changes, or is not at the proved commit or an ancestor of it;
 - serve is not answering, or the nightly backup is running;
+- serve's systemd unit is installed but `systemctl --user` cannot be reached, or the unit runs
+  without being enabled;
 - a credential and its digest in `.env` disagree, or one exists without the other;
 - another deploy is running, or the last one did not end.
 
@@ -41,6 +43,16 @@ Once it has started, it rolls back and exits 2 when:
 - a workflow is pending while a data file has rows to rewrite;
 - a data file would delete a row or drop a commit's subject (a person decides);
 - any later step fails.
+
+A rollback reverses each data file it ran. When a reverse raises, the rollback restores the dump it
+took into `grit_kalandra_restoring`, and only then renames `grit_kalandra` aside, as
+`grit_kalandra_rolled_back_<stamp>`, and the restored one into its place. The aside database is a
+person's to drop once satisfied, and the last line names it. When the database cannot be put
+right, the run ends `rollback incomplete` with serve stopped, the old code and jar in place, and
+the unit disabled, so nothing starts serve on it.
+
+Every step that waits has a bound: a Postgres statement or data file 300 s, the dump or a restore
+900 s, a stop 120 s, a start until serve answers 130 s, a join 120 s.
 
 ## Where the log is
 
@@ -62,3 +74,5 @@ each with what it backed up and its dump.
 - Start new Claude Code sessions in the joined checkouts. In a session that stayed open, run
   `/mcp` to connect kalandra again: its MCP connection ended when serve stopped.
 - Claims and their holders are unchanged.
+- After a rollback, the credentials it made and the digest lines it added to `.env` stay: the old
+  serve ignores them, and the next deploy uses them.
