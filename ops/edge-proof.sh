@@ -27,13 +27,14 @@
 # deploy's dry-run counts (forward-dry.txt) and each check's line (proof.txt), which names the
 # commit proved: `bin/kalandra deploy` runs those exact files, and only that commit.
 #
-# It calls no model. The installed Claude Code's MCP client connects through the join's
-# headersHelper by `claude mcp get`, which calls no model, in a joined checkout with a HOME of the
-# proof's own, no login and a key that is no key: its entry is the one the join wrote but for its
-# URL, a forwarder on 127.0.0.1:7319 (ops/forward.py) that checks each request's Authorization
-# header is the sessions' credential's (by its digest), never logging its value; a model's base
-# URL and every proxy name 127.0.0.1:7320, which logs and refuses all it is sent, and must be sent
-# nothing. A real Claude Code turn is ops/harness-check.sh's, run by hand; the proof prints one
+# It calls no model. Every call of the installed Claude Code (its --version, the fresh join's
+# `claude mcp add-json`, `claude mcp get`, the undo's `claude mcp remove`) runs with a HOME of the
+# proof's own, no login and a key that is no key, a model's base URL and every proxy naming
+# 127.0.0.1:7320, which logs and refuses all it is sent, and must be sent nothing. Its MCP client
+# connects through the join's headersHelper by `claude mcp get`, which calls no model, in a joined
+# checkout: its entry is the one the join wrote but for its URL, a forwarder on 127.0.0.1:7319
+# (ops/forward.py) that checks each request's Authorization header is the sessions' credential's
+# (by its digest), never logging its value. A real Claude Code turn is ops/harness-check.sh's, run by hand; the proof prints one
 # line when the installed claude or the join script is not the one that check last passed under.
 #
 # It must take at most proof_budget seconds, so that with the deploy's own budget
@@ -317,9 +318,19 @@ if [[ "$up" != 0 ]]; then
   tail -30 "$work/join-serve.log" >&2
   exit 1
 fi
+# Every call of the installed claude runs in this environment: a HOME of the proof's own, no
+# login, a key that is no key, and a model's base URL and every proxy the sink on 7320, which
+# logs and refuses all it is sent (started in step 10, and asked in step 12 whether it was sent
+# anything).
+real_claude="$(dirname "$(command -v claude)")"
+mkdir -p "$work/jhome2"
+no_model=(env -i PATH="$real_claude:/usr/bin:/bin" HOME="$work/jhome2" ANTHROPIC_API_KEY=edge-proof-no-key
+  ANTHROPIC_BASE_URL="http://$outside" HTTPS_PROXY="http://$outside" HTTP_PROXY="http://$outside"
+  https_proxy="http://$outside" http_proxy="http://$outside" NO_PROXY=127.0.0.1 no_proxy=127.0.0.1
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1)
 # What ops/harness-check.sh last passed under, beside the claude installed and the join this jar
 # serves: one line when either differs, which says to run it by hand; the proof passes either way.
-installed="$(claude --version 2>/dev/null | head -n 1)"
+installed="$(cd "$work/run" && "${no_model[@]}" claude --version 2>/dev/null | head -n 1)"
 r_claude="$(sed -n 's/^claude //p' "$harness_record" 2>/dev/null | head -n 1)"
 r_join="$(sed -n 's/^join //p' "$harness_record" 2>/dev/null | head -n 1)"
 if [[ ! -f "$harness_record" ]]; then
@@ -345,7 +356,7 @@ old_jar="$(sha "$clone/out/assembly.dest/out.jar")"
 say "live  $clone, a clone of $live at $old_head on $old_branch, its jar $old_jar"
 git -C "$clone" merge-base --is-ancestor "$old_head" "$proved"; holds $? "the proved commit descends from the live checkout's"
 dhome="$work/dhome"
-mkdir -p "$work/shim" "$dhome" "$work/jhome2"
+mkdir -p "$work/shim" "$dhome"
 # The credentials, as live has them: the command line's and the sessions', each with its digest in
 # the copy's .env, which the old serve needs to start.
 own="$dhome/.config/kalandra/credential"; ses="$dhome/.config/grit/credential"
@@ -725,10 +736,13 @@ expect 0 "a session's standing reaches the command" S standing '{"key":"grit/roa
 stage "join and hook"
 # ---- 10. The deploy's join beside a fresh join; then the hook.
 new_entry="$(entry "$repo" "$dhome")"
-# This join's `claude` is the installed Claude Code, in a HOME of its own, so the CLI call the live
-# join makes (`claude mcp add-json --scope local` of an entry with a headersHelper) is run for real.
-real_claude="$(dirname "$(command -v claude)")"
-R2() { (cd "$work/repo2" && HOME="$work/jhome2" PATH="$real_claude:/usr/bin:/bin" "$@"); }
+# This join's `claude` is the installed Claude Code, in the proof's no-model environment, so the
+# CLI call the live join makes (`claude mcp add-json --scope local` of an entry with a
+# headersHelper) is run for real. The forwarder, and the sink every proxy names, start first.
+(cd "$work/run" && exec python3 -I "$wt/ops/forward.py" 7319 7318 "$work/mcp.jsonl" "$(d "$ses")" 7320 "$work/outside.jsonl") >"$work/forward.log" 2>&1 &
+started+=("$!")
+for _ in $(seq 1 20); do listening 7319 && listening 7320 && break; sleep 0.25; done
+R2() { (cd "$work/repo2" && exec "${no_model[@]}" "$@"); }
 rc=0; R2 bash -s -- "$edge" --credential "$ses" --mcp-name kalandra <"$proof/join.sh" >"$work/join2.out" 2>&1 || rc=$?
 holds "$rc" "a fresh join with --credential, through the installed claude $(R2 claude --version 2>/dev/null), exits 0"
 grep -qxF "  mcp       kalandra at $edge/mcp, local scope" "$work/join2.out"; holds $? "  and the installed claude took its MCP entry"
@@ -815,18 +829,11 @@ stage "Claude Code's MCP client"
 # on 7320, which must be sent nothing. Its entry is the fresh join's, its URL the forwarder's,
 # added as kalandra-forwarded by the installed claude; the checkout is trusted, as a person does
 # once when Claude Code first asks, which the headersHelper needs.
-(cd "$work/run" && exec python3 -I "$wt/ops/forward.py" 7319 7318 "$work/mcp.jsonl" "$(d "$ses")" 7320 "$work/outside.jsonl") >"$work/forward.log" 2>&1 &
-started+=("$!")
-for _ in $(seq 1 20); do listening 7319 && listening 7320 && break; sleep 0.25; done
 via="$(jq -c --arg u "http://$forward/mcp" '. + {url: $u}' <<<"$(entry "$work/repo2" "$work/jhome2")")"
 [[ "$(jq -r .headersHelper <<<"$via")" == "'$work/repo2/.git/grit/claude-code/hook' header" ]]
 holds $? "the forwarded entry keeps the fresh join's headersHelper"
 f2="$work/jhome2/.claude.json"
 jq --arg p "$work/repo2" '.projects[$p].hasTrustDialogAccepted = true' "$f2" >"$f2.t" && mv "$f2.t" "$f2"
-no_model=(env -i PATH="$real_claude:/usr/bin:/bin" HOME="$work/jhome2" ANTHROPIC_API_KEY=edge-proof-no-key
-  ANTHROPIC_BASE_URL="http://$outside" HTTPS_PROXY="http://$outside" HTTP_PROXY="http://$outside"
-  https_proxy="http://$outside" http_proxy="http://$outside" NO_PROXY=127.0.0.1 no_proxy=127.0.0.1
-  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1)
 rc=0; (cd "$work/repo2" && exec "${no_model[@]}" timeout 20 claude mcp add-json --scope local kalandra-forwarded "$via") >"$work/mcp-add.out" 2>&1 || rc=$?
 holds "$rc" "the installed claude adds the forwarded entry"
 rc=0; (cd "$work/repo2" && exec "${no_model[@]}" timeout 20 claude mcp get kalandra-forwarded) >"$work/mcp-get.out" 2>&1 || rc=$?
@@ -842,8 +849,6 @@ if [[ -s "$work/mcp.jsonl" ]]; then
 else
   fail "the forwarder recorded no exchange"
 fi
-[[ ! -s "$work/outside.jsonl" ]]
-holds $? "nothing was sent toward a model or off the machine$([[ ! -s "$work/outside.jsonl" ]] || echo ": $(head -c 300 "$work/outside.jsonl" | tr '\n' ' ')")"
 rc=0; (cd "$work/repo2" && exec "${no_model[@]}" timeout 20 claude mcp remove --scope local kalandra-forwarded) >/dev/null 2>&1 || rc=$?
 holds "$rc" "the forwarded entry removed"
 
@@ -867,6 +872,8 @@ rc=0; R2 bash -o pipefail -c "$undo2" >"$work/undo2.out" 2>&1 || rc=$?
 [[ "$rc" == 0 && "$(entry "$work/repo2" "$work/jhome2")" == null ]]
 holds $? "the fresh join's printed undo, through the installed claude, removes its MCP entry"
 [[ ! -e "$work/repo2/.claude" ]]; holds $? "  and the settings file the join made, and the .claude directory it made"
+[[ ! -s "$work/outside.jsonl" ]]
+holds $? "no call of the installed claude sent anything toward a model or off the machine$([[ ! -s "$work/outside.jsonl" ]] || echo ": $(head -c 300 "$work/outside.jsonl" | tr '\n' ' ')")"
 # serve writes no files: what the deploys' HOME holds is the credentials, Claude Code's file the
 # stand-in writes, and the deploys' state.
 extra="$(cd "$dhome" && find . -type f -not -path ./.config/kalandra/credential -not -path ./.config/grit/credential \
