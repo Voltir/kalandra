@@ -7,8 +7,9 @@ that `ops/edge-proof.sh` has proved, and rolls itself back if anything fails:
 bin/kalandra deploy ~/.cache/kalandra-e7
 ```
 
-The argument is the proof's directory. Run it in this checkout. When this checkout does not yet
-hold `ops/deploy.sh`, run it from the proved checkout and name this one:
+The argument is the proof's directory. Deploy runs only the `ops/deploy.sh` of the proved commit,
+so when this checkout does not hold that one (whenever the build being deployed changed
+`ops/deploy.sh`), run it from the proved checkout and name this one:
 `<proved checkout>/bin/kalandra deploy --checkout ~/Projects/kalandra <proof dir>`.
 
 It makes no build. It installs the proved commit and the proved jar, makes any credential that is
@@ -20,6 +21,8 @@ proved commit. The script's header, `ops/deploy.sh`, says each step and what eac
 
 - Prove the commit: commit everything, then run `bin/kalandra build` and `ops/edge-proof.sh`.
   Deploy runs only the commit `proof.txt` names, and only when the proof ends `edge-proof: passed`.
+  A grit release that `build.mill` pins is built and proved against the commit its tag
+  (`v<version>`) names in grit's checkout; a snapshot, against its publish marker's.
 - When the proof prints a `note` line, the installed `claude` or the join script is not the one
   `ops/harness-check.sh` last passed under: run that check by hand (see "No model call").
 - End every Claude Code session in grit's checkout and its worktrees, except the one running the
@@ -31,13 +34,22 @@ proved commit. The script's header, `ops/deploy.sh`, says each step and what eac
 
 It refuses before changing anything, and says why, exiting 1, when:
 
-- the proof did not pass, its files do not match their sha256, or it ran on uncommitted changes;
+- the proof did not pass, its files do not match their sha256, it ran on uncommitted changes, or
+  its record names no commit or no grit;
+- the `ops/deploy.sh` running, or a data file's reverse, is not the proved commit's, or
+  `ops/data.tsv` names a data file with no reverse;
 - the proof took longer than its budget, or its record does not say how long it took;
-- the checkout has changes, or is not at the proved commit or an ancestor of it;
+- the checkout has changes, is not at the proved commit or an ancestor of it, or has no jar to
+  roll back to;
 - serve is not answering, or the nightly backup is running;
-- serve's systemd unit is installed but `systemctl --user` cannot be reached, or the unit runs
-  without being enabled;
-- a credential and its digest in `.env` disagree, or one exists without the other;
+- serve's systemd unit is installed but `systemctl --user` cannot be reached, the unit runs
+  without being enabled, or its database is not `GRIT_DATABASE_URL`'s; serve on another port
+  without `GRIT_DATABASE_URL`, or a database not on `localhost:5432`;
+- a credential is readable by others, its digest is in `.env` more than once or not 64 hex, a
+  credential and its digest disagree, or a digest is there without its credential;
+- the running serve refuses the brief the health check asks (see "Health");
+- the grit checkout is not a git checkout, a joined hook's path holds a quote, or a checkout is
+  joined and `claude` is not on `PATH`;
 - another deploy is running, or the last one did not end.
 
 Once it has started, it rolls back and exits 2 when:
@@ -92,9 +104,18 @@ Once serve is started, deploy checks that its startup line names the proved grit
 `project_list` answers 200 to the owner's and the sessions' credentials, that a brief
 (`grit/roadmap-coder-rules` as coder) answers 200 to the sessions', that a request with no
 credential is refused with 401, and that `/join/claude-code` serves the proved join script. Every
-ask is a command that only reads, so the check writes nothing. `bin/kalandra deploy --health` asks
-the running serve the same, with this HOME's credentials, at any time: exit 0 when every answer
-is right, 1 naming the first that is not.
+ask is a command that only reads, so the check writes nothing.
+
+Before it changes anything, deploy asks the serve that is running for the same brief, so that a
+store reason to refuse it (the artifact unknown, the role missing, the brief too large) refuses
+the deploy, rather than rolling back a healthy one after the start. A serve too old to have
+`project_brief` (404, `no command is named …`), or one not started with the credential (401), is
+no verdict on the brief, and only the new serve is asked it.
+
+`bin/kalandra deploy --health` asks the running serve three of the five, with this HOME's
+credentials, at any time: `project_list` through each credential, the brief, and the 401 with no
+credential (not the startup line or the join script, which only a deploy has a proof to compare
+with). Exit 0 when every answer is right, 1 naming the first that is not.
 
 ## Where the log is
 
@@ -108,8 +129,9 @@ run's seconds and those serve was down (from its stop until it answered again):
   next deploy refuses until it is done.
 
 The run is detached, so it goes on if the terminal or session that started it ends. The command
-follows it until it ends; `--detach` returns as soon as it starts. The three newest runs are kept,
-each with what it backed up and its dump.
+follows it until it ends and exits as the last line says; `--detach` returns as soon as it
+starts, exit 0 (1 when refused before it), and the log's last line then says how it ended. The
+three newest runs are kept, each with what it backed up and its dump.
 
 ## After
 
@@ -117,4 +139,4 @@ each with what it backed up and its dump.
   `/mcp` to connect kalandra again: its MCP connection ended when serve stopped.
 - Claims and their holders are unchanged.
 - After a rollback, the credentials it made and the digest lines it added to `.env` stay: the old
-  serve ignores them, and the next deploy uses them.
+  serve, started again, reads them from `.env`, and the next deploy keeps them.

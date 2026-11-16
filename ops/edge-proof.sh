@@ -3,12 +3,14 @@
 # through grit's commands edge with credentials: it restores a copy of grit_kalandra, makes a
 # copy of the live checkout (a clone at its commit, with its jar) serving the copy on a second
 # port, joins two checkouts of a throwaway repository to it, and runs `bin/kalandra deploy` there:
-# stopped by a data file that would drop a row's subject; failing after the data file is kept, and
-# rolled back to the copy as it began; failing so, with a reverse that raises, and rolled back by
-# restoring its dump, then with that restore failing; refused a record over the proof's budget;
-# whole; and again, with nothing to rewrite, over a budget lowered to see it say so. It
-# then drives the deployed serve the way the command line, sessions, agents, the join and Claude
-# Code will, and stops what it started and drops the copy.
+# with the command line's credential missing and the sessions' digest not configured, stopped by a
+# data file that would drop a row's subject; failing after the data file is kept, and rolled back
+# to the copy as it began; failing so, with a reverse that raises, and rolled back by restoring its
+# dump, then with that restore failing; refused a record over the proof's budget, and given
+# --began; whole; refused a brief the running serve refuses; and again, with nothing to rewrite,
+# over a budget lowered to see it say so. It then drives the deployed serve the way the command
+# line, sessions, agents, the join and Claude Code will, and stops what it started and drops the
+# copy.
 #
 #   ops/edge-proof.sh
 #
@@ -18,7 +20,8 @@
 # past the place rename, runs the reverse, so the deploys have a data file to keep and roll back.
 # Everything it serves is on 127.0.0.1:7318, with keys that are no keys, so nothing it serves can
 # spend; the deploys run with a HOME of the proof's own, holding credentials of its own, as live
-# holds its, each with its digest in the copy's .env, never printed.
+# holds its, each with its digest in the copy's .env, never printed: the first deploy makes the
+# command line's again and appends both digests, and the rest keep them.
 #
 # Into the proof's directory, ${KALANDRA_PROOF_DIR:-$HOME/.cache/kalandra-e7}, it saves the jar it
 # proved (serve.jar), the join script that jar serves (join.sh), grit's forward rewrite at the
@@ -34,8 +37,9 @@
 # connects through the join's headersHelper by `claude mcp get`, which calls no model, in a joined
 # checkout: its entry is the one the join wrote but for its URL, a forwarder on 127.0.0.1:7319
 # (ops/forward.py) that checks each request's Authorization header is the sessions' credential's
-# (by its digest), never logging its value. A real Claude Code turn is ops/harness-check.sh's, run by hand; the proof prints one
-# line when the installed claude or the join script is not the one that check last passed under.
+# (by its digest), never logging its value. A real Claude Code turn is ops/harness-check.sh's, run
+# by hand; the proof prints one line when the installed claude or the join script is not the one
+# that check last passed under.
 #
 # It must take at most proof_budget seconds, so that with the deploy's own budget
 # (ops/deploy.sh) a proof and the deploy after it take five minutes at most. It prints each
@@ -43,11 +47,12 @@
 # slowest stages, and its pass record says how long it took, which the deploy refuses over the
 # budget. KALANDRA_PROOF_BUDGET may set a budget lower than proof_budget, never higher.
 #
-# Refused, exit 1, before anything is started: the checkout has changes, grit_kalandra_e7 or
-# grit_kalandra_e7_join exists, something listens on 7318, 7319 or 7320, KALANDRA_LISTEN names
-# 7317, there is no jar, or the jar is not built against the grit build.mill pins (a release's
-# commit, its tag's in grit's checkout; a snapshot's, its marker's). Prints a line
-# a check, and `edge-proof: passed`, exit 0, only when every check held. Every process it starts,
+# Refused, exit 1, before anything is started: KALANDRA_LISTEN names 7317, the checkout has
+# changes, there is no jar, the jar is not built against the grit build.mill pins (a release's
+# commit, its tag's in grit's checkout; a snapshot's, its marker's), grit's checkout has no
+# machine-from-worker.sql at that commit, the live checkout has no jar, grit_kalandra_e7 or
+# grit_kalandra_e7_join exists, something listens on 7318, 7319 or 7320, or claude is not on
+# PATH. Prints a line a check, and `edge-proof: passed`, exit 0, only when every check held. Every process it starts,
 # and every one a deploy starts, runs in a directory under its own, and is stopped by its PID only
 # while that PID still runs there; the copies are dropped, however it ends.
 set -euo pipefail
@@ -690,7 +695,8 @@ asked="$(curl -q -s --noproxy '*' --max-time 10 -X POST -d '{}' "$edge/command/p
 holds $? "  with no credential the edge says: $asked"
 
 stage callers
-# ---- 8. Each credential the deploy made gets its caller.
+# ---- 8. Each credential gets its caller: the command line's, which deploy (a) made, and the
+# sessions'.
 K() { env -u CLAUDE_CODE_SESSION_ID KALANDRA_LISTEN="$listen" KALANDRA_CREDENTIAL="$own" "$wt/bin/kalandra" "$@"; }
 mkdir -p "$work/shome/.config/grit"
 (umask 077; cp "$ses" "$work/shome/.config/grit/credential")

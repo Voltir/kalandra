@@ -11,9 +11,11 @@
 #                    the seconds the proof took, within the budget edge-proof.sh names at that
 #                    commit; serve.jar, join.sh and every data file ops/data.tsv names, each with
 #                    its .sha256
-#   --health         only ask the running serve what the deploy's health check asks it, with this
-#                    HOME's credentials, and change nothing: exit 0 when every answer is right, 1
-#                    when one is not
+#   --health         only ask the running serve three of the health check's five asks, with this
+#                    HOME's credentials, and change nothing: project_list through each credential,
+#                    the brief, and the 401 with none (not serve's startup line, nor the join
+#                    script, which only a deploy has a proof to compare with); exit 0 when every
+#                    answer is right, 1 naming the first that is not
 #   --checkout DIR   the checkout deployed into (default: the one this script is in); it must be
 #                    clean, and at the proved commit or an ancestor of it
 #   --grit DIR       the repository whose checkouts are joined again: each of its worktrees whose
@@ -26,12 +28,16 @@
 # ${XDG_STATE_HOME:-~/.local/state}/kalandra-deploy, whose last line is how it ended. The three
 # newest runs are kept, each with what it backed up and its dump. Each stage's line in the log says
 # the seconds it took; the last line, the run's and those serve was down (stopped to answering).
-# A second deploy while one runs is refused. A run past deploy_budget seconds, counted from the
-# command's start, says `deploy: over its <n> s budget` in the line before its last, and is not
-# rolled back for it: a slow deploy that is healthy stays, as an outage would cost more.
+# A second deploy while one runs is refused, and so is one whose brief, the health check's, the
+# running serve refuses (brief_before says which answers refuse). A run past deploy_budget
+# seconds, counted from the command's start, says `deploy: over its <n> s budget` in the line
+# before its last, and is not rolled back for it: a slow deploy that is healthy stays, as an outage
+# would cost more.
 # KALANDRA_DEPLOY_BUDGET may set a budget lower than deploy_budget, never higher. Exit: 0 held;
 # 1 refused, nothing changed; 2 rolled back, left as it began; 3 the rollback did not finish, and
-# the log's last line says what a person must do; 4 held, over its budget; 64 usage.
+# the log's last line says what a person must do; 4 held, over its budget; 64 usage. With
+# --detach, 0 once the run has started (or 1, refused before it), and the log's last line says
+# how it ended.
 #
 # Serve is the checkout's: its systemd unit when it manages serve (KALANDRA_LISTEN unset or
 # 127.0.0.1:7317 and the unit enabled), whose GRIT_DATABASE_URL names the database; otherwise the
