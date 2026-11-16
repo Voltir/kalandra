@@ -472,7 +472,8 @@ grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$d
   grep -qxF "deploy: credentials: $ses kept; its digest is configured already" "$dlog"
 holds $? "  it keeps the two credentials live has, their digests configured already"
 [[ "$(grep -cxE 'KALANDRA_(OWNER|SESSIONS)_DIGEST=[0-9a-f]{64}' "$clone/.env")" == 2 ]]; holds $? "  and appends no digest to the copy's .env"
-grep -qF "$(<"$own")" "$dlog" "$work/deploy-a.out"; [[ $? == 1 ]]; holds $? "  and neither log holds the command line's credential"
+# The patterns read from the credentials' files, never put on a command line.
+grep -qF -f "$own" -f "$ses" "$dlog" "$work/deploy-a.out"; [[ $? == 1 ]]; holds $? "  and neither log holds either credential"
 began_as
 sql "DELETE FROM grit.session_events WHERE session = $p_session AND seq = $p_seq" >/dev/null
 
