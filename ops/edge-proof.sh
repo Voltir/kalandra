@@ -547,7 +547,8 @@ began_as
 
 stage "deploys c, d"
 # ---- 6. A record of a proof over its budget is refused; (c) the whole deploy; (d) again, with
-# nothing to rewrite, over a budget lowered to 1 s, which it reports and holds.
+# nothing to rewrite, over a budget lowered to 1 s, which it reports and holds; the deploy's health
+# check, alone, writes nothing.
 stage_proof
 over="$(awk -v b="$proof_budget" 'BEGIN { printf "%.1f", b + 0.1 }')"
 sed -i "s/^time  edge-proof took .*/time  edge-proof took $over s/" "$work/proved/proof.txt"
@@ -587,6 +588,24 @@ expect 0 "  serve answers after it, not rolled back" O show '{"key":"edge-proof-
 grep -qxF "deploy: machine-from-worker.sql: nothing to rewrite" "$dlog" && ! grep -q "machine-from-worker.sql: kept" "$dlog"
 holds $? "  its dry run counts 0, and nothing is kept"
 grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$dlog"; holds $? "  and the credentials are kept as they are"
+grep -q "^deploy: health: a brief of .* answers 200 to the sessions' credential" "$dlog"; holds $? "  its health check asks for a brief"
+# Every row of every table of grit's and DBOS's, by table: its count and a digest of its rows, but
+# a heartbeat_at, which serve's engine writes on a timer whatever it is asked (grit.engines).
+contents() {
+  pg psql -U grit -d "$restored" -At -v ON_ERROR_STOP=1 <<'SQL'
+SELECT format('SELECT %L || '' '' || count(*) || '' '' || md5(coalesce(string_agg(md5((to_jsonb(t) - ''heartbeat_at'')::text), '''' ORDER BY md5((to_jsonb(t) - ''heartbeat_at'')::text)), '''')) FROM %I.%I t',
+  n.nspname || '.' || c.relname, n.nspname, c.relname)
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r', 'p') AND n.nspname IN ('grit', 'dbos') ORDER BY 1
+\gexec
+SQL
+}
+contents >"$work/health-before.txt"
+expect 0 "the deploy's health check alone, bin/kalandra deploy --health, passes" "${denv[@]}" "$wt/bin/kalandra" deploy --health
+say "fact  deploy --health said: $(tr '\n' ';' <<<"$out")"
+contents >"$work/health-after.txt"
+[[ -s "$work/health-before.txt" ]] && cmp -s "$work/health-before.txt" "$work/health-after.txt"
+holds $? "  and wrote nothing: every row of $(wc -l <"$work/health-before.txt") tables of grit and dbos is as it was$(diff "$work/health-before.txt" "$work/health-after.txt" | grep '^>' | cut -d' ' -f2 | head -5 | tr '\n' ' ' | sed 's/^./, but: &/')"
 
 stage 401s
 # ---- 7. 401 everywhere, with no credential and with a wrong one; nothing kept.

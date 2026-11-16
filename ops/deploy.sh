@@ -4,12 +4,16 @@
 # checkout joined to serve, joined again. Run by `bin/kalandra deploy`:
 #
 #   bin/kalandra deploy [--checkout DIR] [--grit DIR] [--detach] <proof-dir>
+#   bin/kalandra deploy --health
 #
 #   <proof-dir>      what ops/edge-proof.sh wrote: proof.txt, ending `edge-proof: passed` and naming
 #                    the commit it proved (`commit <sha>`), the grit the jar is built against and
 #                    the seconds the proof took, within the budget edge-proof.sh names at that
 #                    commit; serve.jar, join.sh and every data file ops/data.tsv names, each with
 #                    its .sha256
+#   --health         only ask the running serve what the deploy's health check asks it, with this
+#                    HOME's credentials, and change nothing: exit 0 when every answer is right, 1
+#                    when one is not
 #   --checkout DIR   the checkout deployed into (default: the one this script is in); it must be
 #                    clean, and at the proved commit or an ancestor of it
 #   --grit DIR       the repository whose checkouts are joined again: each of its worktrees whose
@@ -58,6 +62,7 @@ self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE
 checkout=""
 grit="${KALANDRA_CHECKOUT:-$HOME/Projects/grit}"
 detach=0
+health_only=0
 run=""
 proof=""
 while [[ $# -gt 0 ]]; do
@@ -65,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     --checkout) [[ $# -ge 2 ]] || usage; checkout="$2"; shift ;;
     --grit) [[ $# -ge 2 ]] || usage; grit="$2"; shift ;;
     --detach) detach=1 ;;
+    --health) health_only=1 ;;
     --run) [[ $# -ge 2 ]] || usage; run="$2"; shift ;;
     # The command's start, which the run's budget counts from.
     --began) [[ $# -ge 2 && "$2" =~ ^[0-9]+\.[0-9]+$ ]] || usage; began="$2"; shift ;;
@@ -73,7 +79,8 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
-[[ -n "$proof" ]] || usage
+[[ -n "$proof" || "$health_only" == 1 ]] || usage
+[[ -z "$proof" || "$health_only" == 0 ]] || usage
 [[ -n "$checkout" ]] || checkout="$(dirname "$(dirname "$self")")"
 budget="$deploy_budget"
 if [[ -n "${KALANDRA_DEPLOY_BUDGET:-}" ]]; then
@@ -94,8 +101,13 @@ owner_cred="$HOME/.config/kalandra/credential"
 sessions_cred="$HOME/.config/grit/credential"
 unit=kalandra-serve.service
 mcp=kalandra
-# What the health check asks serve, through each credential: a read of the project kalandra keeps.
+# What the health check asks serve, by two commands that only read: the project kalandra keeps,
+# through each credential, and a brief, through the sessions', as a session asks for one.
 health_ask='{"project":"grit","state":"now"}'
+health_brief_key=grit/roadmap-coder-rules
+health_brief_role=coder
+# What serve answers a request with no credential.
+no_credential="refused: this edge needs a credential: send Authorization: Bearer <your credential>"
 
 # The last line of a run that ends, and the exit it means; the line before it says when the run
 # went over its budget.
@@ -122,7 +134,7 @@ refuse() {
   echo "deploy: refused: $*; nothing was changed"
   exit 1
 }
-log() { [[ -z "$run" ]] || printf 'deploy: %s\n' "$*"; }
+log() { [[ -z "$run" && "$health_only" == 0 ]] || printf 'deploy: %s\n' "$*"; }
 prune() {
   [[ -n "$run" && -d "$state/runs" ]] || return 0
   local d
@@ -150,6 +162,33 @@ cred_curl() {
   curl -q -s --noproxy '*' --max-time 15 -H @<(printf 'Authorization: Bearer %s\n' "$(<"$f")") "$@"
 }
 answers() { curl -q -s --noproxy '*' --max-time 5 -o /dev/null -X POST -d '{}' "$edge/command/project_list" 2>/dev/null; }
+# The body of serve's answer in `body`, its status in `code`; curl's arguments are $@.
+asked() {
+  body="$("$@" -w '\n%{http_code}')"
+  code="${body##*$'\n'}"
+  body="${body%$'\n'*}"
+}
+# What the health check asks serve, by commands that only read, so it writes nothing; `why` says
+# the first answer that is not what it should be.
+health_asks() {
+  local who f code body
+  for who in "the owner's" "the sessions'"; do
+    if [[ "$who" == "the owner's" ]]; then f="$owner_cred"; else f="$sessions_cred"; fi
+    [[ -s "$f" ]] || { why="there is no credential in $f"; return 1; }
+    asked cred_curl "$f" -o /dev/null -X POST -H 'Content-Type: application/json' --data-binary "$health_ask" "$edge/command/project_list"
+    [[ "$code" == 200 ]] || { why="project_list with $who credential answered $code"; return 1; }
+  done
+  asked cred_curl "$sessions_cred" -X POST -H 'Content-Type: application/json' \
+    --data-binary "{\"key\":\"$health_brief_key\",\"role\":\"$health_brief_role\",\"chars\":100000}" "$edge/command/project_brief"
+  [[ "$code" == 200 && "$(head -n 1 <<<"$body")" == "$health_brief_key | "* ]] ||
+    { why="a brief of $health_brief_key as $health_brief_role answered $code: $(head -n 1 <<<"$body" | head -c 200)"; return 1; }
+  asked curl -q -s --noproxy '*' --max-time 15 -X POST -d '{}' "$edge/command/project_list"
+  [[ "$code" == 401 && "$body" == "$no_credential" ]] ||
+    { why="a request with no credential answered $code $(head -c 200 <<<"$body"), not 401 $no_credential"; return 1; }
+  log "health: project_list of grit answers 200 to the owner's and the sessions' credentials"
+  log "health: a brief of $health_brief_key as $health_brief_role answers 200 to the sessions' credential"
+  log "health: with no credential serve answers 401: $no_credential"
+}
 unit_file="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$unit"
 # Whether the unit owns serve, as bin/kalandra decides it, asked of systemd now; `managed` is the
 # answer preflight got, which the whole run keeps.
@@ -302,6 +341,13 @@ preflight() {
 declare -A plan
 X="" gv="" gc="" jar_sha="" H="" B="" db="" env_file=""
 fwd=() rev=() loss=() joined=() old_cred=()
+
+# ---- --health: the health check's asks alone, of the serve running now.
+if ((health_only)); then
+  why=""
+  health_asks || { echo "deploy: health: $why"; exit 1; }
+  exit 0
+fi
 
 # ---- The command: refusals, then the run, detached, followed to its end unless --detach.
 if [[ -z "$run" ]]; then
@@ -573,19 +619,12 @@ stage_join() {
 }
 
 stage_health() {
-  local line code who f
+  local line code
   line="$(tail -c +"$((serve_log_size + 1))" "$checkout/logs/serve.log" | grep -a '^\[kalandra\] grit ' | tail -n 1)"
   [[ "$line" == "[kalandra] grit $gv at $gc" ]] ||
     { why="serve's startup line names grit ${line#\[kalandra\] grit }, not $gv at ${gc:0:12}"; [[ -n "$line" ]] || why="serve logged no startup line naming its grit"; return 1; }
   log "health: serve says $line"
-  for who in "the owner's" "the sessions'"; do
-    if [[ "$who" == "the owner's" ]]; then f="$owner_cred"; else f="$sessions_cred"; fi
-    code="$(cred_curl "$f" -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary "$health_ask" "$edge/command/project_list")"
-    [[ "$code" == 200 ]] || { why="a request with $who credential answered $code"; return 1; }
-  done
-  code="$(curl -q -s --noproxy '*' --max-time 15 -o /dev/null -w '%{http_code}' -X POST -d '{}' "$edge/command/project_list")"
-  [[ "$code" == 401 ]] || { why="a request with no credential answered $code, not 401"; return 1; }
-  log "health: project_list of grit answers 200 to the owner's and the sessions' credentials, 401 to none"
+  health_asks || return 1
   code="$(cred_curl "$sessions_cred" -o "$run/join.served" -w '%{http_code}' "$edge/join/claude-code")"
   [[ "$code" == 200 && "$(sha "$run/join.served")" == "$(sha "$proof/join.sh")" ]] ||
     { why="/join/claude-code served a script that is not join.sh"; return 1; }

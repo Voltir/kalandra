@@ -86,6 +86,16 @@ calls a kalandra tool through the join's MCP entry, about a third of a cent. It 
 Run it by hand when the join script changes or `claude --version` changes, as the proof's `note`
 line says; a pass records both in `~/.local/state/kalandra-harness-check/passed.txt`.
 
+## Health
+
+Once serve is started, deploy checks that its startup line names the proved grit, that
+`project_list` answers 200 to the owner's and the sessions' credentials, that a brief
+(`grit/roadmap-coder-rules` as coder) answers 200 to the sessions', that a request with no
+credential is refused with 401, and that `/join/claude-code` serves the proved join script. Every
+ask is a command that only reads, so the check writes nothing. `bin/kalandra deploy --health` asks
+the running serve the same, with this HOME's credentials, at any time: exit 0 when every answer
+is right, 1 naming the first that is not.
+
 ## Where the log is
 
 `~/.local/state/kalandra-deploy/runs/<stamp>/deploy.log`, whose path the command prints first.
