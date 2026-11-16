@@ -469,21 +469,34 @@ if [[ "$failed" != 0 ]]; then
   exit 1
 fi
 
+O() { env -i PATH=/usr/bin:/bin HOME="$dhome" KALANDRA_LISTEN="$listen" "$clone/bin/kalandra" "$@"; }
+
 stage "deploy a"
 # ---- 4. (a) A data file that would drop a row's subject stops the deploy: one commit event under
 # worker given a shape of 300 bytes, which the rename must take past the bound.
 planted="$(sql "WITH e AS (SELECT session, regexp_replace(shape::text, ',\"subject\":\"[^\"\\\\]*\"\\}\$', '') AS head FROM grit.session_events WHERE kind = 'commit' AND shape ->> 'worktree' LIKE 'worker:%' AND shape::text ~ ',\"subject\":\"[^\"\\\\]*\"\\}\$' AND session IN (SELECT session FROM grit.session_events GROUP BY session HAVING max(seq) < 5000) ORDER BY session DESC, seq DESC LIMIT 1) INSERT INTO grit.session_events (session, seq, n, at, kind, shape) SELECT e.session, (SELECT max(seq) + 1 FROM grit.session_events WHERE session = e.session), (SELECT max(n) + 1 FROM grit.session_events WHERE session = e.session), now(), 'commit', (e.head || ',\"subject\":\"' || repeat('x', 300 - octet_length(e.head) - 14) || '\"}')::json FROM e RETURNING session || ' ' || seq || ' ' || octet_length(shape::text)")"
 read -r p_session p_seq p_len <<<"$planted"
 [[ "$p_len" == 300 ]]; holds $? "a commit event of 300 bytes under worker planted in the copy: $planted"
+# The credentials' other two paths: the command line's removed, with its digest, for the deploy to
+# make; the sessions' digest removed from .env, its file kept, for the deploy to append. The
+# running serve keeps the digests it was started with until the deploy stops it.
+old_own="$(d "$own")"
+rm -f -- "$own"
+sed -i '/^KALANDRA_\(OWNER\|SESSIONS\)_DIGEST=/d' "$clone/.env"
 deploy a
-[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: machine-from-worker.sql would lose rows (grit.session_events rewritten without their subject 1); its counts are in the log, a person decides; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, serve answering on $listen" ]]
+[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: machine-from-worker.sql would lose rows (grit.session_events rewritten without their subject 1); its counts are in the log, a person decides; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, serve answering on $listen; the credentials it made and the digest lines it added to $clone/.env stay, for the next deploy" ]]
 holds $? "(a) the deploy stops at the row that would lose its subject, exit 2"
 grep -qxF "deploy: dry  machine-from-worker.sql  grit.session_events rewritten without their subject  1" "$dlog"; holds $? "  its log has the dry run's count"
-say "fact  (a) $(grep -m 1 '^deploy: preflight: ' "$dlog" || echo "deploy: preflight said nothing of the brief")"
-grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$dlog" &&
-  grep -qxF "deploy: credentials: $ses kept; its digest is configured already" "$dlog"
-holds $? "  it keeps the two credentials live has, their digests configured already"
-[[ "$(grep -cxE 'KALANDRA_(OWNER|SESSIONS)_DIGEST=[0-9a-f]{64}' "$clone/.env")" == 2 ]]; holds $? "  and appends no digest to the copy's .env"
+grep -qxF "deploy: credentials: $own made" "$dlog" &&
+  grep -qxF "deploy: credentials: $ses kept; its digest is configured now" "$dlog" &&
+  grep -qxF "deploy: credentials: KALANDRA_OWNER_DIGEST appended to $clone/.env" "$dlog" &&
+  grep -qxF "deploy: credentials: KALANDRA_SESSIONS_DIGEST appended to $clone/.env" "$dlog"
+holds $? "  it made the command line's credential and appended both digests"
+[[ -f "$own" && "$(stat -c %a "$own")" == 600 && "$(d "$own")" != "$old_own" ]]; holds $? "  the credential it made is new, and 0600"
+[[ "$(grep -cxE 'KALANDRA_(OWNER|SESSIONS)_DIGEST=[0-9a-f]{64}' "$clone/.env")" == 2 ]] &&
+  grep -qxF "KALANDRA_OWNER_DIGEST=$(d "$own")" "$clone/.env" && grep -qxF "KALANDRA_SESSIONS_DIGEST=$(d "$ses")" "$clone/.env"
+holds $? "  and the copy's .env holds each digest once, the credential's"
+expect 0 "  the old serve, rolled back, takes the credential the deploy made" O list '{"project":"grit","state":"now"}'
 # The patterns read from the credentials' files, never put on a command line.
 grep -qF -f "$own" -f "$ses" "$dlog" "$work/deploy-a.out"; [[ $? == 1 ]]; holds $? "  and neither log holds either credential"
 began_as
@@ -500,8 +513,12 @@ holds $? "(b) the deploy rolls back from a failed join, exit 2"
 grep -qxF "deploy: machine-from-worker.sql: kept" "$dlog"; holds $? "  after it kept the data file"
 [[ ! -e "$plant" ]]; holds $? "  the plant fired"
 [[ "$(jq -r '.proofMidDeploy' "$repo/.claude/settings.local.json")" == kept ]]; holds $? "  the key written mid-deploy is still in the settings"
+say "fact  (b) $(grep -m 1 '^deploy: preflight: ' "$dlog" || echo "deploy: preflight said nothing of the brief")"
+grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$dlog" &&
+  grep -qxF "deploy: credentials: $ses kept; its digest is configured already" "$dlog" &&
+  [[ "$(grep -cxE 'KALANDRA_(OWNER|SESSIONS)_DIGEST=[0-9a-f]{64}' "$clone/.env")" == 2 ]]
+holds $? "  it keeps the credentials (a) made and appended, and appends no digest again"
 began_as
-O() { env -i PATH=/usr/bin:/bin HOME="$dhome" KALANDRA_LISTEN="$listen" "$clone/bin/kalandra" "$@"; }
 expect 0 "the copy's serve, rolled back, shows what the new serve kept in its window" O show '{"key":"edge-proof-window/m"}'
 grep -q "window-text-1" <<<"$out"; holds $? "  as it kept it"
 

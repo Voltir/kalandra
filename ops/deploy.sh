@@ -789,7 +789,9 @@ rollback() {
   said="kalandra ${H:0:12}, jar ${old_jar_sha:0:12}"
   for r in "${left[@]}"; do said+=", $r"; done
   if ((stopped)); then said+=", serve answering on $listen"; fi
-  if ((made_creds)); then said+="; the credentials it made and the digest lines it added to $env_file stay, which the old serve ignores"; fi
+  # The old serve, started again from $env_file, takes them; a serve older than credentials
+  # ignores them.
+  if ((made_creds)); then said+="; the credentials it made and the digest lines it added to $env_file stay, for the next deploy"; fi
   finish "deploy: rolled back: $1; left as it began: $said; $(timing)"
 }
 
