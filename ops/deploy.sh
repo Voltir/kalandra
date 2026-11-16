@@ -64,6 +64,7 @@ grit="${KALANDRA_CHECKOUT:-$HOME/Projects/grit}"
 detach=0
 health_only=0
 run=""
+began_given=0
 proof=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -72,8 +73,9 @@ while [[ $# -gt 0 ]]; do
     --detach) detach=1 ;;
     --health) health_only=1 ;;
     --run) [[ $# -ge 2 ]] || usage; run="$2"; shift ;;
-    # The command's start, which the run's budget counts from.
-    --began) [[ $# -ge 2 && "$2" =~ ^[0-9]+\.[0-9]+$ ]] || usage; began="$2"; shift ;;
+    # The command's start, which the run's budget counts from: the command passes it to the run,
+    # and a person's command line may not, so that no one can start the count late.
+    --began) [[ $# -ge 2 && "$2" =~ ^[0-9]+\.[0-9]+$ ]] || usage; began="$2"; began_given=1; shift ;;
     -*) usage ;;
     *) [[ -z "$proof" ]] || usage; proof="$1" ;;
   esac
@@ -81,6 +83,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$proof" || "$health_only" == 1 ]] || usage
 [[ -z "$proof" || "$health_only" == 0 ]] || usage
+[[ "$began_given" == 0 || -n "$run" ]] || usage
 [[ -n "$checkout" ]] || checkout="$(dirname "$(dirname "$self")")"
 budget="$deploy_budget"
 if [[ -n "${KALANDRA_DEPLOY_BUDGET:-}" ]]; then

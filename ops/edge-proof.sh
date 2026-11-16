@@ -565,6 +565,8 @@ rc=0; out="$(cd "$work/run" && exec timeout 60 "${denv[@]}" "$wt/bin/kalandra" d
 [[ "$rc" == 1 && "$out" == "deploy: refused: the proof took $over s, over its $proof_budget s budget; prove again, cutting what made it slow; nothing was changed" ]]
 holds $? "a proof that took $over s is refused, exit 1: $(tail -n 1 <<<"$out")"
 stage_proof
+expect 64 "a deploy given --began, which only the command gives its run, is refused as usage" \
+  "${denv[@]}" "$wt/bin/kalandra" deploy --began 1.0 --checkout "$clone" --grit "$repo" "$work/proved"
 deploy c
 X12="${proved:0:12}"
 [[ "$drc" == 0 && "$dlast" == "deploy: held: kalandra $X12 with grit $version at ${at:0:12} serving on $listen; 1 data files kept, 2 checkouts joined" ]]
