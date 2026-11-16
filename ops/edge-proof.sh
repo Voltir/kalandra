@@ -2,9 +2,11 @@
 # The proof, before a deploy, that this checkout's commit deploys over the live one and serves
 # through grit's commands edge with credentials: it restores a copy of grit_kalandra, makes a
 # copy of the live checkout (a clone at its commit, with its jar) serving the copy on a second
-# port, joins two checkouts of a throwaway repository to it, and runs `bin/kalandra deploy` there
-# four times: stopped by a data file that would drop a row's subject; failing after the data file
-# is kept, and rolled back to the copy as it began; whole; and again, with nothing to rewrite. It
+# port, joins two checkouts of a throwaway repository to it, and runs `bin/kalandra deploy` there:
+# stopped by a data file that would drop a row's subject; failing after the data file is kept, and
+# rolled back to the copy as it began; failing so, with a reverse that raises, and rolled back by
+# restoring its dump, then with that restore failing; refused a record over the proof's budget;
+# whole; and again, with nothing to rewrite, over a budget lowered to see it say so. It
 # then drives the deployed serve the way the command line, sessions, agents, the join and Claude
 # Code will, and stops what it started and drops the copy.
 #
@@ -34,6 +36,12 @@
 # nothing. A real Claude Code turn is ops/harness-check.sh's, run by hand; the proof prints one
 # line when the installed claude or the join script is not the one that check last passed under.
 #
+# It must take at most proof_budget seconds, so that with the deploy's own budget
+# (ops/deploy.sh) a proof and the deploy after it take five minutes at most. It prints each
+# stage's seconds, fails itself at the first stage boundary past its budget, naming its three
+# slowest stages, and its pass record says how long it took, which the deploy refuses over the
+# budget. KALANDRA_PROOF_BUDGET may set a budget lower than proof_budget, never higher.
+#
 # Refused, exit 1, before anything is started: the checkout has changes, grit_kalandra_e7 or
 # grit_kalandra_e7_join exists, something listens on 7318, 7319 or 7320, KALANDRA_LISTEN names
 # 7317, there is no jar, or the jar is not built against the grit snapshot's marker. Prints a line
@@ -41,6 +49,10 @@
 # and every one a deploy starts, runs in a directory under its own, and is stopped by its PID only
 # while that PID still runs there; the copies are dropped, however it ends.
 set -euo pipefail
+
+# The proof's budget, in seconds; ops/deploy.sh reads it here, at the commit proved.
+proof_budget=240
+t_began="${EPOCHREALTIME/,/.}"
 
 wt="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 jar="$wt/out/assembly.dest/out.jar"
@@ -58,6 +70,12 @@ edge="http://$listen"
 # Where ops/harness-check.sh records the claude and the join script it last passed under.
 harness_record="${XDG_STATE_HOME:-$HOME/.local/state}/kalandra-harness-check/passed.txt"
 [[ $# == 0 ]] || { echo "usage: ops/edge-proof.sh" >&2; exit 64; }
+budget="$proof_budget"
+if [[ -n "${KALANDRA_PROOF_BUDGET:-}" ]]; then
+  [[ "$KALANDRA_PROOF_BUDGET" =~ ^[0-9]+$ && "$KALANDRA_PROOF_BUDGET" -le "$proof_budget" ]] ||
+    { echo "edge-proof: KALANDRA_PROOF_BUDGET may lower the budget of $proof_budget s, not raise it" >&2; exit 64; }
+  budget="$KALANDRA_PROOF_BUDGET"
+fi
 
 pg() { docker compose --project-directory "$compose" exec -T postgres "$@"; }
 sql() { pg psql -U grit -d "$restored" -At -v ON_ERROR_STOP=1 -c "$1"; }
@@ -173,8 +191,29 @@ expect() {
 }
 keep_file() { cp "$1" "$proof/$2" && (cd "$proof" && sha256sum "$2" >"$2.sha256") && say "file  $(cut -d' ' -f1 "$proof/$2.sha256")  $2"; }
 
+# Seconds, to a tenth, as the deploy counts them.
+now() { local t="$EPOCHREALTIME"; echo "${t/,/.}"; }
+since() { awk -v a="$1" -v b="${2:-$(now)}" 'BEGIN { printf "%.1f", b - a }'; }
+# Each stage ended, as "<seconds> <name>"; the one running, and when it began.
+stages=()
+stage_name=refusals
+stage_at="$t_began"
+# stage <name>: ends the stage running, printing its seconds, and ends the proof, failed, when it
+# is past its budget; then starts the stage <name>.
+stage() {
+  local t took
+  t="$(now)"
+  stages+=("$(since "$stage_at" "$t") $stage_name")
+  say "time  $stage_name took ${stages[-1]%% *} s"
+  stage_name="$1" stage_at="$t"
+  took="$(since "$t_began" "$t")"
+  awk -v a="$took" -v b="$budget" 'BEGIN { exit !(a > b) }' || return 0
+  say "edge-proof: over its $budget s budget at $took s; its three slowest stages: $(printf '%s\n' "${stages[@]}" | sort -rn | head -n 3 |
+    awk '{ s = $1; $1 = ""; printf "%s%s %s s", (NR > 1 ? ", " : ""), substr($0, 2), s }')"
+  exit 1
+}
+
 proved="$(git -C "$wt" rev-parse HEAD)"
-began_at="$SECONDS"
 say "edge-proof: $(date -u +%Y-%m-%dT%H:%M:%SZ), checkout $wt at $(git -C "$wt" rev-parse --short HEAD)"
 say "commit $proved"
 say "grit  the jar is built against grit $built"
@@ -183,6 +222,7 @@ printf '%s\n' "$forward_sql" >"$work/machine-from-worker.sql"
 keep_file "$work/machine-from-worker.sql" machine-from-worker.sql
 keep_file "$wt/ops/worker-from-machine.sql" worker-from-machine.sql
 
+stage copy
 # ---- 1. The copy, and what it holds before anything changes it.
 pg pg_dump -U grit -Fc grit_kalandra >"$work/live.dump"
 pg pg_restore --list <"$work/live.dump" >/dev/null
@@ -224,6 +264,7 @@ say "claim $(wc -l <"$work/claims-before.txt") claims in the copy"
 # The rows whose place differs from the copy's before any deploy, of those that were there then.
 changed_q="SELECT b.tbl || ' ' || b.k FROM e7proof.before b LEFT JOIN e7proof.placed p ON p.tbl = b.tbl AND p.k = b.k WHERE p.v IS DISTINCT FROM b.v ORDER BY 1"
 
+stage "join script"
 # ---- 2. The proved jar's join script, from a serve of it on an empty database; serve refuses to
 # start without either digest.
 mkdir -p "$work/home" "$work/cred"
@@ -281,6 +322,7 @@ else
   say "harn  ops/harness-check.sh last passed under claude $installed and this join"
 fi
 
+stage "live copy"
 # ---- 3. The live checkout's copy: a clone at its commit, its jar, keys that are no keys; serving
 # the copy on 7318, and two checkouts of a repository joined to it with its own join script. A
 # deploy's HOME is $dhome, where `claude` is a stand-in that keeps local-scope MCP entries in
@@ -380,13 +422,14 @@ done
 # deploy runs only a proved commit, and the checks it is proved by follow.
 stage_proof() {
   cp -- "$proof/proof.txt" "$work/proved/proof.txt"
+  echo "time  edge-proof took $(since "$t_began") s" >>"$work/proved/proof.txt"
   echo "edge-proof: passed" >>"$work/proved/proof.txt"
 }
-# deploy <name>: the deploy, run as a person runs it, into the clone; its exit in $drc, its last
-# line in $dlast, its log in $dlog.
+# deploy <name> [VAR=value…]: the deploy, run as a person runs it, into the clone, with any more
+# variables given; its exit in $drc, its last line in $dlast, its log in $dlog.
 deploy() {
   drc=0
-  (cd "$work/run" && exec timeout 900 "${denv[@]}" "$wt/bin/kalandra" deploy --checkout "$clone" --grit "$repo" "$work/proved") \
+  (cd "$work/run" && exec timeout 900 "${denv[@]}" "${@:2}" "$wt/bin/kalandra" deploy --checkout "$clone" --grit "$repo" "$work/proved") \
     >"$work/deploy-$1.out" 2>&1 || drc=$?
   local full
   full="$(tail -n 1 "$work/deploy-$1.out")"
@@ -407,6 +450,7 @@ if [[ "$failed" != 0 ]]; then
   exit 1
 fi
 
+stage "deploy a"
 # ---- 4. (a) A data file that would drop a row's subject stops the deploy: one commit event under
 # worker given a shape of 300 bytes, which the rename must take past the bound.
 planted="$(sql "WITH e AS (SELECT session, regexp_replace(shape::text, ',\"subject\":\"[^\"\\\\]*\"\\}\$', '') AS head FROM grit.session_events WHERE kind = 'commit' AND shape ->> 'worktree' LIKE 'worker:%' AND shape::text ~ ',\"subject\":\"[^\"\\\\]*\"\\}\$' AND session IN (SELECT session FROM grit.session_events GROUP BY session HAVING max(seq) < 5000) ORDER BY session DESC, seq DESC LIMIT 1) INSERT INTO grit.session_events (session, seq, n, at, kind, shape) SELECT e.session, (SELECT max(seq) + 1 FROM grit.session_events WHERE session = e.session), (SELECT max(n) + 1 FROM grit.session_events WHERE session = e.session), now(), 'commit', (e.head || ',\"subject\":\"' || repeat('x', 300 - octet_length(e.head) - 14) || '\"}')::json FROM e RETURNING session || ' ' || seq || ' ' || octet_length(shape::text)")"
@@ -424,6 +468,7 @@ grep -qF "$(<"$own")" "$dlog" "$work/deploy-a.out"; [[ $? == 1 ]]; holds $? "  a
 began_as
 sql "DELETE FROM grit.session_events WHERE session = $p_session AND seq = $p_seq" >/dev/null
 
+stage "deploy b"
 # ---- 5. (b) A failure after the data file is kept and the new serve is up: the join's MCP add
 # fails, after a keep through the new serve and a key a session writes into the settings.
 touch "$plant"
@@ -439,6 +484,7 @@ O() { env -i PATH=/usr/bin:/bin HOME="$dhome" KALANDRA_LISTEN="$listen" "$clone/
 expect 0 "the copy's serve, rolled back, shows what the new serve kept in its window" O show '{"key":"edge-proof-window/m"}'
 grep -q "window-text-1" <<<"$out"; holds $? "  as it kept it"
 
+stage "deploys e, f"
 # ---- 5b. (e) A reverse that raises: one session event naming its worktree under machine in a form
 # the reverse refuses, and the join's failure after the keep; the rollback restores the dump into
 # <copy>_restoring, then renames the copy aside and the restored one into its name. (f) The same,
@@ -499,7 +545,15 @@ rc=0; J "$repo" "$dhome" "$edge" --credential "$ses" --mcp-name kalandra <"$work
 holds "$rc" "  and the copy's join again in $repo exits 0"
 began_as
 
-# ---- 6. (c) The whole deploy; (d) again, with nothing to rewrite.
+stage "deploys c, d"
+# ---- 6. A record of a proof over its budget is refused; (c) the whole deploy; (d) again, with
+# nothing to rewrite, over a budget lowered to 1 s, which it reports and holds.
+stage_proof
+over="$(awk -v b="$proof_budget" 'BEGIN { printf "%.1f", b + 0.1 }')"
+sed -i "s/^time  edge-proof took .*/time  edge-proof took $over s/" "$work/proved/proof.txt"
+rc=0; out="$(cd "$work/run" && exec timeout 60 "${denv[@]}" "$wt/bin/kalandra" deploy --checkout "$clone" --grit "$repo" "$work/proved" 2>&1)" || rc=$?
+[[ "$rc" == 1 && "$out" == "deploy: refused: the proof took $over s, over its $proof_budget s budget; prove again, cutting what made it slow; nothing was changed" ]]
+holds $? "a proof that took $over s is refused, exit 1: $(tail -n 1 <<<"$out")"
 stage_proof
 deploy c
 X12="${proved:0:12}"
@@ -521,13 +575,20 @@ for w in "$repo" "$repo_wt"; do
   holds $? "  $w's MCP entry is $edge/mcp with the hook's header as its headersHelper"
 done
 stage_proof
-deploy d
-[[ "$drc" == 0 && "$dlast" == "deploy: held: kalandra $X12 with grit $version at ${at:0:12} serving on $listen; 0 data files kept, 2 checkouts joined" ]]
-holds $? "(d) a second deploy holds, exit 0"
+deploy d KALANDRA_DEPLOY_BUDGET=1
+[[ "$drc" == 4 && "$dlast" == "deploy: held: kalandra $X12 with grit $version at ${at:0:12} serving on $listen; 0 data files kept, 2 checkouts joined" ]]
+holds $? "(d) a second deploy holds over its budget, exit 4"
+over_line="$(grep '^deploy: over its' "$dlog")"
+[[ "$over_line" =~ ^deploy:\ over\ its\ 1\ s\ budget:\ it\ took\ [0-9]+\.[0-9]\ s\;\ held,\ not\ rolled\ back$ ]] &&
+  [[ "$(tail -n 2 "$dlog" | head -n 1)" == "$over_line" ]] && grep -qxF "$over_line" "$work/deploy-d.out"
+holds $? "  its log's last line but one, and the command's, says: $over_line"
+expect 0 "  serve answers after it, not rolled back" O show '{"key":"edge-proof-window/m"}'
+[[ ! -e "$dhome/.local/state/kalandra-deploy/running" ]]; holds $? "  and the next deploy is not refused for it"
 grep -qxF "deploy: machine-from-worker.sql: nothing to rewrite" "$dlog" && ! grep -q "machine-from-worker.sql: kept" "$dlog"
 holds $? "  its dry run counts 0, and nothing is kept"
 grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$dlog"; holds $? "  and the credentials are kept as they are"
 
+stage 401s
 # ---- 7. 401 everywhere, with no credential and with a wrong one; nothing kept.
 kept_q="SELECT (SELECT count(*) FROM grit.documents) || '/' || (SELECT count(*) FROM grit.sessions) || '/' || (SELECT count(*) FROM grit.session_events) || '/' || (SELECT count(*) FROM grit.claims)"
 kept_before="$(sql "$kept_q")"
@@ -558,6 +619,7 @@ asked="$(curl -q -s --noproxy '*' --max-time 10 -X POST -d '{}' "$edge/command/p
 [[ "$asked" == "refused: this edge needs a credential: send Authorization: Bearer <your credential>" ]]
 holds $? "  with no credential the edge says: $asked"
 
+stage callers
 # ---- 8. Each credential the deploy made gets its caller.
 K() { env -u CLAUDE_CODE_SESSION_ID KALANDRA_LISTEN="$listen" KALANDRA_CREDENTIAL="$own" "$wt/bin/kalandra" "$@"; }
 mkdir -p "$work/shome/.config/grit"
@@ -617,6 +679,7 @@ expect 1 "the jar's command with a credential serve does not know is refused" en
 [[ "$out" == *"[kalandra] serve refused the credential in $wrong (401) for project_export; ask whoever runs serve for this credential and put it in $wrong" ]]
 holds $? "  and says: $(tail -1 <<<"$out")"
 
+stage "lower credential"
 # ---- 9. The lower credential is refused adopt, and reaches the other own commands.
 expect 1 "a session's adopt is refused" S adopt '{"key":"edge-proof/n"}'
 say "fact  the session's adopt answered: $(head -1 <<<"$out")"
@@ -629,6 +692,7 @@ grep -q "answered 409" <<<"$out" && grep -q project_adopt <<<"$out"; holds $? " 
 expect 0 "a session's standing reaches the command" S standing '{"key":"grit/roadmap-grit-coder"}'
 [[ "$(K show '{"key":"edge-proof/n"}')" == "$before" ]]; holds $? "edge-proof/n unchanged after the adopts"
 
+stage "join and hook"
 # ---- 10. The deploy's join beside a fresh join; then the hook.
 new_entry="$(entry "$repo" "$dhome")"
 # This join's `claude` is the installed Claude Code, in a HOME of its own, so the CLI call the live
@@ -749,6 +813,7 @@ holds $? "nothing was sent toward a model or off the machine$([[ ! -s "$work/out
 rc=0; (cd "$work/repo2" && exec "${no_model[@]}" timeout 20 claude mcp remove --scope local kalandra-forwarded) >/dev/null 2>&1 || rc=$?
 holds "$rc" "the forwarded entry removed"
 
+stage undo
 # ---- 12. The join's undo, the line the deploy's join printed run as printed, in both checkouts;
 # what the deploys wrote; the claims.
 undo_line="$(sed -n 's/^deploy: join  Undo: //p' "$dlog" | head -n 1)"
@@ -778,12 +843,9 @@ cmp -s <(grep -v '|edge-proof/' "$work/claims-before.txt") "$work/claims-after.t
 written="$(find "$wt" -newer "$work/start" -type f -not -path "$wt/out/*" -not -path "$wt/logs/*" -not -path "$wt/.git/*")"
 [[ -z "$written" ]]; holds $? "nothing written in the checkout${written:+: $written}"
 
-say "time  edge-proof took $((SECONDS - began_at)) s"
-say "total $(grep -c '^ok ' "$proof/proof.txt") checks passed, $failed failed"
-if [[ "$failed" == 0 ]]; then
-  say "edge-proof: passed"
-else
-  say "edge-proof: $failed checks failed"
+# Stopping what it started and dropping the copies count in the proof's time.
+stage cleanup
+if [[ "$failed" != 0 ]]; then
   for f in "$work"/deploy-*.out; do
     l="$(sed -n 's/^deploy: log //p' "$f")"
     if [[ -f "$l" ]]; then echo "$(basename "$f")'s log ends:" >&2; tail -20 "$l" >&2; fi
@@ -792,5 +854,15 @@ else
     echo "the copy's serve log ends:" >&2
     tail -20 "$clone/logs/serve.log" >&2
   fi
+fi
+cleanup
+trap - EXIT
+stage ended
+say "time  edge-proof took $(since "$t_began") s, its budget $budget s"
+say "total $(grep -c '^ok ' "$proof/proof.txt") checks passed, $failed failed"
+if [[ "$failed" == 0 ]]; then
+  say "edge-proof: passed"
+else
+  say "edge-proof: $failed checks failed"
   exit 1
 fi

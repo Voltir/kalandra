@@ -6,8 +6,10 @@
 #   bin/kalandra deploy [--checkout DIR] [--grit DIR] [--detach] <proof-dir>
 #
 #   <proof-dir>      what ops/edge-proof.sh wrote: proof.txt, ending `edge-proof: passed` and naming
-#                    the commit it proved (`commit <sha>`) and the grit the jar is built against;
-#                    serve.jar, join.sh and every data file ops/data.tsv names, each with its .sha256
+#                    the commit it proved (`commit <sha>`), the grit the jar is built against and
+#                    the seconds the proof took, within the budget edge-proof.sh names at that
+#                    commit; serve.jar, join.sh and every data file ops/data.tsv names, each with
+#                    its .sha256
 #   --checkout DIR   the checkout deployed into (default: the one this script is in); it must be
 #                    clean, and at the proved commit or an ancestor of it
 #   --grit DIR       the repository whose checkouts are joined again: each of its worktrees whose
@@ -19,9 +21,13 @@
 # session's MCP connection), and writes one log, runs/<stamp>/deploy.log under
 # ${XDG_STATE_HOME:-~/.local/state}/kalandra-deploy, whose last line is how it ended. The three
 # newest runs are kept, each with what it backed up and its dump. Each stage's line in the log says
-# the seconds it took; the last line, the run's and those serve was down (stopped to answering). A second deploy while one runs
-# is refused. Exit: 0 held; 1 refused, nothing changed; 2 rolled back, left as it began; 3 the
-# rollback did not finish, and the log's last line says what a person must do; 64 usage.
+# the seconds it took; the last line, the run's and those serve was down (stopped to answering).
+# A second deploy while one runs is refused. A run past deploy_budget seconds, counted from the
+# command's start, says `deploy: over its <n> s budget` in the line before its last, and is not
+# rolled back for it: a slow deploy that is healthy stays, as an outage would cost more.
+# KALANDRA_DEPLOY_BUDGET may set a budget lower than deploy_budget, never higher. Exit: 0 held;
+# 1 refused, nothing changed; 2 rolled back, left as it began; 3 the rollback did not finish, and
+# the log's last line says what a person must do; 4 held, over its budget; 64 usage.
 #
 # Serve is the checkout's: its systemd unit when it manages serve (KALANDRA_LISTEN unset or
 # 127.0.0.1:7317 and the unit enabled), whose GRIT_DATABASE_URL names the database; otherwise the
@@ -39,8 +45,12 @@
 # with serve stopped, the old code and jar in place, and the unit disabled when it owns serve.
 set -uo pipefail
 
+# The deploy's budget, in seconds; with the proof's, ops/edge-proof.sh's proof_budget, five minutes.
+deploy_budget=60
+began="${EPOCHREALTIME/,/.}"
+
 usage() {
-  sed -n '5,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '6,/^#   --detach/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 
@@ -56,6 +66,8 @@ while [[ $# -gt 0 ]]; do
     --grit) [[ $# -ge 2 ]] || usage; grit="$2"; shift ;;
     --detach) detach=1 ;;
     --run) [[ $# -ge 2 ]] || usage; run="$2"; shift ;;
+    # The command's start, which the run's budget counts from.
+    --began) [[ $# -ge 2 && "$2" =~ ^[0-9]+\.[0-9]+$ ]] || usage; began="$2"; shift ;;
     -*) usage ;;
     *) [[ -z "$proof" ]] || usage; proof="$1" ;;
   esac
@@ -63,6 +75,12 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$proof" ]] || usage
 [[ -n "$checkout" ]] || checkout="$(dirname "$(dirname "$self")")"
+budget="$deploy_budget"
+if [[ -n "${KALANDRA_DEPLOY_BUDGET:-}" ]]; then
+  [[ "$KALANDRA_DEPLOY_BUDGET" =~ ^[0-9]+$ && "$KALANDRA_DEPLOY_BUDGET" -le "$deploy_budget" ]] ||
+    { echo "deploy: KALANDRA_DEPLOY_BUDGET may lower the budget of $deploy_budget s, not raise it" >&2; exit 64; }
+  budget="$KALANDRA_DEPLOY_BUDGET"
+fi
 
 # What a session's environment would send a step elsewhere with, or a credential deploy does not name.
 unset CLAUDE_CODE_SESSION_ID GRIT_EDGE GRIT_HOOK_STARTED GRIT_HOOK_SELF CLAUDE_PROJECT_DIR \
@@ -79,14 +97,23 @@ mcp=kalandra
 # What the health check asks serve, through each credential: a read of the project kalandra keeps.
 health_ask='{"project":"grit","state":"now"}'
 
-# The last line of a run that ends, and the exit it means.
+# The last line of a run that ends, and the exit it means; the line before it says when the run
+# went over its budget.
 finish() {
+  local took
   stage=ended
   prune
   case "$1" in
     "deploy: rollback incomplete:"*) ;;
     *) rm -f -- "$state/running" ;;
   esac
+  took="$(since "$began")"
+  if awk -v a="$took" -v b="$budget" 'BEGIN { exit !(a > b) }'; then
+    case "$1" in
+      "deploy: held"*) printf 'deploy: over its %s s budget: it took %s s; held, not rolled back\n' "$budget" "$took" ;;
+      *) printf 'deploy: over its %s s budget: it took %s s; it ended %s\n' "$budget" "$took" "$(sed 's/^deploy: \([a-z ]*\):.*/\1/' <<<"$1")" ;;
+    esac
+  fi
   printf '%s\n' "$1"
   exit 0
 }
@@ -111,6 +138,9 @@ pg_long() { timeout 900 docker compose --project-directory "$compose" exec -T po
 psql_db() { pg psql -U grit -d "$db" -q -v ON_ERROR_STOP=1 "$@"; }
 sql() { psql_db -At -c "$1"; }
 sha() { sha256sum <"$1" | cut -d' ' -f1; }
+# Seconds, to a tenth.
+now() { local t="$EPOCHREALTIME"; echo "${t/,/.}"; }
+since() { awk -v a="$1" -v b="${2:-$(now)}" 'BEGIN { printf "%.1f", b - a }'; }
 # The SHA-256 of a credential as serve takes it: its text, newlines removed.
 digest() { tr -d '\n' <"$1" | sha256sum | cut -d' ' -f1; }
 # curl to serve bearing the credential in the file $1, which is never on a command line.
@@ -168,6 +198,13 @@ preflight() {
     refuse "the proved commit ${X:0:12} is not in $checkout's repository"
   [[ "$(sha "$self")" == "$(git -C "$checkout" show "$X:ops/deploy.sh" 2>/dev/null | sha256sum | cut -d' ' -f1)" ]] ||
     refuse "this deploy.sh is not ops/deploy.sh at the proved commit ${X:0:12}"
+  local took proof_budget
+  took="$(sed -n 's/^time  edge-proof took \([0-9]\{1,\}\(\.[0-9]\)\{0,1\}\) s.*$/\1/p' "$p" | tail -n 1)"
+  [[ -n "$took" ]] || refuse "proof.txt says not how long the proof took; run ops/edge-proof.sh again"
+  proof_budget="$(git -C "$checkout" show "$X:ops/edge-proof.sh" 2>/dev/null | sed -n 's/^proof_budget=\([0-9]\{1,\}\)$/\1/p' | head -n 1)"
+  [[ -n "$proof_budget" ]] || refuse "ops/edge-proof.sh at the proved commit ${X:0:12} names no proof_budget"
+  ! awk -v a="$took" -v b="$proof_budget" 'BEGIN { exit !(a > b) }' ||
+    refuse "the proof took $took s, over its $proof_budget s budget; prove again, cutting what made it slow"
 
   fwd=() rev=() loss=()
   local a b c
@@ -285,7 +322,7 @@ if [[ -z "$run" ]]; then
   run="$state/runs/$(date -u +%Y%m%dT%H%M%SZ)-$$"
   mkdir -p "$run" && chmod 700 "$run" && cp -- "$self" "$run/deploy.sh" || { echo "deploy: refused: cannot make $run; nothing was changed"; exit 1; }
   log_file="$run/deploy.log"
-  ( cd "$run" && setsid nohup bash "$run/deploy.sh" --run "$run" --checkout "$checkout" --grit "$grit" "$proof" \
+  ( cd "$run" && setsid nohup bash "$run/deploy.sh" --run "$run" --began "$began" --checkout "$checkout" --grit "$grit" "$proof" \
       </dev/null >>"$log_file" 2>&1 & )
   for _ in $(seq 50); do [[ -s "$run/pid" ]] && break; sleep 0.2; done
   rpid="$(cat "$run/pid" 2>/dev/null)"
@@ -294,15 +331,24 @@ if [[ -z "$run" ]]; then
   echo "deploy: running as pid ${rpid:-?}; it goes on if this terminal or session ends"
   ((detach == 0)) || exit 0
   exec 9>&-
+  # The run's last line, and the budget's before it when it went over, once the run has ended.
   ended() {
-    local last
+    local last over rc
     last="$(tail -n 1 "$log_file" 2>/dev/null)"
     case "$last" in
-      "deploy: held"*) echo "$last"; exit 0 ;;
-      "deploy: refused:"*) echo "$last"; exit 1 ;;
-      "deploy: rolled back:"*) echo "$last"; exit 2 ;;
-      "deploy: rollback incomplete:"*) echo "$last"; exit 3 ;;
+      "deploy: held"*) rc=0 ;;
+      "deploy: refused:"*) rc=1 ;;
+      "deploy: rolled back:"*) rc=2 ;;
+      "deploy: rollback incomplete:"*) rc=3 ;;
+      *) return 0 ;;
     esac
+    over="$(tail -n 2 "$log_file" | head -n 1)"
+    if [[ "$over" == "deploy: over its "* ]]; then
+      echo "$over"
+      ((rc != 0)) || rc=4
+    fi
+    echo "$last"
+    exit "$rc"
   }
   while :; do
     ended
@@ -318,10 +364,8 @@ fi
 # ---- The run.
 cd "$run" || exit 1
 echo "$$" >"$run/pid"
-# Seconds, to a tenth: the run's start, and when serve stopped answering and answered again.
-now() { local t="$EPOCHREALTIME"; echo "${t/,/.}"; }
-since() { awk -v a="$1" -v b="${2:-$(now)}" 'BEGIN { printf "%.1f", b - a }'; }
-t0="$(now)" down_at="" up_at=""
+# The command's start, and when serve stopped answering and answered again.
+t0="$began" down_at="" up_at=""
 timing() {
   local said="took $(since "$t0") s"
   if [[ -z "$down_at" ]]; then

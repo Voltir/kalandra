@@ -32,6 +32,7 @@ proved commit. The script's header, `ops/deploy.sh`, says each step and what eac
 It refuses before changing anything, and says why, exiting 1, when:
 
 - the proof did not pass, its files do not match their sha256, or it ran on uncommitted changes;
+- the proof took longer than its budget, or its record does not say how long it took;
 - the checkout has changes, or is not at the proved commit or an ancestor of it;
 - serve is not answering, or the nightly backup is running;
 - serve's systemd unit is installed but `systemctl --user` cannot be reached, or the unit runs
@@ -56,6 +57,24 @@ the unit disabled, so nothing starts serve on it.
 Every step that waits has a bound: a Postgres statement or data file 300 s, the dump or a restore
 900 s, a stop 120 s, a start until serve answers 130 s, a join 120 s.
 
+## Five minutes
+
+A proof and the deploy after it take five minutes at most: 240 s for the proof (`proof_budget` at
+the top of `ops/edge-proof.sh`) and 60 s for the deploy (`deploy_budget` at the top of
+`ops/deploy.sh`). Each prints every stage's seconds.
+
+- The proof fails itself at the first stage that ends past its budget, with a last line naming its
+  three slowest stages, and its pass record says how long it took. Deploy refuses a record over
+  the budget the proof names at the proved commit. A proof that comes near its budget is cut, not
+  given a larger budget.
+- A deploy past its budget is not rolled back for it, since a deploy that is slow but healthy
+  costs less than the outage a rollback would cause. It ends as it would otherwise, with the line
+  before the last saying `deploy: over its 60 s budget: it took <n> s; held, not rolled back`, and a
+  held deploy then exits 4, not 0. Read the log's stage times and cut the slow one.
+
+`KALANDRA_PROOF_BUDGET` and `KALANDRA_DEPLOY_BUDGET` may lower either budget, never raise it; the
+proof lowers the deploy's to see the line.
+
 ## No model call
 
 Neither the proof nor the deploy calls a model. The proof checks Claude Code's MCP client by
@@ -73,8 +92,8 @@ line says; a pass records both in `~/.local/state/kalandra-harness-check/passed.
 Each stage's line says the seconds it took. The last line says how the run ended, and ends with the
 run's seconds and those serve was down (from its stop until it answered again):
 
-- `deploy: held: …`
-- `deploy: rolled back: <why>; left as it began: …`
+- `deploy: held: …` (exit 0, or 4 over its budget)
+- `deploy: rolled back: <why>; left as it began: …` (exit 2)
 - `deploy: rollback incomplete: …; a person must …` (exit 3). This line says what to do, and the
   next deploy refuses until it is done.
 
