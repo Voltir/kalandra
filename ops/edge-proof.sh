@@ -479,6 +479,7 @@ deploy a
 [[ "$drc" == 2 && "$dlast" == "deploy: rolled back: machine-from-worker.sql would lose rows (grit.session_events rewritten without their subject 1); its counts are in the log, a person decides; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, serve answering on $listen" ]]
 holds $? "(a) the deploy stops at the row that would lose its subject, exit 2"
 grep -qxF "deploy: dry  machine-from-worker.sql  grit.session_events rewritten without their subject  1" "$dlog"; holds $? "  its log has the dry run's count"
+say "fact  (a) $(grep -m 1 '^deploy: preflight: ' "$dlog" || echo "deploy: preflight said nothing of the brief")"
 grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$dlog" &&
   grep -qxF "deploy: credentials: $ses kept; its digest is configured already" "$dlog"
 holds $? "  it keeps the two credentials live has, their digests configured already"
@@ -597,6 +598,15 @@ for w in "$repo" "$repo_wt"; do
   [[ "$(entry "$w" "$dhome")" == "$(jq -nc --arg u "$edge/mcp" --arg h "'$hook' header" '{type: "http", url: $u, headersHelper: $h}')" ]]
   holds $? "  $w's MCP entry is $edge/mcp with the hook's header as its headersHelper"
 done
+# A brief the running serve refuses for a store reason, the artifact the health check briefs
+# hidden in the copy, refuses the deploy before it changes anything.
+hidden="$(sql "WITH h AS (UPDATE grit.documents SET superseded_at = now() WHERE key LIKE '%grit/roadmap-coder-rules' AND superseded_at IS NULL RETURNING version) SELECT string_agg(version::text, ',') FROM h")"
+rc=0; out="$(cd "$work/run" && exec timeout 60 "${denv[@]}" "$wt/bin/kalandra" deploy --checkout "$clone" --grit "$repo" "$work/proved" 2>&1)" || rc=$?
+[[ -n "$hidden" && "$rc" == 1 && "$out" == "deploy: refused: the running serve answers a brief of grit/roadmap-coder-rules as coder 409: "*"; the health check asks the same of the new serve; nothing was changed" ]]
+holds $? "a brief the running serve refuses, its artifact hidden in the copy, refuses the deploy, exit 1: $(tail -n 1 <<<"$out")"
+[[ -n "$hidden" ]] && sql "UPDATE grit.documents SET superseded_at = NULL WHERE version IN ($hidden)" >/dev/null
+[[ "$(git -C "$clone" rev-parse HEAD)" == "$proved" && ! -e "$dhome/.local/state/kalandra-deploy/running" ]]
+holds $? "  and nothing was changed: the copy's code is as deploy c left it, and no run was started"
 stage_proof
 deploy d KALANDRA_DEPLOY_BUDGET=1
 [[ "$drc" == 4 && "$dlast" == "deploy: held: kalandra $X12 with grit $version at ${at:0:12} serving on $listen; 0 data files kept, 2 checkouts joined" ]]
@@ -611,6 +621,8 @@ grep -qxF "deploy: machine-from-worker.sql: nothing to rewrite" "$dlog" && ! gre
 holds $? "  its dry run counts 0, and nothing is kept"
 grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$dlog"; holds $? "  and the credentials are kept as they are"
 grep -q "^deploy: health: a brief of .* answers 200 to the sessions' credential" "$dlog"; holds $? "  its health check asks for a brief"
+grep -qxF "deploy: preflight: a brief of grit/roadmap-coder-rules as coder answers 200 to the running serve" "$dlog"
+holds $? "  which its preflight asked first of the serve running before it"
 # Every row of every table of grit's and DBOS's, by table: its count and a digest of its rows, but
 # a heartbeat_at, which serve's engine writes on a timer whatever it is asked (grit.engines).
 contents() {

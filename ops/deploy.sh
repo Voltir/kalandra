@@ -171,6 +171,13 @@ asked() {
   code="${body##*$'\n'}"
   body="${body%$'\n'*}"
 }
+# The health check's brief, asked of serve through the credential in the file $1: true when it
+# answers 200 with the brief; its answer in `code` and `body` either way.
+brief_asked() {
+  asked cred_curl "$1" -X POST -H 'Content-Type: application/json' \
+    --data-binary "{\"key\":\"$health_brief_key\",\"role\":\"$health_brief_role\",\"chars\":100000}" "$edge/command/project_brief"
+  [[ "$code" == 200 && "$(head -n 1 <<<"$body")" == "$health_brief_key | "* ]]
+}
 # What the health check asks serve, by commands that only read, so it writes nothing; `why` says
 # the first answer that is not what it should be.
 health_asks() {
@@ -181,9 +188,7 @@ health_asks() {
     asked cred_curl "$f" -o /dev/null -X POST -H 'Content-Type: application/json' --data-binary "$health_ask" "$edge/command/project_list"
     [[ "$code" == 200 ]] || { why="project_list with $who credential answered $code"; return 1; }
   done
-  asked cred_curl "$sessions_cred" -X POST -H 'Content-Type: application/json' \
-    --data-binary "{\"key\":\"$health_brief_key\",\"role\":\"$health_brief_role\",\"chars\":100000}" "$edge/command/project_brief"
-  [[ "$code" == 200 && "$(head -n 1 <<<"$body")" == "$health_brief_key | "* ]] ||
+  brief_asked "$sessions_cred" ||
     { why="a brief of $health_brief_key as $health_brief_role answered $code: $(head -n 1 <<<"$body" | head -c 200)"; return 1; }
   asked curl -q -s --noproxy '*' --max-time 15 -X POST -d '{}' "$edge/command/project_list"
   [[ "$code" == 401 && "$body" == "$no_credential" ]] ||
@@ -217,6 +222,38 @@ checksum() {
   [[ -f "$proof/$1" && -f "$proof/$1.sha256" ]] || refuse "$proof does not hold $1 and $1.sha256"
   read -r s n <"$proof/$1.sha256" || true
   [[ "$n" == "$1" && "$(sha "$proof/$1")" == "$s" ]] || refuse "$proof/$1 does not match $1.sha256"
+}
+
+# The health check's brief, asked of the serve running before anything changes, since a store
+# reason to refuse it (the artifact unknown, the role missing, the brief over its size) would
+# refuse the new serve's health check too, rolling back a deploy that is healthy. Asked through
+# the sessions' credential, or the owner's when the sessions' is not yet configured, as only a
+# credential whose digest serve was started with is known to it; with neither, not asked. Two
+# answers are no verdict on the brief, and the health check alone asks it, of the new serve: a
+# serve too old to have project_brief answers 404, `no command is named …` (or `no route …`), and
+# one that does not take the credential 401. Every other answer but 200 refuses: the command's own
+# refusal is 409 (a 400 for arguments it does not read), as grit's commands edge answers them, and
+# the rest say serve cannot answer it now.
+brief_before() {
+  local f code body
+  if [[ "${plan[SESSIONS]}" == keep ]]; then f="$sessions_cred"
+  elif [[ "${plan[OWNER]}" == keep ]]; then f="$owner_cred"
+  else
+    log "preflight: the brief is not asked before: serve is configured with neither credential yet"
+    return 0
+  fi
+  if brief_asked "$f"; then
+    log "preflight: a brief of $health_brief_key as $health_brief_role answers 200 to the running serve"
+    return 0
+  fi
+  case "$code" in
+    404) if [[ "$body" == "no command is named "* || "$body" == "no route "* ]]; then
+        log "preflight: the running serve answers no project_brief (404), so the brief is asked of the new serve alone"
+        return 0
+      fi ;;
+    401) log "preflight: the running serve does not take $f (401), so the brief is asked of the new serve alone"; return 0 ;;
+  esac
+  refuse "the running serve answers a brief of $health_brief_key as $health_brief_role $code: $(head -n 1 <<<"$body" | head -c 200); the health check asks the same of the new serve"
 }
 
 preflight() {
@@ -316,6 +353,7 @@ preflight() {
       plan[$x]=make
     fi
   done
+  brief_before
 
   # The checkouts joined to this serve, and the credential each one's hook sends now.
   joined=() old_cred=()
