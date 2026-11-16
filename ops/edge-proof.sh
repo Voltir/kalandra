@@ -25,16 +25,19 @@
 # deploy's dry-run counts (forward-dry.txt) and each check's line (proof.txt), which names the
 # commit proved: `bin/kalandra deploy` runs those exact files, and only that commit.
 #
-# It runs Claude Code once (`claude -p`, Haiku, 3 turns at most) in a joined checkout, its MCP
-# entry the one the join wrote, with its headersHelper, pointed by a --strict-mcp-config file at a
-# forwarder on 127.0.0.1:7319 that checks an Authorization header is the sessions' credential's
-# (by its digest) and never logs its value. That run needs the real HOME to log in: the transcript
-# directory it makes under ~/.claude/projects/ is deleted.
+# It calls no model. The installed Claude Code's MCP client connects through the join's
+# headersHelper by `claude mcp get`, which calls no model, in a joined checkout with a HOME of the
+# proof's own, no login and a key that is no key: its entry is the one the join wrote but for its
+# URL, a forwarder on 127.0.0.1:7319 (ops/forward.py) that checks each request's Authorization
+# header is the sessions' credential's (by its digest), never logging its value; a model's base
+# URL and every proxy name 127.0.0.1:7320, which logs and refuses all it is sent, and must be sent
+# nothing. A real Claude Code turn is ops/harness-check.sh's, run by hand; the proof prints one
+# line when the installed claude or the join script is not the one that check last passed under.
 #
 # Refused, exit 1, before anything is started: the checkout has changes, grit_kalandra_e7 or
-# grit_kalandra_e7_join exists, something listens on 7318 or 7319, KALANDRA_LISTEN names 7317,
-# there is no jar, or the jar is not built against the grit snapshot's marker. Prints a line a
-# check, and `edge-proof: passed`, exit 0, only when every check held. Every process it starts,
+# grit_kalandra_e7_join exists, something listens on 7318, 7319 or 7320, KALANDRA_LISTEN names
+# 7317, there is no jar, or the jar is not built against the grit snapshot's marker. Prints a line
+# a check, and `edge-proof: passed`, exit 0, only when every check held. Every process it starts,
 # and every one a deploy starts, runs in a directory under its own, and is stopped by its PID only
 # while that PID still runs there; the copies are dropped, however it ends.
 set -euo pipefail
@@ -50,7 +53,10 @@ restored=grit_kalandra_e7
 joindb=grit_kalandra_e7_join
 listen=127.0.0.1:7318
 forward=127.0.0.1:7319
+outside=127.0.0.1:7320
 edge="http://$listen"
+# Where ops/harness-check.sh records the claude and the join script it last passed under.
+harness_record="${XDG_STATE_HOME:-$HOME/.local/state}/kalandra-harness-check/passed.txt"
 [[ $# == 0 ]] || { echo "usage: ops/edge-proof.sh" >&2; exit 64; }
 
 pg() { docker compose --project-directory "$compose" exec -T postgres "$@"; }
@@ -96,6 +102,8 @@ for d in "$restored" "$joindb"; do
 done
 listening 7318 && refuse "something listens on 7318"
 listening 7319 && refuse "something listens on 7319"
+listening 7320 && refuse "something listens on 7320"
+command -v claude >/dev/null || refuse "claude is not on PATH"
 
 work="$(cd "$(mktemp -d)" && pwd -P)"
 # Every process the proof starts runs in a directory under $work, and so does every one a deploy
@@ -104,7 +112,6 @@ work="$(cd "$(mktemp -d)" && pwd -P)"
 mkdir -p "$work/run"
 started=()
 copied=0
-transcripts=""
 
 # ours <pid>: the process is alive and runs in a directory under the work directory.
 ours() { [[ "$(readlink "/proc/$1/cwd" 2>/dev/null)" == "$work"/* ]]; }
@@ -144,7 +151,6 @@ cleanup() {
       pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $d WITH (FORCE)" >/dev/null || true
     done
   fi
-  if [[ -n "$transcripts" && -d "$transcripts" ]]; then rm -rf -- "$transcripts"; fi
   rm -rf -- "$work"
 }
 trap cleanup EXIT
@@ -261,6 +267,18 @@ keep_file "$work/join.sh" join.sh
 if [[ "$up" != 0 ]]; then
   tail -30 "$work/join-serve.log" >&2
   exit 1
+fi
+# What ops/harness-check.sh last passed under, beside the claude installed and the join this jar
+# serves: one line when either differs, which says to run it by hand; the proof passes either way.
+installed="$(claude --version 2>/dev/null | head -n 1)"
+r_claude="$(sed -n 's/^claude //p' "$harness_record" 2>/dev/null | head -n 1)"
+r_join="$(sed -n 's/^join //p' "$harness_record" 2>/dev/null | head -n 1)"
+if [[ ! -f "$harness_record" ]]; then
+  say "note  ops/harness-check.sh has no pass recorded in $harness_record: run it by hand"
+elif [[ "$r_claude" != "$installed" || "$r_join" != "$(sha "$work/join.sh")" ]]; then
+  say "note  ops/harness-check.sh last passed under claude ${r_claude:-?} and join ${r_join:0:12}; installed are claude $installed and join $(sha "$work/join.sh" | head -c 12): run it by hand"
+else
+  say "harn  ops/harness-check.sh last passed under claude $installed and this join"
 fi
 
 # ---- 3. The live checkout's copy: a clone at its commit, its jar, keys that are no keys; serving
@@ -692,73 +710,44 @@ foreign="$(GRIT_EDGE=http://127.0.0.1:7399 fire brief <<<"$start" 2>&1 >/dev/nul
 [[ "$foreign" == "grit claude-code hook: GRIT_EDGE names http://127.0.0.1:7399, but this checkout's credential is sent only to the edge it was joined to, $edge; it did nothing" ]]
 holds $? "a foreign GRIT_EDGE makes the hook do nothing, saying so"
 
-# ---- 11. A real Claude Code run, its MCP client through the join's headersHelper, by a forwarder
-# that checks each request's credential by its digest and never logs it.
-cat >"$work/forward.py" <<'PY'
-import hashlib, http.client, http.server, json, sys, threading
-listen_port, target_port, log_path, want = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3], sys.argv[4]
-lock = threading.Lock()
-class Forward(http.server.BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
-    def handle_one(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(n) if n else b""
-        auth = self.headers.get_all("Authorization") or []
-        bearer = auth[0][7:] if len(auth) == 1 and auth[0].startswith("Bearer ") else None
-        credential = ("none" if not auth else "the sessions'" if bearer is not None
-                      and hashlib.sha256(bearer.encode()).hexdigest() == want else "another")
-        c = http.client.HTTPConnection("127.0.0.1", target_port, timeout=60)
-        sent = {k: v for k, v in self.headers.items() if k.lower() != "connection"}
-        c.request(self.command, self.path, body=raw or None, headers=sent)
-        r = c.getresponse()
-        answer = r.read()
-        try:
-            method = json.loads(raw).get("method", "-") if raw else "-"
-        except (ValueError, AttributeError):
-            method = "?"
-        with lock, open(log_path, "a") as f:
-            f.write(json.dumps({"method": self.command, "path": self.path, "rpc": method,
-                                "credential": credential, "status": r.status}) + "\n")
-        self.send_response(r.status)
-        for k, v in r.getheaders():
-            if k.lower() not in ("content-length", "connection", "transfer-encoding"):
-                self.send_header(k, v)
-        self.send_header("Content-Length", str(len(answer)))
-        self.end_headers()
-        self.wfile.write(answer)
-    do_GET = do_POST = do_DELETE = do_PUT = handle_one
-    def log_message(self, *a):
-        pass
-http.server.ThreadingHTTPServer(("127.0.0.1", listen_port), Forward).serve_forever()
-PY
-(cd "$work/run" && exec python3 -I "$work/forward.py" 7319 7318 "$work/mcp.jsonl" "$(d "$ses")") >"$work/forward.log" 2>&1 &
+stage "Claude Code's MCP client"
+# ---- 11. The installed Claude Code's MCP client, through the join's headersHelper, by a forwarder
+# that checks each request's credential by its digest and never logs it; `claude mcp get` calls no
+# model, and has no login and a key that is no key, its model's base URL and every proxy the sink
+# on 7320, which must be sent nothing. Its entry is the fresh join's, its URL the forwarder's,
+# added as kalandra-forwarded by the installed claude; the checkout is trusted, as a person does
+# once when Claude Code first asks, which the headersHelper needs.
+(cd "$work/run" && exec python3 -I "$wt/ops/forward.py" 7319 7318 "$work/mcp.jsonl" "$(d "$ses")" 7320 "$work/outside.jsonl") >"$work/forward.log" 2>&1 &
 started+=("$!")
-for _ in $(seq 1 20); do listening 7319 && break; sleep 0.25; done
-jq -n --argjson e "$new_entry" --arg u "http://$forward/mcp" '{mcpServers: {kalandra: ($e + {url: $u})}}' >"$work/mcp-config.json"
-transcripts="$HOME/.claude/projects/$(sed 's/[^A-Za-z0-9]/-/g' <<<"$repo")"
-[[ ! -e "$transcripts" ]] || { fail "a transcript directory $transcripts was there before the run"; transcripts=""; }
-rc=0
-(cd "$repo" && timeout 180 claude -p 'Call the kalandra tool project_list with project edge-proof, then say how many artifacts it lists.' \
-  --model haiku --max-turns 3 --strict-mcp-config --mcp-config "$work/mcp-config.json" \
-  --allowedTools mcp__kalandra__project_list --setting-sources project,local \
-  --output-format json </dev/null) >"$work/claude.json" 2>"$work/claude.err" || rc=$?
-holds "$rc" "claude -p ran with the join's MCP entry, through the forwarder"
-say "cost  claude -p: $(jq -r '"\(.total_cost_usd // "?") USD as Claude Code reports it, \(.num_turns // "?") turns, \(.usage.input_tokens // "?") in, \(.usage.output_tokens // "?") out"' "$work/claude.json" 2>/dev/null || echo unknown)"
-say "said  $(jq -r '.result // empty' "$work/claude.json" 2>/dev/null | head -c 200 | tr '\n' ' ')"
-if [[ -f "$work/mcp.jsonl" ]]; then
+for _ in $(seq 1 20); do listening 7319 && listening 7320 && break; sleep 0.25; done
+via="$(jq -c --arg u "http://$forward/mcp" '. + {url: $u}' <<<"$(entry "$work/repo2" "$work/jhome2")")"
+[[ "$(jq -r .headersHelper <<<"$via")" == "'$work/repo2/.git/grit/claude-code/hook' header" ]]
+holds $? "the forwarded entry keeps the fresh join's headersHelper"
+f2="$work/jhome2/.claude.json"
+jq --arg p "$work/repo2" '.projects[$p].hasTrustDialogAccepted = true' "$f2" >"$f2.t" && mv "$f2.t" "$f2"
+no_model=(env -i PATH="$real_claude:/usr/bin:/bin" HOME="$work/jhome2" ANTHROPIC_API_KEY=edge-proof-no-key
+  ANTHROPIC_BASE_URL="http://$outside" HTTPS_PROXY="http://$outside" HTTP_PROXY="http://$outside"
+  https_proxy="http://$outside" http_proxy="http://$outside" NO_PROXY=127.0.0.1 no_proxy=127.0.0.1
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1)
+rc=0; (cd "$work/repo2" && exec "${no_model[@]}" timeout 20 claude mcp add-json --scope local kalandra-forwarded "$via") >"$work/mcp-add.out" 2>&1 || rc=$?
+holds "$rc" "the installed claude adds the forwarded entry"
+rc=0; (cd "$work/repo2" && exec "${no_model[@]}" timeout 20 claude mcp get kalandra-forwarded) >"$work/mcp-get.out" 2>&1 || rc=$?
+grep -qF "Status: ✔ Connected" "$work/mcp-get.out" || rc=1
+holds "$rc" "claude mcp get, within 20 s, connects through the join's headersHelper: $(grep -m 1 'Status:' "$work/mcp-get.out")"
+if [[ -s "$work/mcp.jsonl" ]]; then
   cp "$work/mcp.jsonl" "$proof/mcp.jsonl"
-  say "mcp   in order (rpc status credential): $(jq -r '"\(.rpc) \(.status) \(.credential)"' "$work/mcp.jsonl" | tr '\n' ',' | sed 's/,$//')"
+  say "mcp   the forwarder saw, in order (rpc status credential): $(jq -r '"\(.rpc) \(.status) \(.credential)"' "$work/mcp.jsonl" | tr '\n' ',' | sed 's/,$//')"
   jq -e -s 'length > 0 and all(.credential == "the sessions'"'"'")' "$work/mcp.jsonl" >/dev/null
-  holds $? "every MCP request bore the sessions' credential"
-  jq -e -s 'any(.rpc == "tools/call" and .status == 200)' "$work/mcp.jsonl" >/dev/null
-  holds $? "tools/call answered 200"
+  holds $? "  every request it forwarded bore the sessions' credential"
+  jq -e -s 'any((.rpc == "initialize" or .rpc == "server/discover") and .status == 200) and any(.rpc == "tools/list" and .status == 200)' "$work/mcp.jsonl" >/dev/null
+  holds $? "  the session opened (server/discover or initialize answered 200), and tools/list answered 200"
 else
   fail "the forwarder recorded no exchange"
 fi
-s_place="$(sql "SELECT count(*) FROM grit.sessions WHERE harness = 'claude-code' AND place = ARRAY['machine','local'] || string_to_array(ltrim('$repo', '/'), '/') AND local NOT LIKE 'proof-%'")"
-say "fact  sessions the real run's hooks recorded at machine:local$repo: $s_place"
-if [[ -d "$transcripts" ]]; then rm -rf -- "$transcripts"; say "clean deleted the run's transcripts, $transcripts"; fi
-transcripts=""
+[[ ! -s "$work/outside.jsonl" ]]
+holds $? "nothing was sent toward a model or off the machine$([[ ! -s "$work/outside.jsonl" ]] || echo ": $(head -c 300 "$work/outside.jsonl" | tr '\n' ' ')")"
+rc=0; (cd "$work/repo2" && exec "${no_model[@]}" timeout 20 claude mcp remove --scope local kalandra-forwarded) >/dev/null 2>&1 || rc=$?
+holds "$rc" "the forwarded entry removed"
 
 # ---- 12. The join's undo, the line the deploy's join printed run as printed, in both checkouts;
 # what the deploys wrote; the claims.

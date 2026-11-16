@@ -20,6 +20,8 @@ proved commit. The script's header, `ops/deploy.sh`, says each step and what eac
 
 - Prove the commit: commit everything, then run `bin/kalandra build` and `ops/edge-proof.sh`.
   Deploy runs only the commit `proof.txt` names, and only when the proof ends `edge-proof: passed`.
+- When the proof prints a `note` line, the installed `claude` or the join script is not the one
+  `ops/harness-check.sh` last passed under: run that check by hand (see "No model call").
 - End every Claude Code session in grit's checkout and its worktrees, except the one running the
   deploy. A session's hooks record nothing while serve is stopped.
 - Make sure no `bin/kalandra chat` or `work` is running. Deploy refuses while anything else is
@@ -53,6 +55,17 @@ the unit disabled, so nothing starts serve on it.
 
 Every step that waits has a bound: a Postgres statement or data file 300 s, the dump or a restore
 900 s, a stop 120 s, a start until serve answers 130 s, a join 120 s.
+
+## No model call
+
+Neither the proof nor the deploy calls a model. The proof checks Claude Code's MCP client by
+`claude mcp get`, which calls none, with no login, a key that is no key, and a model's base URL
+and every proxy pointed at a local port that refuses all it is sent and must be sent nothing.
+
+`ops/harness-check.sh` is the one check that calls a model: a real `claude -p` turn on Haiku that
+calls a kalandra tool through the join's MCP entry, about a third of a cent. It is never a gate.
+Run it by hand when the join script changes or `claude --version` changes, as the proof's `note`
+line says; a pass records both in `~/.local/state/kalandra-harness-check/passed.txt`.
 
 ## Where the log is
 
