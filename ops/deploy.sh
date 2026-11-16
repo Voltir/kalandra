@@ -354,9 +354,10 @@ fi
 
 # ---- The command: refusals, then the run, detached, followed to its end unless --detach.
 if [[ -z "$run" ]]; then
-  proof="$(cd "$proof" 2>/dev/null && pwd -P)" || refuse "no proof directory $proof"
-  checkout="$(cd "$checkout" 2>/dev/null && pwd -P)" || refuse "no checkout $checkout"
-  grit="$(cd "$grit" 2>/dev/null && pwd -P)" || refuse "no grit checkout $grit"
+  # Each named as given when it is refused, since a failed resolve leaves nothing.
+  given="$proof"; proof="$(cd "$proof" 2>/dev/null && pwd -P)" || refuse "no proof directory $given"
+  given="$checkout"; checkout="$(cd "$checkout" 2>/dev/null && pwd -P)" || refuse "no checkout $given"
+  given="$grit"; grit="$(cd "$grit" 2>/dev/null && pwd -P)" || refuse "no grit checkout $given"
   mkdir -p "$state/runs" && chmod 700 "$state" || refuse "cannot make $state"
   exec 9>>"$state/lock"
   if ! flock -n 9; then
