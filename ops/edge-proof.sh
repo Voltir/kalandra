@@ -568,7 +568,7 @@ holds $? "(f) a restore that fails before any rename ends rollback incomplete, e
 [[ "$(sql "SELECT count(*) FROM grit.sessions WHERE place[1] = 'machine'")" != 0 && -z "$(pg psql -U grit -d postgres -At -c "SELECT datname FROM pg_database WHERE datname LIKE '${restored}\\_rolled\\_back\\_%'")" ]]
 holds $? "  the copy's name is untouched, as the deploy left it, and nothing was renamed aside"
 [[ "$(git -C "$clone" rev-parse HEAD) $(sha "$clone/out/assembly.dest/out.jar")" == "$old_head $old_jar" ]]; holds $? "  the old code and jar are in place"
-! curl -q -s --noproxy '*' --max-time 5 -o /dev/null "$edge/command/project_list"; holds $? "  and serve is stopped"
+! listening 7318; holds $? "  and serve is stopped: nothing listens on 7318"
 [[ -e "$dhome/.local/state/kalandra-deploy/running" ]]; holds $? "  the next deploy is refused until a person clears it"
 # A person's recovery, as the line says: the copy put right by hand, then serve started.
 pg psql -U grit -d postgres -q -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${restored}_restoring'" >/dev/null

@@ -164,7 +164,11 @@ cred_curl() {
   shift
   curl -q -s --noproxy '*' --max-time 15 -H @<(printf 'Authorization: Bearer %s\n' "$(<"$f")") "$@"
 }
-answers() { curl -q -s --noproxy '*' --max-time 5 -o /dev/null -X POST -d '{}' "$edge/command/project_list" 2>/dev/null; }
+# Whether serve answers: nothing listening is no answer at once, as a host may drop a connection to
+# a port nothing listens on rather than refuse it, leaving curl to wait out its bound (the machine
+# kalandra runs on does, which cost 5 s a stop). Without ss, curl alone decides.
+listens() { ! command -v ss >/dev/null || ss -Hltn "sport = :${listen##*:}" 2>/dev/null | grep -q .; }
+answers() { listens && curl -q -s --noproxy '*' --max-time 5 -o /dev/null -X POST -d '{}' "$edge/command/project_list" 2>/dev/null; }
 # The body of serve's answer in `body`, its status in `code`; curl's arguments are $@.
 asked() {
   body="$("$@" -w '\n%{http_code}')"
@@ -445,7 +449,7 @@ if [[ -z "$run" ]]; then
       echo "deploy: the run (pid ${rpid:-?}) ended without a last line; read $log_file"
       exit 3
     fi
-    sleep 2
+    sleep 0.5
   done
 fi
 

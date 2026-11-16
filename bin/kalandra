@@ -163,19 +163,23 @@ serve_pids() {
 }
 
 # Whether serve answers at all: asked with no credential, any HTTP answer counts, the 401 a
-# credentialed edge gives it included; only no answer does not.
+# credentialed edge gives it included; only no answer does not. Nothing listening on the port is
+# no answer at once: a host may drop a connection to a port nothing listens on rather than refuse
+# it, and curl would wait out its bound. Without ss, curl alone decides.
 serve_answers() {
+  if command -v ss >/dev/null && ! ss -Hltn "sport = :${listen##*:}" 2>/dev/null | grep -q .; then
+    return 1
+  fi
   curl -q -s --noproxy '*' --max-time "${1:-5}" -o /dev/null -X POST -d '{}' \
     "http://$listen/command/project_list" 2>/dev/null
 }
 
-# Whether serve answers within 120 s of wall clock, asked every 2 s.
+# Whether serve answers within 120 s of wall clock, asked every half second.
 answers_within_120() {
   local deadline=$((SECONDS + 120))
   while ((SECONDS < deadline)); do
     serve_answers 2 && return 0
-    ((SECONDS + 2 < deadline)) || break
-    sleep 2
+    sleep 0.5
   done
   return 1
 }
@@ -188,12 +192,14 @@ serve_stop() {
     return 0
   fi
   kill $ps 2>/dev/null || true
-  for _ in $(seq 30); do
+  # Asked every fifth of a second, for 30 s of wall clock.
+  local deadline=$((SECONDS + 30))
+  while ((SECONDS < deadline)); do
     if [[ -z "$(serve_pids)" ]]; then
       echo "Stopped serve (pids: $(echo $ps))."
       return 0
     fi
-    sleep 1
+    sleep 0.2
   done
   echo "serve still running after 30 s: $(echo $(serve_pids))" >&2
   return 1
