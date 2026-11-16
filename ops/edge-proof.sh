@@ -44,7 +44,8 @@
 #
 # Refused, exit 1, before anything is started: the checkout has changes, grit_kalandra_e7 or
 # grit_kalandra_e7_join exists, something listens on 7318, 7319 or 7320, KALANDRA_LISTEN names
-# 7317, there is no jar, or the jar is not built against the grit snapshot's marker. Prints a line
+# 7317, there is no jar, or the jar is not built against the grit build.mill pins (a release's
+# commit, its tag's in grit's checkout; a snapshot's, its marker's). Prints a line
 # a check, and `edge-proof: passed`, exit 0, only when every check held. Every process it starts,
 # and every one a deploy starts, runs in a directory under its own, and is stopped by its PID only
 # while that PID still runs there; the copies are dropped, however it ends.
@@ -103,13 +104,20 @@ unset GRIT_EDGE GRIT_HOOK_STARTED GRIT_HOOK_SELF CLAUDE_PROJECT_DIR CLAUDE_CODE_
 git -C "$wt" diff --quiet HEAD -- || refuse "the checkout has changes: deploy runs only a commit that was proved, so commit first"
 [[ -f "$jar" ]] || refuse "no jar at $jar: run bin/kalandra build first"
 version="$(sed -n 's/^ *def gritVersion = "\(.*\)"$/\1/p' "$wt/build.mill")"
-marker="$HOME/.ivy2/local/dev.grit/.publish-local-$version"
-at="$(cat "$marker" 2>/dev/null)" || refuse "no marker for grit $version at $marker"
+# The grit commit the jar must be built against: a release's tag's, in grit's checkout; a
+# snapshot's marker's.
+if [[ "$version" == *-SNAPSHOT ]]; then
+  marker="$HOME/.ivy2/local/dev.grit/.publish-local-$version"
+  at="$(cat "$marker" 2>/dev/null)" || refuse "no marker for grit $version at $marker"
+else
+  at="$(git -C "$grit_checkout" rev-parse --verify -q "refs/tags/v$version^{commit}")" ||
+    refuse "grit's checkout $grit_checkout has no tag v$version"
+fi
 # The jar is an executable assembly, a launcher before its zip, which unzip warns of; Python's
 # zipfile reads past it.
 built="$(python3 -I -c 'import sys, zipfile; print(zipfile.ZipFile(sys.argv[1]).read("kalandra/grit.txt").decode().strip())' "$jar" 2>/dev/null)" ||
   refuse "the jar carries no kalandra/grit.txt"
-[[ "$built" == "$version at $at" ]] || refuse "the jar is built against grit $built, the marker names $at: build again"
+[[ "$built" == "$version at $at" ]] || refuse "the jar is built against grit $built, not $version at $at: build again"
 forward_sql="$(git -C "$grit_checkout" show "$at:core/dbos/it/resources/machine-from-worker.sql")" ||
   refuse "grit's checkout has no machine-from-worker.sql at $at"
 [[ -f "$live/out/assembly.dest/out.jar" ]] || refuse "no live jar at $live/out/assembly.dest/out.jar"

@@ -102,14 +102,17 @@ load_keys() {
   fi
 }
 
-# The jar. While build.mill pins a snapshot, which grit republishes in place, the resolution is
-# cleaned first and the snapshot's marker read before and after: a marker that moved, or a
-# publish under way (a .publish-local.* directory), is refused, as the jar could mix two of them.
+# The jar. A release is built as it is, against the commit its tag names in grit's checkout (a
+# build with no such tag fails, build.mill's gritBuilt). While build.mill pins a snapshot, which
+# grit republishes in place, the resolution is cleaned first and the snapshot's marker read before
+# and after: a marker that moved, or a publish under way (a .publish-local.* directory), is
+# refused, as the jar could mix two of them.
 build() {
   local version marker before after
   version="$(sed -n 's/^ *def gritVersion = "\(.*\)"$/\1/p' "$root/build.mill")"
   if [[ "$version" != *-SNAPSHOT ]]; then
-    (cd "$root" && ./mill show assembly >/dev/null)
+    (cd "$root" && ./mill show assembly >/dev/null) || return 1
+    echo "built against grit $(cd "$root" && ./mill show gritBuilt 2>/dev/null | tr -d '"')"
     return
   fi
   marker="$HOME/.ivy2/local/dev.grit/.publish-local-$version"

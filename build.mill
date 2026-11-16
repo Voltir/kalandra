@@ -26,19 +26,32 @@ object `package` extends ScalaModule {
    * __.compile`. An input, so every run reads the shell's value afresh. */
   def lint = Task.Input { Task.env.get("KALANDRA_LINT").contains("1") }
 
-  /* grit's version. A release (`0.3.0`) is tagged in grit and never republished under its tag,
-   * so it names one build of grit. A snapshot (`0.3.0-SNAPSHOT`) is republished in place from
-   * grit's `main`, under the marker scripts/publish-local writes beside the modules
+  /* grit's version. A release (`0.3.0`) is tagged `v<version>` in grit and never republished
+   * under its tag, so it names one build of grit, whose commit is the tag's. A snapshot
+   * (`0.3.0-SNAPSHOT`) is republished in place from grit's `main`, under the marker
+   * scripts/publish-local writes beside the modules
    * (`~/.ivy2/local/dev.grit/.publish-local-<version>`, holding the commit), so while the pin is
    * one, `bin/kalandra build` cleans the resolution first and refuses a marker that moved. */
-  def gritVersion = "0.3.0-SNAPSHOT"
+  def gritVersion = "0.3.0"
 
-  /* Which grit the jar is built against: the version, and for a snapshot ` at <commit>` from its
-   * marker. An input, so a republish is seen; carried in the jar as `kalandra/grit.txt`, and
-   * serve's log says it. */
+  /* Which grit the jar is built against, `<version> at <commit>`: for a release, the commit its
+   * tag names in grit's checkout (KALANDRA_CHECKOUT, default ~/Projects/grit), and a build with no
+   * such tag fails; for a snapshot, its marker's, or the version alone with no marker. An input,
+   * so a republish or a moved tag is seen; carried in the jar as `kalandra/grit.txt`, and serve's
+   * log says it. */
   def gritBuilt = Task.Input {
-    val marker = os.home / ".ivy2" / "local" / "dev.grit" / s".publish-local-$gritVersion"
-    if (os.exists(marker)) s"$gritVersion at ${os.read(marker).trim}" else gritVersion
+    if (gritVersion.endsWith("-SNAPSHOT")) {
+      val marker = os.home / ".ivy2" / "local" / "dev.grit" / s".publish-local-$gritVersion"
+      if (os.exists(marker)) s"$gritVersion at ${os.read(marker).trim}" else gritVersion
+    } else {
+      val checkout = Task.env.get("KALANDRA_CHECKOUT").map(os.Path(_)).getOrElse(os.home / "Projects" / "grit")
+      val tag = os.proc("git", "-C", checkout, "rev-parse", "--verify", "-q", s"refs/tags/v$gritVersion^{commit}")
+        .call(check = false, stderr = os.Pipe)
+      if (tag.exitCode != 0) {
+        Task.fail(s"grit's checkout $checkout has no tag v$gritVersion: the release kalandra pins")
+      }
+      s"$gritVersion at ${tag.out.trim()}"
+    }
   }
 
   def gritResource = Task {
