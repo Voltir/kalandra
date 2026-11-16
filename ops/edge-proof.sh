@@ -732,7 +732,11 @@ grep -qxF "  mcp       kalandra at $edge/mcp, local scope" "$work/join2.out"; ho
 sed "s|$work|<work>|g" "$work/join2.out" >"$proof/join.txt"
 sed 's/^/join    /' "$proof/join.txt" | tee -a "$proof/proof.txt"
 norm() { sed "s|$2|<repo>|g" "$1"; }
-settings_of() { jq -S 'del(.proofMidDeploy)' "$1/.claude/settings.local.json" | sed "s|$1|<repo>|g"; }
+# A settings file the join makes starts with a $schema key; one it finds (the deployed
+# repository's, which an older join made) it leaves without one.
+[[ "$(jq -r 'keys_unsorted[0]' "$work/repo2/.claude/settings.local.json")" == '$schema' ]]
+holds $? "  the settings file the fresh join made starts with its \$schema key"
+settings_of() { jq -S 'del(.proofMidDeploy, ."$schema")' "$1/.claude/settings.local.json" | sed "s|$1|<repo>|g"; }
 cmp -s <(settings_of "$repo") <(settings_of "$work/repo2") &&
   cmp -s <(norm "$hook" "$repo") <(norm "$work/repo2/.git/grit/claude-code/hook" "$work/repo2") &&
   [[ "$(sed "s|$repo|<repo>|g" <<<"$new_entry")" == "$(sed "s|$work/repo2|<repo>|g" <<<"$(entry "$work/repo2" "$work/jhome2")")" ]] &&
@@ -859,6 +863,7 @@ undo2="$(sed -n 's/^Undo: //p' "$work/join2.out")"
 rc=0; R2 bash -o pipefail -c "$undo2" >"$work/undo2.out" 2>&1 || rc=$?
 [[ "$rc" == 0 && "$(entry "$work/repo2" "$work/jhome2")" == null ]]
 holds $? "the fresh join's printed undo, through the installed claude, removes its MCP entry"
+[[ ! -e "$work/repo2/.claude" ]]; holds $? "  and the settings file the join made, and the .claude directory it made"
 # serve writes no files: what the deploys' HOME holds is the credentials, Claude Code's file the
 # stand-in writes, and the deploys' state.
 extra="$(cd "$dhome" && find . -type f -not -path ./.config/kalandra/credential -not -path ./.config/grit/credential \
