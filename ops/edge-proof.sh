@@ -12,9 +12,11 @@
 #
 # Run from this checkout, committed, after `bin/kalandra build`. It reads grit_kalandra once (a
 # pg_dump, as ops/backup.sh does) and never writes it; it restores the dump into grit_kalandra_e7,
-# where it cancels every pending or enqueued DBOS workflow so nothing resumes. Everything it serves
-# is on 127.0.0.1:7318, with keys that are no keys, so nothing it serves can spend; the deploys run
-# with a HOME of the proof's own, where they make their own credentials, never printed.
+# where it cancels every pending or enqueued DBOS workflow so nothing resumes, and, once live is
+# past the place rename, runs the reverse, so the deploys have a data file to keep and roll back.
+# Everything it serves is on 127.0.0.1:7318, with keys that are no keys, so nothing it serves can
+# spend; the deploys run with a HOME of the proof's own, holding credentials of its own, as live
+# holds its, each with its digest in the copy's .env, never printed.
 #
 # Into the proof's directory, ${KALANDRA_PROOF_DIR:-$HOME/.cache/kalandra-e7}, it saves the jar it
 # proved (serve.jar), the join script that jar serves (join.sh), grit's forward rewrite at the
@@ -188,6 +190,13 @@ say "copy  workflows by status: $(sql "SELECT string_agg(status || ' ' || n, ', 
 cancelled="$(sql "WITH c AS (UPDATE dbos.workflow_status SET status = 'CANCELLED' WHERE status IN ('PENDING', 'ENQUEUED') RETURNING 1) SELECT count(*) FROM c")"
 say "copy  $cancelled pending or enqueued workflows cancelled in the copy"
 machine_before="$(under machine)"
+# Once live is past the rename, the copy is put back before it by the reverse, so that the deploys
+# below have a data file to keep, stop at and roll back, as the deploy that renamed live had.
+if [[ "$machine_before" != 0 && "$(under worker)" == 0 ]]; then
+  pg psql -U grit -d "$restored" -q -v ON_ERROR_STOP=1 -At -f - -c COMMIT <"$wt/ops/worker-from-machine.sql" >/dev/null
+  holds $? "live is past the rename, $machine_before places under machine: the copy is put back before it by worker-from-machine.sql"
+  machine_before="$(under machine)"
+fi
 [[ "$machine_before" == 0 ]]; holds $? "no place is under machine before the rename, so the reverse is exact ($machine_before)"
 # Every rewritten table's place, by primary key, kept in the copy to compare after each rollback.
 pg psql -U grit -d "$restored" -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
@@ -265,11 +274,18 @@ old_branch="$(git -C "$clone" symbolic-ref -q --short HEAD)"
 mkdir -p "$clone/out/assembly.dest"
 cp -- "$live/out/assembly.dest/out.jar" "$clone/out/assembly.dest/out.jar"
 old_jar="$(sha "$clone/out/assembly.dest/out.jar")"
-(umask 077; printf 'ANTHROPIC_API_KEY=edge-proof-no-key\nJEV_API_KEY=edge-proof-no-key\n' >"$clone/.env")
 say "live  $clone, a clone of $live at $old_head on $old_branch, its jar $old_jar"
 git -C "$clone" merge-base --is-ancestor "$old_head" "$proved"; holds $? "the proved commit descends from the live checkout's"
 dhome="$work/dhome"
 mkdir -p "$work/shim" "$dhome" "$work/jhome2"
+# The credentials, as live has them: the command line's and the sessions', each with its digest in
+# the copy's .env, which the old serve needs to start.
+own="$dhome/.config/kalandra/credential"; ses="$dhome/.config/grit/credential"
+( umask 077
+  mkdir -p "$(dirname "$own")" "$(dirname "$ses")"
+  for c in "$own" "$ses"; do head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_' >"$c"; done
+  printf 'ANTHROPIC_API_KEY=edge-proof-no-key\nJEV_API_KEY=edge-proof-no-key\nKALANDRA_OWNER_DIGEST=%s\nKALANDRA_SESSIONS_DIGEST=%s\n' \
+    "$(d "$own")" "$(d "$ses")" >"$clone/.env" )
 cat >"$work/shim/claude" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -311,10 +327,10 @@ init "$repo"; init "$work/repo2"
 git -C "$repo" worktree add -q "$repo_wt" -b proof-wt
 J() { local dir="$1" home="$2"; shift 2; (cd "$dir" && HOME="$home" PATH="$work/shim:/usr/bin:/bin" bash -s -- "$@"); }
 entry() { jq -c --arg p "$1" '.projects[$p].mcpServers.kalandra // null' "$2/.claude.json" 2>/dev/null; }
-curl -q -fsS --noproxy '*' --max-time 10 "$edge/join/claude-code" >"$work/old-join.sh"
+curl -q -fsS --noproxy '*' --max-time 10 -H @<(printf 'Authorization: Bearer %s\n' "$(<"$ses")") "$edge/join/claude-code" >"$work/old-join.sh"
 holds $? "the copy's serve serves its join script, $(sha "$work/old-join.sh")"
 for w in "$repo" "$repo_wt"; do
-  rc=0; J "$w" "$dhome" "$edge" --mcp-name kalandra <"$work/old-join.sh" >"$work/join-old.out" 2>&1 || rc=$?
+  rc=0; J "$w" "$dhome" "$edge" --credential "$ses" --mcp-name kalandra <"$work/old-join.sh" >"$work/join-old.out" 2>&1 || rc=$?
   holds "$rc" "the copy's join in $w exits 0"
 done
 hook="$repo/.git/grit/claude-code/hook"
@@ -379,13 +395,14 @@ planted="$(sql "WITH e AS (SELECT session, regexp_replace(shape::text, ',\"subje
 read -r p_session p_seq p_len <<<"$planted"
 [[ "$p_len" == 300 ]]; holds $? "a commit event of 300 bytes under worker planted in the copy: $planted"
 deploy a
-[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: machine-from-worker.sql would lose rows (grit.session_events rewritten without their subject 1); its counts are in the log, a person decides; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, serve answering on $listen; the credentials it made and the digest lines it added to $clone/.env stay, which the old serve ignores" ]]
+[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: machine-from-worker.sql would lose rows (grit.session_events rewritten without their subject 1); its counts are in the log, a person decides; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, serve answering on $listen" ]]
 holds $? "(a) the deploy stops at the row that would lose its subject, exit 2"
 grep -qxF "deploy: dry  machine-from-worker.sql  grit.session_events rewritten without their subject  1" "$dlog"; holds $? "  its log has the dry run's count"
-[[ "$(stat -c %a "$dhome/.config/kalandra/credential" "$dhome/.config/grit/credential" | sort -u)" == 600 ]]
-holds $? "  it made the two credentials, mode 600"
-[[ "$(grep -cxE 'KALANDRA_(OWNER|SESSIONS)_DIGEST=[0-9a-f]{64}' "$clone/.env")" == 2 ]]; holds $? "  and appended their two digests to the copy's .env"
-grep -qF "$(<"$dhome/.config/kalandra/credential")" "$dlog" "$work/deploy-a.out"; [[ $? == 1 ]]; holds $? "  and neither log holds the command line's credential"
+grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$dlog" &&
+  grep -qxF "deploy: credentials: $ses kept; its digest is configured already" "$dlog"
+holds $? "  it keeps the two credentials live has, their digests configured already"
+[[ "$(grep -cxE 'KALANDRA_(OWNER|SESSIONS)_DIGEST=[0-9a-f]{64}' "$clone/.env")" == 2 ]]; holds $? "  and appends no digest to the copy's .env"
+grep -qF "$(<"$own")" "$dlog" "$work/deploy-a.out"; [[ $? == 1 ]]; holds $? "  and neither log holds the command line's credential"
 began_as
 sql "DELETE FROM grit.session_events WHERE session = $p_session AND seq = $p_seq" >/dev/null
 
@@ -460,7 +477,7 @@ psw -f - -c COMMIT <"$proof/worker-from-machine.sql" >/dev/null; holds $? "  the
 rm -f -- "$dhome/.local/state/kalandra-deploy/running"
 rc=0; (cd "$work/run" && exec "${denv[@]}" "$clone/bin/kalandra" start) >"$work/old-start.out" 2>&1 || rc=$?
 holds "$rc" "  the old serve starts again"
-rc=0; J "$repo" "$dhome" "$edge" --mcp-name kalandra <"$work/old-join.sh" >"$work/join-old.out" 2>&1 || rc=$?
+rc=0; J "$repo" "$dhome" "$edge" --credential "$ses" --mcp-name kalandra <"$work/old-join.sh" >"$work/join-old.out" 2>&1 || rc=$?
 holds "$rc" "  and the copy's join again in $repo exits 0"
 began_as
 
@@ -479,7 +496,6 @@ holds $? "  the copy's $old_branch is at the proved commit, checked out"
 grep -qxF "[kalandra] grit $version at $at" "$clone/logs/serve.log"; holds $? "  its serve logs [kalandra] grit $version at $at"
 w_left="$(under worker)"; m_now="$(under machine)"
 [[ "$w_left" == 0 && "$m_now" != 0 ]]; holds $? "  no place is under worker, $m_now under machine"
-own="$dhome/.config/kalandra/credential"; ses="$dhome/.config/grit/credential"
 grep -qxF "deploy: join    credential $ses, sent with every request" "$dlog"; holds $? "  the join reports the sessions' credential"
 grep -qxF "deploy: join    mcp       kalandra at $edge/mcp, local scope, replacing kalandra at $edge/mcp" "$dlog"; holds $? "  and replaces the copy's MCP entry"
 for w in "$repo" "$repo_wt"; do
