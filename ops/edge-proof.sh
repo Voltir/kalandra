@@ -734,19 +734,24 @@ for f in "$wt"/methods/*.json; do
 done
 holds "$rc" "project_methods gives each version the deploy declared back as its file in methods/, 1 to $latest"
 expect 1 "a session's declaration of a version is refused" S declare "$wt/methods/grit@$latest.json"
-grep -q "answered 409" <<<"$out"; holds $? "  409: $(head -n 1 <<<"$out" | head -c 160)"
+grep -q "answered 409" <<<"$out" && grep -q "only by a caller believed at Authority" <<<"$out"
+holds $? "  409, a declaration being an authority's: $(head -n 1 <<<"$out" | head -c 160)"
 # A migration is refused while an artifact is claimed, and the copy holds live's claims: they are
 # set aside for it and put back after, as live migrates once its claims are released.
+now_before="$(K list '{"project":"grit","state":"now"}')"
 sql "CREATE TABLE grit.claims_set_aside AS SELECT * FROM grit.claims; DELETE FROM grit.claims" >/dev/null
 expect 0 "the command line migrates grit to version $latest, nothing claimed" K migrate "{\"project\":\"grit\",\"version\":$latest}"
 sql "INSERT INTO grit.claims SELECT * FROM grit.claims_set_aside; DROP TABLE grit.claims_set_aside" >/dev/null
-expect 0 "  and grit's now still lists" K list '{"project":"grit","state":"now"}'
+expect 0 "  and grit's now lists" K list '{"project":"grit","state":"now"}'
+[[ -n "$now_before" && "$out" == "$now_before" ]]
+holds $? "  what it listed before the migration, $(grep -c . <<<"$now_before") lines"
 amend="## Diff\n\nd\n\n## Moments\n\nm\n\n## Cue\n\nc\n\n## Lesson\n\nl\n\n## Confidence\n\nc\n\n## Observable\n\no\n\n## Contrast\n\nkept -> amendment.\n\n## Verdict: helped\n\nh\n\n## Decision: adopt\n\n- By: proof.\n- Activation: 1.\n- Checks: 1.\n- Cost: 0.\n- Held-out regression: none."
 expect 0 "keep amendment edge-proof/a, decided adopt" K keep "{\"key\":\"edge-proof/a\",\"kind\":\"amendment\",\"title\":\"Proof amendment\",\"body\":\"$amend\"}"
 expect 0 "a session benches it" S move '{"key":"edge-proof/a","state":"benched"}'
 expect 1 "a session's move of it to adopted is refused" S move '{"key":"edge-proof/a","state":"adopted"}'
 grep -q "answered 409" <<<"$out" && grep -q -i "authority" <<<"$out"; holds $? "  409, naming authority: $(head -n 1 <<<"$out" | head -c 160)"
 expect 0 "the command line's move of it to adopted is made" K move '{"key":"edge-proof/a","state":"adopted"}'
+K show '{"key":"edge-proof/a"}' | grep -qx "state: adopted"; holds $? "  and edge-proof/a is adopted"
 expect 0 "keep checkpoint edge-proof/k, its plan lacking Commits" K keep '{"key":"edge-proof/k","kind":"checkpoint","title":"Proof checkpoint","body":"## Goal\n\ng\n\n## Signatures\n\ns\n\n## Reads\n\nr","parent":"edge-proof/m"}'
 expect 1 "a session's move of it to ready is refused" S move '{"key":"edge-proof/k","state":"ready"}'
 grep -q "sections-present" <<<"$out"; holds $? "  by sections-present"
