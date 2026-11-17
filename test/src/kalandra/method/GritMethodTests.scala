@@ -1,8 +1,8 @@
 package kalandra.method
 
 import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project}
-import grit.projects.method.{Method, MethodBench, Migrated, Remap}
-import grit.projects.name.{ArtifactKey, KindName, Pin, ProjectKey, StateName}
+import grit.projects.method.{Declared, Example, Method, MethodBench, Migrated, Mover, Remap}
+import grit.projects.name.{ArtifactKey, CheckName, KindName, Pin, ProjectKey, StateName}
 
 import kalandra.method.MethodFiles.filed
 import utest.*
@@ -35,28 +35,35 @@ object GritMethodTests extends TestSuite {
     )
 
   val tests = Tests {
-    test(
-      "each version's file reads, is that version of grit, its examples come out as they say, and it keeps its pin"
-    ) {
+    test("each version's file is the method its project pinned, with its worked examples whole") {
       // Versions 1 to 5 are the pins grit_kalandra's projects held or hold (restore-check
-      // version 1, grit the rest); 6 is the pin it is declared with.
-      MethodFiles.Versions.map(v =>
-        filed(v).map(d =>
-          (
-            d.method.name,
-            d.method.version,
-            MethodBench.failures(d.method, d.examples),
-            d.method.digest
+      // version 1, grit the rest); 6 is the pin it is declared with. The digest leaves the
+      // examples out, so their count is pinned beside it.
+      (
+        MethodFiles.Versions.map(v =>
+          filed(v).map(d =>
+            (
+              d.method.name,
+              d.method.version,
+              MethodBench.failures(d.method, d.examples),
+              d.examples.size,
+              d.method.digest
+            )
           )
-        )
-      ) ==> Vector(
-        "1c8e4adb20a0b3b044f5b165c638033a1a93dc83bfc98b97b0c6d26180c3de75",
-        "b08f7ac5f0a18cdfffcec83468e48295d3f2e1bb11dc49cf31b8869457c80a1f",
-        "cdae558df99dfaeb924b1eb863a10004196e1bab2cdb65e90d49a42cdfb74f47",
-        "a4324899142bd13487e2442f57fea1be8cd5e6972247bbd177aff000a0cff65d",
-        "243738553f2f7368af940d5593ee7c2ac49cc9f3b66eeea85588854e3ba7b7cd",
-        "c334283c23b92f97a54dfc76648330355fc15b859be5bcc80f2d7507743097dc"
-      ).zip(MethodFiles.Versions).map((pin, v) => Right((Grit.Name, v, Vector(), pin)))
+        ),
+        MethodFiles.text(MethodFiles.Versions.size + 1).isLeft
+      ) ==> (
+        Vector(
+          "1c8e4adb20a0b3b044f5b165c638033a1a93dc83bfc98b97b0c6d26180c3de75",
+          "b08f7ac5f0a18cdfffcec83468e48295d3f2e1bb11dc49cf31b8869457c80a1f",
+          "cdae558df99dfaeb924b1eb863a10004196e1bab2cdb65e90d49a42cdfb74f47",
+          "a4324899142bd13487e2442f57fea1be8cd5e6972247bbd177aff000a0cff65d",
+          "243738553f2f7368af940d5593ee7c2ac49cc9f3b66eeea85588854e3ba7b7cd",
+          "c334283c23b92f97a54dfc76648330355fc15b859be5bcc80f2d7507743097dc"
+        ).zip(MethodFiles.Versions.zip(Vector(0, 0, 0, 5, 5, 8)))
+          .map { case (pin, (v, examples)) => Right((Grit.Name, v, Vector(), examples, pin)) },
+        true
+      )
     }
 
     test(
@@ -75,15 +82,23 @@ object GritMethodTests extends TestSuite {
       def moves(m: Method, kind: KindName) = m.transitions
         .filter(_.kind == kind)
         .map(t => s"${t.from}->${t.to} [${t.checks.mkString(",")}] ${t.movers}")
+      // Each example move's outcome, with the kind it moves, the state it moves to, and who.
+      def outcomes(d: Declared) = d.examples
+        .flatMap(e =>
+          e.moves.flatMap(mv =>
+            e.start.artifacts
+              .find(_.head.key == mv.key)
+              .map(a => (a.head.kind, mv.to, mv.by, mv.expect))
+          )
+        )
+        .distinct
       (
-        declared.map(d => MethodBench.failures(d.method, d.examples)),
         declared.map(d => d.method.kinds.find(_.name == checkpoint).map(k => (k.all, k.sections))),
         declared.map(d => moves(d.method, checkpoint)),
         declared.map(d => moves(d.method, amendment)),
         declared.map(d => unchanged(d.method) == unchanged(version(5))),
-        declared.map(_.examples.flatMap(_.moves).map(_.expect).distinct.map(_.toString).sorted)
+        declared.map(outcomes)
       ) ==> (
-        Right(Vector()),
         Right(
           Some(
             (
@@ -115,14 +130,49 @@ object GritMethodTests extends TestSuite {
           )
         ),
         Right(true),
-        Right(
+        Right {
+          import Example.Expect.{Allowed, RefusedBy, RefusedPersonOnly}
+          def by(check: String) = RefusedBy(right(CheckName.of(check)))
+          def to(k: KindName, s: String, m: Mover, e: Example.Expect) =
+            (k, right(StateName.of(s)), m, e)
           Vector(
-            "Allowed",
-            "RefusedBy(decided-adopt)",
-            "RefusedBy(decided-reject)",
-            "RefusedBy(sections-present)",
-            "RefusedPersonOnly"
+            to(amendment, "benched", Mover.Agent, by("sections-present")),
+            to(amendment, "benched", Mover.Agent, Allowed),
+            to(amendment, "adopted", Mover.Person, by("decided-adopt")),
+            to(amendment, "rejected", Mover.Agent, by("decided-reject")),
+            to(amendment, "rejected", Mover.Agent, Allowed),
+            to(amendment, "adopted", Mover.Person, Allowed),
+            to(amendment, "adopted", Mover.Agent, RefusedPersonOnly),
+            to(checkpoint, "ready", Mover.Agent, by("sections-present")),
+            to(checkpoint, "ready", Mover.Agent, Allowed),
+            to(checkpoint, "building", Mover.Agent, Allowed),
+            to(checkpoint, "review", Mover.Agent, Allowed),
+            to(checkpoint, "merged", Mover.Agent, Allowed)
           )
+        }
+      )
+    }
+
+    test("a version 2 project migrates to version 3, its stages checkpoints, a note re-kinded") {
+      val (v2, v3) = (version(2), version(3))
+      val m = Artifact(head("m", "milestone", "now"), right(Body.read("M.")))
+      val s = Artifact(head("s", "stage", "building", parent = Some("m")), right(Body.read("S.")))
+      val n = Artifact(head("n", "note", "open", parent = Some("m")), right(Body.read("N.")))
+      v3.migrated(
+        project(v2, m, s, n),
+        Remap(
+          kinds = Map(right(KindName.of("stage")) -> right(KindName.of("checkpoint"))),
+          artifacts = Map(right(ArtifactKey.read("p/n")) -> right(KindName.of("backlog")))
+        )
+      ) ==> Right(
+        Migrated(
+          project(
+            v3,
+            m,
+            Artifact(s.head.copy(kind = right(KindName.of("checkpoint"))), s.body),
+            Artifact(n.head.copy(kind = right(KindName.of("backlog"))), n.body)
+          ),
+          Vector(right(ArtifactKey.read("p/n")), right(ArtifactKey.read("p/s")))
         )
       )
     }
