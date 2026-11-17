@@ -2,14 +2,16 @@ package kalandra.importer
 
 import java.nio.file.Path
 
+import scala.util.Try
+
 import grit.core.plugin.CommandOutcome
 import grit.projects.artifact.Project
-import grit.projects.method.Method
-import grit.projects.name.{KindName, MethodName, ProjectKey}
+import grit.projects.method.{Method, MethodJson}
+import grit.projects.name.{KindName, MethodName, Pin, ProjectKey}
 import grit.projects.render.ProjectMarkdown
 
 import kalandra.edge.CommandClient
-import kalandra.method.GritMethod
+import kalandra.method.Grit
 
 /** What one import did: the sources read, the artifacts imported by kind, the writes asked
   * and how many of them were refused (each with why), each part of a source that could not be
@@ -119,16 +121,7 @@ object Imports {
         .read(files)
         .left
         .map(bad => s"$project cannot be read: ${bad.mkString("; ")}")
-      methods <- GritMethod.all.left.map(_.mkString("; "))
-      method <- methods
-        .find(m =>
-          m.name == existing.pin.method && m.version == existing.pin.version &&
-            m.digest == existing.pin.digest
-        )
-        .toRight(
-          s"$project holds to ${MethodName.value(existing.pin.method)} version ${existing.pin.version}, " +
-            "not declared here with its digest"
-        )
+      method <- pinned(client, project, existing.pin)
       corpus <- Corpus.read(root)
       imported <- Importer
         .of(key, existing.pin, method, corpus.sources)
@@ -148,6 +141,32 @@ object Imports {
       method: Method,
       sources: Vector[Source]
   )
+
+  /** The method version `pin` names, as serve declares it (`project_methods`), or why not: not
+    * declared there, not read with [[Grit.Checks]], or declared under another digest.
+    */
+  private def pinned(client: CommandClient, project: String, pin: Pin): Either[String, Method] = {
+    val named = s"$project holds to ${MethodName.value(pin.method)} version ${pin.version}"
+    for {
+      shown <- client
+        .run(
+          "project_methods",
+          ujson.Obj("name" -> MethodName.value(pin.method), "version" -> pin.version)
+        )
+        .flatMap {
+          case CommandOutcome.Done(text) => Right(text)
+          case CommandOutcome.Refused(why) => Left(s"$named: $why")
+        }
+      declared <- Try(ujson.read(shown)).toEither.left
+        .map(_ => s"$named, which serve shows as no JSON")
+        .flatMap(MethodJson.read(_, Grit.Checks).left.map(why => s"$named: ${why.mkString("; ")}"))
+      method <- Either.cond(
+        declared.method.digest == pin.digest,
+        declared.method,
+        s"$named, declared here under another digest"
+      )
+    } yield method
+  }
 
   private def started(client: CommandClient, project: String): Either[String, Unit] =
     client.run("project_new", ujson.Obj("project" -> project)).flatMap {

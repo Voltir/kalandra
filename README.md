@@ -5,14 +5,19 @@ jars (`grit-kit`, `grit-chat`, `grit-projects`, `grit-commands` and `grit-claude
 version `build.mill` pins), the way any deployment outside grit builds. Package `kalandra`, outside `grit` on purpose, so the compiler treats it
 as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 
-- **The projects plugin** (ADR 0049), under one method, `grit` (`kalandra.method`): grit's own
-  process as data. Version 1 (milestones, stages, ideas, mechanisms) is kept because the project
+- **The projects plugin** (ADR 0049), under one method, `grit`: grit's own process as data,
+  one file a version in `methods/` (`grit@<version>.json`), each declared into the store
+  (`bin/kalandra declare '{"method":…}'`, `project_declare`, a caller believed at authority)
+  before a project may hold to it; `kalandra.method.Grit` holds the names the code reads of it
+  and the checks its versions may name. Version 1 (milestones, stages, ideas, mechanisms) is kept because the project
   `restore-check` is pinned to its digest; version 2 has the kinds grit's planning tree imports
   into: milestones (later, next, now, parallel, done), plans with their stages and sections,
   mechanisms and notes. Version 3 renames the stage a checkpoint and adds backlog items; its
-  coder and manager views always carry their rules. Version 4 adds amendments. Version 5, the
-  latest and so what a new project holds to, ends a checkpoint only once everything under it
-  has ended. `project_migrate` moves a project between versions.
+  coder and manager views always carry their rules. Version 4 adds amendments. Version 5 ends a
+  checkpoint only once everything under it has ended. Version 6, the latest and so what a new
+  project holds to, leaves an amendment's move to `adopted` to a caller believed at authority,
+  and puts `ready` between a checkpoint's `planned` and `building`, reached once its body holds
+  Goal, Signatures, Reads and Commits. `project_migrate` moves a project between versions.
 - **One account, one room.** Its account is `workshop:local/nick` (stored; kept from the deployment's earlier name); its room is the grit
   checkout's directory (`KALANDRA_CHECKOUT`, default `$HOME/Projects/grit`), declared internal,
   and the account alone is cleared for internal. Every other room is unmapped, so a command
@@ -52,7 +57,7 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 
 It compiles under grit's flags (`-no-indent`, capture and separation checking, `-Werror`).
 
-Packages, in one-way order: `method` (the method's data) → `amend` (a standing section's
+Packages, in one-way order: `method` (the method's names and checks) → `amend` (a standing section's
 amendments) → `edge` (the mount
 of grit's commands edge, kalandra's own commands, and the client) →
 `deployment` → `importer` (grit's planning tree → export-shaped files → `project_keep` over
@@ -97,7 +102,7 @@ loginctl enable-linger "$USER"   # user units run without a login session
 ## Amending a standing section
 
 A section that states a cap above its rule (`**Cap: N characters**`, then `***`) holds a
-standing text, which an `amendment` (GritMethod from version 4) proposes to edit: its `## Diff`
+standing text, which an `amendment` (the method's, from version 4) proposes to edit: its `## Diff`
 names the section and the version it is against, then `old` and `new` code blocks, exact
 replacements as a coder's edits are.
 
@@ -107,8 +112,8 @@ bin/kalandra adopt '{"key":"grit/amend-…"}'                    # keep it as th
 ```
 
 For a section, `standing` also says its version on stderr, which `scripts/eval propose
---against` takes. Both are the edge's own commands, not tools, and `adopt` is the only way an amendment reaches
-`adopted`: what each refuses is in `OwnCommands`' and `Adoption.candidate`'s docs.
+--against` takes. Both are the edge's own commands, not tools, and from version 6 only a caller believed at
+authority moves an amendment to `adopted`, as `adopt` does: what each refuses is in `OwnCommands`' and `Adoption.candidate`'s docs.
 
 ## The proposer
 

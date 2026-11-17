@@ -3,7 +3,7 @@ package kalandra.importer
 import grit.projects.method.Method
 import grit.projects.name.{ArtifactKey, Pin, ProjectKey}
 
-import kalandra.method.GritMethod
+import kalandra.method.MethodFiles
 
 /** A small planning tree, shaped as grit's: a roadmap, its done list, two mechanisms that cite
   * each other, backlog notes (one blank, one over the stored cap), and one open plan; a closed
@@ -143,7 +143,7 @@ object Fixture {
 
   val project: ProjectKey = ProjectKey.of("grit").fold(sys.error, identity)
 
-  val method: Method = GritMethod.v2.fold(why => sys.error(why.mkString("; ")), identity)
+  val method: Method = MethodFiles.filed(2).fold(sys.error, _.method)
 
   val pin: Pin = Pin.of(method.name, method.version, method.digest).fold(sys.error, identity)
 
