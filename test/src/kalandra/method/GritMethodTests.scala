@@ -311,6 +311,87 @@ object GritMethodTests extends TestSuite {
       v5.migrated(project(v4, as*), Remap()) ==> Right(Migrated(project(v5, as*), Vector()))
     }
 
+    test(
+      "version 6 is version 5 with adopted a person's alone and a checkpoint ready once its plan is whole, and its examples say so"
+    ) {
+      val declared = filed(6)
+      val checkpoint = right(KindName.of("checkpoint"))
+      val amendment = right(KindName.of("amendment"))
+      // What version 6 leaves as version 5 had it: every other kind, its moves, and the views.
+      def unchanged(m: Method) = (
+        m.kinds.filterNot(_.name == checkpoint),
+        m.transitions.filterNot(t => t.kind == checkpoint || t.kind == amendment),
+        m.views,
+        m.checks
+      )
+      def moves(m: Method, kind: KindName) = m.transitions
+        .filter(_.kind == kind)
+        .map(t => s"${t.from}->${t.to} [${t.checks.mkString(",")}] ${t.movers}")
+      (
+        declared.map(d => MethodBench.failures(d.method, d.examples)),
+        declared.map(d => d.method.kinds.find(_.name == checkpoint).map(k => (k.all, k.sections))),
+        declared.map(d => moves(d.method, checkpoint)),
+        declared.map(d => moves(d.method, amendment)),
+        declared.map(d => unchanged(d.method) == unchanged(version(5))),
+        declared.map(_.examples.flatMap(_.moves).map(_.expect).distinct.map(_.toString).sorted)
+      ) ==> (
+        Right(Vector()),
+        Right(
+          Some(
+            (
+              Vector("planned", "ready", "building", "review", "merged", "dropped")
+                .map(s => right(StateName.of(s))),
+              Vector("Goal", "Signatures", "Reads", "Commits")
+            )
+          )
+        ),
+        Right(
+          Vector(
+            "planned->ready [sections-present] Anyone",
+            "ready->building [] Anyone",
+            "building->review [] Anyone",
+            "review->building [] Anyone",
+            "review->merged [children-ended] Anyone",
+            "planned->dropped [children-ended] Anyone",
+            "ready->dropped [children-ended] Anyone",
+            "building->dropped [children-ended] Anyone"
+          )
+        ),
+        Right(
+          Vector(
+            "proposed->benched [sections-present] Anyone",
+            "benched->adopted [decided-adopt] People",
+            "benched->rejected [decided-reject] Anyone",
+            "proposed->dropped [] Anyone",
+            "benched->dropped [] Anyone"
+          )
+        ),
+        Right(true),
+        Right(
+          Vector(
+            "Allowed",
+            "RefusedBy(decided-adopt)",
+            "RefusedBy(decided-reject)",
+            "RefusedBy(sections-present)",
+            "RefusedPersonOnly"
+          )
+        )
+      )
+    }
+
+    test(
+      "a version 5 project migrates to version 6 unchanged, a planned checkpoint still planned"
+    ) {
+      val (v5, v6) = (version(5), right(filed(6)).method)
+      val as = Vector(
+        Artifact(head("m", "milestone", "now"), right(Body.read("M."))),
+        Artifact(head("c", "checkpoint", "planned", parent = Some("m")), right(Body.read("C."))),
+        Artifact(head("b", "checkpoint", "building", parent = Some("m")), right(Body.read("B."))),
+        Artifact(head("a", "amendment", "benched"), right(Body.read("A.")))
+      )
+      v6.migrated(project(v5, as*), Remap()) ==> Right(Migrated(project(v6, as*), Vector()))
+    }
+
     test("a version 3 milestone cannot end done while it parents an open backlog item") {
       val artifacts = Vector(
         Artifact(head("m", "milestone", "now"), right(Body.read("M."))),
