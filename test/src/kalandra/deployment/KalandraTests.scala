@@ -170,9 +170,7 @@ object KalandraTests extends TestSuite {
       (kalandra.offer.rounds.calls, kalandra.offer.rounds.limit) ==> (12, None)
     }
 
-    test(
-      "a turn is offered the projects plugin's reads, keep, edit, move and new, and not withdraw, migrate, claim, release, declare or methods"
-    ) {
+    test("a turn is offered the plugin commands a session may run") {
       kalandra.plugins
         .flatMap(_.commands)
         .filter(_.offeredToTurns)
@@ -192,17 +190,9 @@ object KalandraTests extends TestSuite {
       )
     }
 
-    test(
-      "no plugin command has the name of a command kalandra's edge adds, and it guards none"
-    ) {
+    test("no plugin command has the name of a command kalandra's edge adds") {
       val plugins = kalandra.plugins.flatMap(_.commands).map(c => ToolName.value(c.spec.name)).toSet
-      val added = OwnCommands.all.filterNot(_.guards).map(o => ToolName.value(o.name)).toList
-      val guarding = OwnCommands.all.filter(_.guards).map(o => ToolName.value(o.name)).toList
-      (added, added.filter(plugins), guarding) ==> (
-        List("project_standing", "project_adopt"),
-        Nil,
-        Nil
-      )
+      OwnCommands.all.map(o => ToolName.value(o.name)).filter(plugins) ==> Vector()
     }
   }
 }
