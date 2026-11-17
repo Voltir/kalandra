@@ -194,5 +194,31 @@ object KalandraTests extends TestSuite {
       val plugins = kalandra.plugins.flatMap(_.commands).map(c => ToolName.value(c.spec.name)).toSet
       OwnCommands.all.map(o => ToolName.value(o.name)).filter(plugins) ==> Vector()
     }
+
+    test("the one phrase ops/deploy.sh greps for an already-declared method is part of Projects.DeclaredAlready") {
+      val greps = DeployScript.alreadyDeclaredGreps
+      (greps.size, greps.forall(grit.projects.plugin.Projects.DeclaredAlready.contains)) ==> (1, true)
+    }
   }
+}
+
+/** `ops/deploy.sh`'s text, read from the checkout the tests run in, for what it greps grit's reply for. */
+object DeployScript {
+
+  /** The text of `ops/deploy.sh`, found in the working directory or one of its parents. */
+  lazy val text: String = Iterator
+    .iterate(java.nio.file.Paths.get("").toAbsolutePath)(_.getParent)
+    .takeWhile(_ != null)
+    .map(_.resolve("ops/deploy.sh"))
+    .find(java.nio.file.Files.exists(_))
+    .map(java.nio.file.Files.readString(_))
+    .getOrElse(sys.error("ops/deploy.sh not found above the working directory"))
+
+  /** The phrases `== *"…"*` the script matches with, that name a declared method's reply. */
+  def alreadyDeclaredGreps: Vector[String] =
+    """== \*"([^"]+)"\*""".r
+      .findAllMatchIn(text)
+      .map(_.group(1))
+      .filter(_.contains("declared already"))
+      .toVector
 }
