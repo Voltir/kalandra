@@ -63,9 +63,8 @@ object OwnCommands {
   /** `project_adopt`, at `/command` alone (`bin/kalandra adopt`), for a caller believed at
     * [[Integrity.Authority]], as adopting sets standing policy: the amendment `key`'s candidate
     * kept as its section's next version, at the version its diff is against, and the amendment
-    * moved to `adopted`, in one plugin `project_batch`, which keeps both or neither and checks
-    * the move as any its caller makes; done, it says the section, its standing text's size and its cap, then the
-    * batch's answer. Unread (400) without `key`; refused (409), nothing batched, as [[standing]]
+    * moved to `adopted`, both or neither; done, it says the section, its standing text's size and
+    * its cap, then the batch's answer. Unread (400) without `key`; refused (409), nothing batched, as [[standing]]
     * refuses a candidate, or as the batch refuses; a store failure (500) as [[standing]]'s.
     */
   val adopt: OwnCommand = OwnCommand.added(
