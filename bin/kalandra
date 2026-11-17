@@ -15,6 +15,8 @@
 #   bin/kalandra verify <grit>              check the project `grit` holds that tree whole
 #   bin/kalandra <command> [json]           run a projects command through a running serve:
 #                                           `keep` or `project_keep`, its arguments a JSON object
+#   bin/kalandra declare methods/grit@6.json  declare a method version from its file: as
+#                                           `declare '{"method":"<the file's text>"}'`
 #   bin/kalandra standing '{"key":"<key>"}'  a standing section's text, or an amendment's candidate's,
 #                                           as a bench's --standing file holds it; keeps nothing;
 #                                           for a section, its version on stderr (propose --against)
@@ -415,6 +417,10 @@ case "$1" in
     name="$1"
     [[ "$name" == project_* ]] || name="project_$name"
     body="${2:-}"
+    # A method's file, given to declare, sent as its one argument.
+    if [[ "$name" == project_declare && -f "$body" ]]; then
+      body="$(jq -nc --rawfile m "$body" '{method: $m}')"
+    fi
     need_credential
     out="$(mktemp)"
     trap 'rm -f "$out"' EXIT

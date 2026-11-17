@@ -7,8 +7,9 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
 
 - **The projects plugin** (ADR 0049), under one method, `grit`: grit's own process as data,
   one file a version in `methods/` (`grit@<version>.json`), each declared into the store
-  (`bin/kalandra declare '{"method":…}'`, `project_declare`, a caller believed at authority)
-  before a project may hold to it; `kalandra.method.Grit` holds the names the code reads of it
+  (`bin/kalandra declare methods/grit@6.json`, `project_declare`, a caller believed at
+  authority; a deploy declares each, and `ops/restore-test.sh` too) before a project may hold to
+  it; `kalandra.method.Grit` holds the names the code reads of it
   and the checks its versions may name. Version 1 (milestones, stages, ideas, mechanisms) is kept because the project
   `restore-check` is pinned to its digest; version 2 has the kinds grit's planning tree imports
   into: milestones (later, next, now, parallel, done), plans with their stages and sections,

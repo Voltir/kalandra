@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Deploys a proven build into a kalandra checkout, or rolls itself back: the proved commit and jar,
-# with no build; the data files the build needs; the credentials serve takes; and every grit
-# checkout joined to serve, joined again. Run by `bin/kalandra deploy`:
+# with no build; the data files the build needs; the credentials serve takes; the method versions
+# the commit holds, declared; and every grit checkout joined to serve, joined again. Run by
+# `bin/kalandra deploy`:
 #
 #   bin/kalandra deploy [--checkout DIR] [--grit DIR] [--detach] <proof-dir>
 #   bin/kalandra deploy --health
@@ -60,7 +61,7 @@ deploy_budget=60
 began="${EPOCHREALTIME/,/.}"
 
 usage() {
-  sed -n '6,/^#   --detach/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '7,/^#   --detach/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 64
 }
 
@@ -651,6 +652,24 @@ stage_start() {
   log "start: serve started by $(manager), answering"
 }
 
+# Each method version the proved commit holds (methods/<name>@<version>.json), declared through
+# the command line's credential, oldest first: a version declared already under its digest changes
+# nothing, so only a new one is kept; one declared under another digest, or refused for any other
+# reason, fails the deploy. A rollback leaves what was declared: a serve before methods were
+# declared reads no method document.
+stage_methods() {
+  local f code body said=()
+  for f in $(cd "$checkout/methods" 2>/dev/null && ls -- *.json | sort -t@ -k1,1 -k2,2n); do
+    code="$(jq -nc --rawfile m "$checkout/methods/$f" '{method: $m}' |
+      cred_curl "$owner_cred" -o "$run/declare.out" -w '%{http_code}' -X POST \
+        -H 'Content-Type: application/json' --data-binary @- "$edge/command/project_declare")"
+    body="$(head -c 300 "$run/declare.out")"
+    [[ "$code" == 200 ]] || { why="declaring $f answered $code: $body"; return 1; }
+    if [[ "$body" == *"declared already, under the same digest"* ]]; then said+=("${f%.json} kept"); else said+=("${f%.json} declared"); fi
+  done
+  log "methods: ${said[*]:-none in $checkout/methods}"
+}
+
 # The join script $1 run in the checkout $2 with the arguments after, under a bound of 120 s,
 # which covers its `claude mcp` calls; its output in `out`, its exit in `rc`.
 join_in() {
@@ -805,7 +824,7 @@ rollback() {
   finish "deploy: rolled back: $1; left as it began: $said; $(timing)"
 }
 
-for s in credentials backup stop connections dump data code start join health; do
+for s in credentials backup stop connections dump data code start methods join health; do
   stage="$s"
   why=""
   s0="$(now)"

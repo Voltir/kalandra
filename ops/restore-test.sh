@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Whether a backup restores: keeps two artifacts of the project `restore-check` in grit_kalandra
-# through bin/kalandra, dumps it with ops/backup.sh, restores that dump into
+# Whether a backup restores: declares each method version in methods/ and keeps two artifacts of
+# the project `restore-check` in grit_kalandra through bin/kalandra, dumps it with ops/backup.sh, restores that dump into
 # grit_kalandra_restore, and compares each project's export (ADR 0049's one function pair)
 # from the two databases, file by file; then drops grit_kalandra_restore.
 #
@@ -10,6 +10,8 @@
 # grit_kalandra; otherwise one is started and stopped. The restored database is served on
 # KALANDRA_RESTORE_LISTEN (default 127.0.0.1:7318). Exits 0 only when every export matches.
 # Every serve it starts is stopped by its PID, and the restored database dropped, however it ends.
+# Declaring asks a caller believed at authority: bin/kalandra's credential is the command line's,
+# the file KALANDRA_CREDENTIAL names or ~/.config/kalandra/credential, which serve must know.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -61,8 +63,12 @@ else
   serve grit_kalandra "$live_listen"
 fi
 
-# Kept the same each run, so a second run writes no new version.
+# Kept the same each run, so a second run writes no new version: a method version declared already
+# under its digest changes nothing. Methods first, as a project is read under its method's.
 export KALANDRA_LISTEN="$live_listen"
+for f in $(cd "$root/methods" && ls -- *.json | sort -t@ -k1,1 -k2,2n); do
+  "$kalandra" declare "$root/methods/$f"
+done
 "$kalandra" new '{"project":"restore-check"}' || true
 "$kalandra" keep '{"key":"restore-check/plan","kind":"milestone","title":"Restore check","body":"Kept by ops/restore-test.sh, to see a dump restore whole."}'
 "$kalandra" keep '{"key":"restore-check/dump","kind":"stage","title":"Dump and restore","body":"## Goal\n\nThe export after a restore is the export before it. See [the plan](artifact:restore-check/plan).","parent":"restore-check/plan","cites":["restore-check/plan"]}'

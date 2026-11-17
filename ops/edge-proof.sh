@@ -724,11 +724,31 @@ lo="$(level "$key_of")"; ls_="$(level "${key_of%by-owner}by-session")"
 [[ "$lo" == 3 ]]; holds $? "the command line's keep is recorded at integrity level 3, authority ($lo)"
 [[ "$ls_" == 2 ]]; holds $? "the session's keep, KALANDRA_CREDENTIAL inherited, is recorded at level 2, member ($ls_)"
 before="$(K show '{"key":"edge-proof/n"}')"
-expect 1 "a move to adopted is refused" K move '{"key":"edge-proof/n","state":"adopted"}'
-grep -q project_adopt <<<"$out"; holds $? "  and the refusal names project_adopt"
-expect 1 "a batch with a step to adopted is refused" K batch '{"project":"edge-proof","steps":[{"command":"move","key":"edge-proof/n","state":"adopted"}]}'
-grep -q project_adopt <<<"$out"; holds $? "  and the refusal names project_adopt"
-[[ "$(K show '{"key":"edge-proof/n"}')" == "$before" ]]; holds $? "edge-proof/n unchanged after both"
+# The method's versions, which the deploy declared: each given back as its file, a session's
+# declaration refused, and grit migrated to the latest, which edge-proof, new, holds to already.
+latest="$(cd "$wt/methods" && ls -- grit@*.json | sed 's/^grit@\(.*\)\.json$/\1/' | sort -n | tail -n 1)"
+rc=0
+for f in "$wt"/methods/*.json; do
+  v="${f##*@}"; v="${v%.json}"
+  [[ "$(K methods "{\"name\":\"grit\",\"version\":$v}")" == "$(<"$f")" ]] || rc=1
+done
+holds "$rc" "project_methods gives each version the deploy declared back as its file in methods/, 1 to $latest"
+expect 1 "a session's declaration of a version is refused" S declare "$wt/methods/grit@$latest.json"
+grep -q "answered 409" <<<"$out"; holds $? "  409: $(head -n 1 <<<"$out" | head -c 160)"
+expect 0 "the command line migrates grit to version $latest" K migrate "{\"project\":\"grit\",\"version\":$latest}"
+expect 0 "  and grit's now still lists" K list '{"project":"grit","state":"now"}'
+amend="## Diff\n\nd\n\n## Moments\n\nm\n\n## Cue\n\nc\n\n## Lesson\n\nl\n\n## Confidence\n\nc\n\n## Observable\n\no\n\n## Contrast\n\nkept -> amendment.\n\n## Verdict: helped\n\nh\n\n## Decision: adopt\n\n- By: proof.\n- Activation: 1.\n- Checks: 1.\n- Cost: 0.\n- Held-out regression: none."
+expect 0 "keep amendment edge-proof/a, decided adopt" K keep "{\"key\":\"edge-proof/a\",\"kind\":\"amendment\",\"title\":\"Proof amendment\",\"body\":\"$amend\"}"
+expect 0 "a session benches it" S move '{"key":"edge-proof/a","state":"benched"}'
+expect 1 "a session's move of it to adopted is refused" S move '{"key":"edge-proof/a","state":"adopted"}'
+grep -q "answered 409" <<<"$out" && grep -q -i "authority" <<<"$out"; holds $? "  409, naming authority: $(head -n 1 <<<"$out" | head -c 160)"
+expect 0 "the command line's move of it to adopted is made" K move '{"key":"edge-proof/a","state":"adopted"}'
+expect 0 "keep checkpoint edge-proof/k, its plan lacking Commits" K keep '{"key":"edge-proof/k","kind":"checkpoint","title":"Proof checkpoint","body":"## Goal\n\ng\n\n## Signatures\n\ns\n\n## Reads\n\nr","parent":"edge-proof/m"}'
+expect 1 "a session's move of it to ready is refused" S move '{"key":"edge-proof/k","state":"ready"}'
+grep -q "sections-present" <<<"$out"; holds $? "  by sections-present"
+expect 0 "keep it again with Commits" K keep '{"key":"edge-proof/k","kind":"checkpoint","title":"Proof checkpoint","body":"## Goal\n\ng\n\n## Signatures\n\ns\n\n## Reads\n\nr\n\n## Commits\n\nc","parent":"edge-proof/m"}'
+expect 0 "a session moves it to ready" S move '{"key":"edge-proof/k","state":"ready"}'
+expect 0 "  and then to building" S move '{"key":"edge-proof/k","state":"building"}'
 state="$(sed -n 's/^state: //p' <<<"$before" | head -1)"
 expect 0 "wait for edge-proof/n in $state" K wait "{\"artifact\":\"edge-proof/n\",\"state\":[\"$state\"],\"within\":5}"
 expect 3 "wait for edge-proof/n in folded lapses" K wait '{"artifact":"edge-proof/n","state":["folded"],"within":2}'
@@ -763,8 +783,6 @@ grep -q "answered 403" <<<"$out" && grep -q "project_adopt" <<<"$out" && grep -q
 holds $? "  403, naming project_adopt and authority"
 expect 1 "the command line's adopt reaches the command, which refuses a note as no amendment" K adopt '{"key":"edge-proof/n"}'
 grep -q "answered 409" <<<"$out"; holds $? "  409, the command's own refusal: $(head -1 <<<"$out")"
-expect 1 "a session's move to adopted reaches the guard" S move '{"key":"edge-proof/n","state":"adopted"}'
-grep -q "answered 409" <<<"$out" && grep -q project_adopt <<<"$out"; holds $? "  409 in the guard's words"
 expect 0 "a session's standing reaches the command" S standing '{"key":"grit/roadmap-grit-coder"}'
 [[ "$(K show '{"key":"edge-proof/n"}')" == "$before" ]]; holds $? "edge-proof/n unchanged after the adopts"
 
