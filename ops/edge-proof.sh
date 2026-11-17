@@ -735,7 +735,11 @@ done
 holds "$rc" "project_methods gives each version the deploy declared back as its file in methods/, 1 to $latest"
 expect 1 "a session's declaration of a version is refused" S declare "$wt/methods/grit@$latest.json"
 grep -q "answered 409" <<<"$out"; holds $? "  409: $(head -n 1 <<<"$out" | head -c 160)"
-expect 0 "the command line migrates grit to version $latest" K migrate "{\"project\":\"grit\",\"version\":$latest}"
+# A migration is refused while an artifact is claimed, and the copy holds live's claims: they are
+# set aside for it and put back after, as live migrates once its claims are released.
+sql "CREATE TABLE grit.claims_set_aside AS SELECT * FROM grit.claims; DELETE FROM grit.claims" >/dev/null
+expect 0 "the command line migrates grit to version $latest, nothing claimed" K migrate "{\"project\":\"grit\",\"version\":$latest}"
+sql "INSERT INTO grit.claims SELECT * FROM grit.claims_set_aside; DROP TABLE grit.claims_set_aside" >/dev/null
 expect 0 "  and grit's now still lists" K list '{"project":"grit","state":"now"}'
 amend="## Diff\n\nd\n\n## Moments\n\nm\n\n## Cue\n\nc\n\n## Lesson\n\nl\n\n## Confidence\n\nc\n\n## Observable\n\no\n\n## Contrast\n\nkept -> amendment.\n\n## Verdict: helped\n\nh\n\n## Decision: adopt\n\n- By: proof.\n- Activation: 1.\n- Checks: 1.\n- Cost: 0.\n- Held-out regression: none."
 expect 0 "keep amendment edge-proof/a, decided adopt" K keep "{\"key\":\"edge-proof/a\",\"kind\":\"amendment\",\"title\":\"Proof amendment\",\"body\":\"$amend\"}"
