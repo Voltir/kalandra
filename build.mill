@@ -81,10 +81,17 @@ object `package` extends ScalaModule {
 
   def mainClass = Some("kalandra.main.Main")
 
-  /* kalandra's tests: utest, as grit's. Scala 3.9's -Wunused reports a pattern variable read
-   * only inside utest's `assert` macro as unused; silenced in tests, as grit does. */
+  /* The method's versions, one file each (`grit@<version>.json`), as project_declare takes them:
+   * declared into the store, never compiled in. A source, so the tests reading them rerun when
+   * one changes. */
+  def methods = Task.Source(moduleDir / "methods")
+
+  /* kalandra's tests: utest, as grit's, with the method's files on their classpath. Scala 3.9's
+   * -Wunused reports a pattern variable read only inside utest's `assert` macro as unused;
+   * silenced in tests, as grit does. */
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = Seq(mvn"com.lihaoyi::utest:0.9.5")
+    def resources = Task { super.resources() :+ build.methods() }
     def forkArgs = Seq("--sun-misc-unsafe-memory-access=allow")
     def scalacOptions = Task {
       super.scalacOptions() ++

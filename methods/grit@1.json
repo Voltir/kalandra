@@ -1,0 +1,198 @@
+{
+  "name": "grit",
+  "version": 1,
+  "kinds": [
+    {
+      "name": "milestone",
+      "first": "planned",
+      "states": [
+        "open",
+        "closed"
+      ],
+      "ends": [
+        "closed"
+      ],
+      "sections": []
+    },
+    {
+      "name": "stage",
+      "first": "planned",
+      "states": [
+        "building",
+        "review",
+        "merged",
+        "dropped"
+      ],
+      "ends": [
+        "dropped",
+        "merged"
+      ],
+      "sections": [
+        "Goal"
+      ]
+    },
+    {
+      "name": "idea",
+      "first": "parked",
+      "states": [
+        "folded",
+        "dropped"
+      ],
+      "ends": [
+        "dropped",
+        "folded"
+      ],
+      "sections": []
+    },
+    {
+      "name": "mechanism",
+      "first": "current",
+      "states": [
+        "retired"
+      ],
+      "ends": [
+        "retired"
+      ],
+      "sections": []
+    }
+  ],
+  "transitions": [
+    {
+      "kind": "milestone",
+      "from": "planned",
+      "to": "open",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "open",
+      "to": "closed",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "stage",
+      "from": "planned",
+      "to": "building",
+      "checks": [
+        "sections-present"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "stage",
+      "from": "building",
+      "to": "review",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "stage",
+      "from": "review",
+      "to": "building",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "stage",
+      "from": "review",
+      "to": "merged",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "stage",
+      "from": "planned",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "stage",
+      "from": "building",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "idea",
+      "from": "parked",
+      "to": "folded",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "idea",
+      "from": "parked",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "mechanism",
+      "from": "current",
+      "to": "retired",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    }
+  ],
+  "views": [
+    {
+      "role": "coder",
+      "kinds": [
+        "mechanism",
+        "milestone",
+        "stage"
+      ],
+      "depth": 2,
+      "carried": []
+    },
+    {
+      "role": "manager",
+      "kinds": [
+        "idea",
+        "mechanism",
+        "milestone",
+        "stage"
+      ],
+      "depth": 1,
+      "carried": []
+    }
+  ],
+  "checks": [
+    {
+      "name": "children-ended",
+      "version": 1
+    },
+    {
+      "name": "sections-present",
+      "version": 1
+    }
+  ],
+  "examples": []
+}

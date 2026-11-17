@@ -1,7 +1,19 @@
 package kalandra.method
 
+import scala.io.Source
+import scala.util.{Try, Using}
+
 import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project}
-import grit.projects.method.{Method, MethodBench, Migrated, Mover, Remap}
+import grit.projects.method.{
+  Declared,
+  Example,
+  Method,
+  MethodBench,
+  MethodJson,
+  Migrated,
+  Mover,
+  Remap
+}
 import grit.projects.name.{
   ArtifactKey,
   CheckName,
@@ -22,6 +34,16 @@ object GritMethodTests extends TestSuite {
 
   private val methods: Vector[Method] =
     GritMethod.all.fold(why => sys.error(why.mkString("; ")), identity)
+
+  /** Version `v`'s file, `methods/grit@<v>.json`, as JSON. */
+  private def text(v: Int): Either[String, ujson.Value] =
+    Using(Source.fromResource(s"grit@$v.json"))(_.mkString).toEither.left
+      .map(_ => s"no file grit@$v.json")
+      .flatMap(t => Try(ujson.read(t)).toEither.left.map(_.toString))
+
+  /** Version `v`'s file read as project_declare reads it. */
+  private def filed(v: Int): Either[String, Declared] =
+    text(v).flatMap(MethodJson.read(_, Grit.Checks).left.map(_.mkString("; ")))
 
   private def version(v: Int): Method =
     methods.find(_.version == v).getOrElse(sys.error(s"no version $v"))
@@ -96,6 +118,26 @@ object GritMethodTests extends TestSuite {
       // The pin grit_kalandra's project grit holds; its export's header shows 243738553f2f.
       GritMethod.v5.map(_.digest) ==>
         Right("243738553f2f7368af940d5593ee7c2ac49cc9f3b66eeea85588854e3ba7b7cd")
+    }
+
+    test("the files of versions 1 to 5 are each version and its examples written, under its pin") {
+      val written = GritMethod.declared
+        .fold(why => sys.error(why.mkString("; ")), identity)
+        .map((m: Method, ex: Vector[Example]) => ujson.write(MethodJson.written(m, ex)))
+      val versions = (1 to 5).toVector
+      (
+        versions.map(v => text(v).map(ujson.write(_))),
+        versions.map(v => filed(v).map(_.method.digest))
+      ) ==> (
+        written.map(Right(_)),
+        Vector(
+          "1c8e4adb20a0b3b044f5b165c638033a1a93dc83bfc98b97b0c6d26180c3de75",
+          "b08f7ac5f0a18cdfffcec83468e48295d3f2e1bb11dc49cf31b8869457c80a1f",
+          "cdae558df99dfaeb924b1eb863a10004196e1bab2cdb65e90d49a42cdfb74f47",
+          "a4324899142bd13487e2442f57fea1be8cd5e6972247bbd177aff000a0cff65d",
+          "243738553f2f7368af940d5593ee7c2ac49cc9f3b66eeea85588854e3ba7b7cd"
+        ).map(Right(_))
+      )
     }
 
     test("version 2's milestone sits later, next, now or parallel and ends done or dropped") {

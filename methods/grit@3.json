@@ -1,0 +1,480 @@
+{
+  "name": "grit",
+  "version": 3,
+  "kinds": [
+    {
+      "name": "milestone",
+      "first": "later",
+      "states": [
+        "next",
+        "now",
+        "parallel",
+        "done",
+        "dropped"
+      ],
+      "ends": [
+        "done",
+        "dropped"
+      ],
+      "sections": []
+    },
+    {
+      "name": "plan",
+      "first": "open",
+      "states": [
+        "closed",
+        "dropped"
+      ],
+      "ends": [
+        "closed",
+        "dropped"
+      ],
+      "sections": []
+    },
+    {
+      "name": "checkpoint",
+      "first": "planned",
+      "states": [
+        "building",
+        "review",
+        "merged",
+        "dropped"
+      ],
+      "ends": [
+        "dropped",
+        "merged"
+      ],
+      "sections": []
+    },
+    {
+      "name": "section",
+      "first": "current",
+      "states": [
+        "retired"
+      ],
+      "ends": [
+        "retired"
+      ],
+      "sections": []
+    },
+    {
+      "name": "mechanism",
+      "first": "current",
+      "states": [
+        "retired"
+      ],
+      "ends": [
+        "retired"
+      ],
+      "sections": []
+    },
+    {
+      "name": "note",
+      "first": "open",
+      "states": [
+        "folded",
+        "dropped"
+      ],
+      "ends": [
+        "dropped",
+        "folded"
+      ],
+      "sections": []
+    },
+    {
+      "name": "backlog",
+      "first": "open",
+      "states": [
+        "taken",
+        "folded",
+        "dropped"
+      ],
+      "ends": [
+        "dropped",
+        "folded",
+        "taken"
+      ],
+      "sections": []
+    }
+  ],
+  "transitions": [
+    {
+      "kind": "milestone",
+      "from": "later",
+      "to": "next",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "later",
+      "to": "now",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "later",
+      "to": "parallel",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "next",
+      "to": "later",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "next",
+      "to": "now",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "next",
+      "to": "parallel",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "now",
+      "to": "later",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "now",
+      "to": "next",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "now",
+      "to": "parallel",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "parallel",
+      "to": "later",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "parallel",
+      "to": "next",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "parallel",
+      "to": "now",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "later",
+      "to": "done",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "next",
+      "to": "done",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "now",
+      "to": "done",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "parallel",
+      "to": "done",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "later",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "next",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "now",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "parallel",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "plan",
+      "from": "open",
+      "to": "closed",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "plan",
+      "from": "open",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "planned",
+      "to": "building",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "building",
+      "to": "review",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "review",
+      "to": "building",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "review",
+      "to": "merged",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "planned",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "building",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "section",
+      "from": "current",
+      "to": "retired",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "mechanism",
+      "from": "current",
+      "to": "retired",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "note",
+      "from": "open",
+      "to": "folded",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "note",
+      "from": "open",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "backlog",
+      "from": "open",
+      "to": "taken",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "backlog",
+      "from": "open",
+      "to": "folded",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "backlog",
+      "from": "open",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    }
+  ],
+  "views": [
+    {
+      "role": "coder",
+      "kinds": [
+        "checkpoint",
+        "mechanism",
+        "milestone",
+        "plan",
+        "section"
+      ],
+      "depth": 2,
+      "carried": [
+        "roadmap-coder-rules"
+      ]
+    },
+    {
+      "role": "manager",
+      "kinds": [
+        "backlog",
+        "checkpoint",
+        "mechanism",
+        "milestone",
+        "note",
+        "plan",
+        "section"
+      ],
+      "depth": 1,
+      "carried": [
+        "roadmap-update-protocol"
+      ]
+    },
+    {
+      "role": "reviewer",
+      "kinds": [
+        "backlog",
+        "checkpoint",
+        "mechanism",
+        "milestone",
+        "note",
+        "plan",
+        "section"
+      ],
+      "depth": 2,
+      "carried": []
+    }
+  ],
+  "checks": [
+    {
+      "name": "children-ended",
+      "version": 1
+    }
+  ],
+  "examples": []
+}
