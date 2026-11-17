@@ -35,10 +35,11 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   agent works as (`local/<dir>-<8 hex>`); `GET /brief` a holder's brief, or with `part=digest`
   what its last session did; `POST /events` records a session's events in grit's session record;
   `GET /join/claude-code` serves Claude Code's join script. What each answers, and refuses, is
-  in the docs of `grit.commands`' `CommandsEdge`. kalandra's own commands (`kalandra.edge.OwnCommands`):
-  `project_move` and `project_batch` refuse a move to `adopted`, which `project_adopt` alone
-  makes, and `project_standing` and `project_adopt` are added at `/command` alone; `project_adopt`
-  asks a caller believed at authority, so a session's is refused (403). The edge
+  in the docs of `grit.commands`' `CommandsEdge`. kalandra's own commands (`kalandra.edge.OwnCommands`),
+  `project_standing` and `project_adopt`, are added at `/command` alone; `project_adopt` asks a
+  caller believed at authority, so a session's is refused (403). Who may move an artifact where
+  is the method's: the plugin refuses a move its method gives to people alone unless its caller
+  is believed at authority. The edge
   vouches for the account, the one member of its realm `workshop:local` (stored; kept from the
   earlier name), so a person is linked to it before the first command. serve writes no files.
 - **Sessions** reach the edge through Claude Code's adapter: in a checkout, `curl -fsS -H
@@ -127,8 +128,7 @@ It is its own deployment (`Kalandra.proposing`, version `proposer`) on `grit_kal
 run needs the engine to itself, a dry one too (on serve's engine it would show serve's tools):
 `work` refuses one while serve holds it, and `bin/kalandra work` stops serve for the run and
 starts it again however it ends. Its turns are
-offered the coding tools' reads and `project_propose` alone, a new amendment in `proposed`;
-serve's turns may not move an amendment to `adopted`, which only `project_adopt` does.
+offered the coding tools' reads and `project_propose` alone, a new amendment in `proposed`.
 
 ## The MCP server
 

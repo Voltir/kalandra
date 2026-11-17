@@ -33,10 +33,10 @@ import grit.kit.deployment.{Assembly, Deployment, DeploymentVersion, Offer, Offe
 import grit.projects.plugin.{Projects, TurnCommands}
 
 import kalandra.edge.Mount
-import kalandra.method.GritMethod
+import kalandra.method.Grit
 
 /** kalandra: grit's own projects, kept by the projects plugin (ADR 0049) under
-  * [[GritMethod]], for one person, its [[Owner]], working in one room, the grit
+  * [[Grit]]'s method, for one person, its [[Owner]], working in one room, the grit
   * checkout's directory. Its turns run on [[Models]] through Anthropic's API, each message
   * placed by Jev, a day's spend capped at [[DailyLimit]].
   */
@@ -102,13 +102,6 @@ object Kalandra {
 
   /** A turn's model calls: 12, enough for triage to read the store short and then act. */
   val TurnCalls: Int = 12
-
-  /** What serve's turns are offered of the projects plugin: its shipped commands, a move of an
-    * amendment to adopted refused ([[Projects.guardedMove]]), which only a person makes, through
-    * the edge's `project_adopt`.
-    */
-  val ServeTurns: TurnCommands =
-    TurnCommands.Shipped(Set(GritMethod.Amendment -> GritMethod.Adopted))
 
   /** The most a day spends on model calls: $1. */
   val DailyLimit: DailyCap =
@@ -197,10 +190,16 @@ object Kalandra {
     */
   val ProposerVersion: String = "proposer"
 
+  /** The projects plugin over [[Grit.Checks]], new projects under [[Grit.Name]], its turns
+    * offered `turns`, its methods kept at [[Kept]], which every caller in the room reads.
+    */
+  private def projects(turns: TurnCommands): Either[String, Projects] =
+    Projects.of(Grit.Checks, Grit.Name, turns, methodsAt = Kept).left.map(_.toString)
+
   /** The proposer over the checkout `checkout`: one person's turns, said by `bin/kalandra work` in
     * an evidence checkout under `evidence`, which is a room at [[Kept]] as the checkout is,
     * offered the coding tools' reads ([[Offered.Read]]) and, of the projects plugin,
-    * `project_propose` alone, keeping a new amendment ([[GritMethod.Amendment]]) in its first
+    * `project_propose` alone, keeping a new amendment ([[Grit.Amendment]]) in its first
     * state. It serves no edge and declares no schedules and no jobs; its turns run on
     * [[ProposerModel]] over a window of [[TurnBudget]], [[ProposerCalls]] calls each, its input held by its pin's
     * bounds, a day's spend capped at [[ProposerLimit]], under [[ProposerVersion]]. Why not: the two directories are one room,
@@ -209,11 +208,7 @@ object Kalandra {
   def proposing(checkout: Directory, evidence: Directory): Either[String, Deployment] =
     for {
       rounds <- Rounds.of(ProposerCalls)
-      methods <- GritMethod.declared.left.map(_.mkString("; "))
-      projects <- Projects
-        .of(methods, GritMethod.Name, TurnCommands.Proposing(GritMethod.Amendment))
-        .left
-        .map(_.toString)
+      projects <- projects(TurnCommands.Proposing(Grit.Amendment))
       policy = Policy.one(ProposerModel, SummaryModel, QueryModel, HeardModel)
       visible <- visible(
         Vector(room(checkout) -> Kept, Place.of(evidence) -> Kept),
@@ -249,8 +244,7 @@ object Kalandra {
   def deployment(checkout: Directory, at: Listen, callers: Callers): Either[String, Deployment] =
     for {
       rounds <- Rounds.of(TurnCalls)
-      methods <- GritMethod.declared.left.map(_.mkString("; "))
-      projects <- Projects.of(methods, GritMethod.Name, ServeTurns).left.map(_.toString)
+      projects <- projects(TurnCommands.Shipped)
       visible <- visibility(checkout)
       persona <- Persona.of("Kalandra")
       identities <- Identities

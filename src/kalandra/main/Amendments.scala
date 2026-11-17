@@ -6,9 +6,9 @@ import grit.projects.name.LocalKey
 import grit.projects.render.ProjectMarkdown
 
 import kalandra.edge.CommandClient
-import kalandra.method.GritMethod
+import kalandra.method.Grit
 
-/** `kalandra amendments <directory>`: every amendment ([[GritMethod.Amendment]]) of the project
+/** `kalandra amendments <directory>`: every amendment ([[Grit.Amendment]]) of the project
   * [[Main.Imported]], ended ones included, each in a file of its own, as `scripts/eval propose
   * --amendments` reads them.
   */
@@ -25,7 +25,7 @@ object Amendments {
       .map(_.map((path, why) => s"$path: $why").mkString("; "))
       .map(
         _.artifacts
-          .filter(_.head.kind == GritMethod.Amendment)
+          .filter(_.head.kind == Grit.Amendment)
           .sortBy(_.head.key.value)
           .map(a => s"${LocalKey.value(a.head.key.local)}.md" -> ProjectMarkdown.file(a)._2)
       )

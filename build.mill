@@ -32,7 +32,7 @@ object `package` extends ScalaModule {
    * scripts/publish-local writes beside the modules
    * (`~/.ivy2/local/dev.grit/.publish-local-<version>`, holding the commit), so while the pin is
    * one, `bin/kalandra build` cleans the resolution first and refuses a marker that moved. */
-  def gritVersion = "0.3.0"
+  def gritVersion = "0.4.0-SNAPSHOT"
 
   /* Which grit the jar is built against, `<version> at <commit>`: for a release, the commit its
    * tag names in grit's checkout (KALANDRA_CHECKOUT, default ~/Projects/grit), and a build with no

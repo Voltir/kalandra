@@ -4,6 +4,7 @@ import grit.projects.artifact.{Artifact, ArtifactHead, Body}
 import grit.projects.method.{ArtifactKind, TransitionCheck}
 import grit.projects.name.CheckName
 import grit.prose.form.Block
+import grit.prose.markdown.Markdown
 
 /** What a benched amendment's verdict says the bench saw. */
 enum Verdict(val word: String) extends caps.Pure {
@@ -55,10 +56,10 @@ object AmendmentChecks {
       val verdicts = titles.filter(_.startsWith(VerdictTitle)).map(_.drop(VerdictTitle.length))
       val decisions = titles.filter(_.startsWith(DecisionTitle)).map(_.drop(DecisionTitle.length))
       val decided = s"## $DecisionTitle$verb"
-      // Each bullet's text up to the decision's first heading of any rank.
+      // Each bullet's text up to the decision's first heading of any rank, its own dropped.
       val under = Body
         .section(judged.body, s"$DecisionTitle$verb")
-        .getOrElse(Vector.empty)
+        .fold(_ => Vector.empty, md => Markdown.parse(md, Markdown.Newline.Space).blocks.drop(1))
         .takeWhile {
           case Block.Heading(_, _) => false
           case _ => true

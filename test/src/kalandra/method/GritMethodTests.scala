@@ -1,7 +1,7 @@
 package kalandra.method
 
 import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project}
-import grit.projects.method.{Method, MethodBench, Migrated, Remap}
+import grit.projects.method.{Method, MethodBench, Migrated, Mover, Remap}
 import grit.projects.name.{
   ArtifactKey,
   CheckName,
@@ -62,7 +62,8 @@ object GritMethodTests extends TestSuite {
         Artifact(head("n", "note", note, parent = Some("c")), right(Body.read("N.")))
       ),
       right(ArtifactKey.read("p/c")),
-      right(StateName.of(to))
+      right(StateName.of(to)),
+      Mover.Agent
     ).left
       .map(_.toString)
       .map(moved => StateName.value(moved.artifact.head.state))
@@ -274,7 +275,7 @@ object GritMethodTests extends TestSuite {
         Artifact(head("b", "backlog", "open", parent = Some("m")), right(Body.read("B.")))
       )
       version(3)
-        .move(artifacts, right(ArtifactKey.read("p/m")), right(StateName.of("done")))
+        .move(artifacts, right(ArtifactKey.read("p/m")), right(StateName.of("done")), Mover.Agent)
         .left
         .map(_.toString) ==> Left(
         "Unheld(ArtifactHead(ArtifactKey(p,m),milestone,now,m,None,Vector(),None),done," +

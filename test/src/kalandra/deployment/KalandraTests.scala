@@ -11,11 +11,8 @@ import grit.core.tool.ToolName
 import grit.core.visibility.{Label, Labelled, Party, Room}
 import grit.edge.http.Listen
 import grit.kit.deployment.{Assembly, DeploymentVersion, Offered, Placer}
-import grit.projects.name.{KindName, StateName}
-import grit.projects.plugin.{Projects, TurnCommands}
 
 import kalandra.edge.{Mount, OwnCommands}
-import kalandra.method.GritMethod
 import utest.*
 
 object KalandraTests extends TestSuite {
@@ -174,34 +171,7 @@ object KalandraTests extends TestSuite {
     }
 
     test(
-      "serve's turns may not move an amendment to adopted, and its plugin is built with that guard"
-    ) {
-      // A turn's refused move is the plugin's (grit's ProjectCommandsTests); a Tx cannot be opened
-      // outside grit, so what is pinned here is that serve's plugin holds the guard, a state
-      // Projects.of refuses unless the method has it.
-      (
-        Kalandra.ServeTurns,
-        Projects
-          .of(
-            GritMethod.declared.fold(e => sys.error(e.mkString), identity),
-            GritMethod.Name,
-            Kalandra.ServeTurns
-          )
-          .isRight
-      ) ==> (
-        TurnCommands.Shipped(
-          Set(
-            KindName
-              .of("amendment")
-              .fold(sys.error, identity) -> StateName.of("adopted").fold(sys.error, identity)
-          )
-        ),
-        true
-      )
-    }
-
-    test(
-      "a turn is offered the projects plugin's reads, keep, move and new, and not withdraw, migrate, claim or release"
+      "a turn is offered the projects plugin's reads, keep, edit, move and new, and not withdraw, migrate, claim, release, declare or methods"
     ) {
       kalandra.plugins
         .flatMap(_.commands)
@@ -210,6 +180,7 @@ object KalandraTests extends TestSuite {
         .toSet ==> Set(
         "project_new",
         "project_keep",
+        "project_edit",
         "project_move",
         "project_show",
         "project_history",
@@ -222,15 +193,14 @@ object KalandraTests extends TestSuite {
     }
 
     test(
-      "no plugin command has the name of a command kalandra's edge adds, and each it guards is a plugin's"
+      "no plugin command has the name of a command kalandra's edge adds, and it guards none"
     ) {
       val plugins = kalandra.plugins.flatMap(_.commands).map(c => ToolName.value(c.spec.name)).toSet
       val added = OwnCommands.all.filterNot(_.guards).map(o => ToolName.value(o.name)).toList
       val guarding = OwnCommands.all.filter(_.guards).map(o => ToolName.value(o.name)).toList
-      (added, added.filter(plugins), guarding, guarding.filterNot(plugins)) ==> (
+      (added, added.filter(plugins), guarding) ==> (
         List("project_standing", "project_adopt"),
         Nil,
-        List("project_move", "project_batch"),
         Nil
       )
     }

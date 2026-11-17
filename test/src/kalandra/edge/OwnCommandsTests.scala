@@ -13,7 +13,6 @@ import grit.projects.name.{ArtifactKey, KindName, StateName}
 import grit.projects.plugin.Projects
 import grit.projects.render.ProjectMarkdown
 
-import kalandra.method.GritMethod
 import utest.*
 
 object OwnCommandsTests extends TestSuite {
@@ -91,54 +90,10 @@ object OwnCommandsTests extends TestSuite {
 
   private def args(json: String): ujson.Obj = ujson.read(json).obj
 
-  private val amendKey = ok(ArtifactKey.read("m17/amend"))
-
-  /** What a move to adopted is refused with: the plugin's wording, then how a person adopts. */
-  private val guarded =
-    s"${Projects.guardedMove(amendKey, GritMethod.Amendment, GritMethod.Adopted)} " +
-      OwnCommands.Adopting
-
   private val review = ok(StateName.of("review"))
   private val merged = ok(StateName.of("merged"))
 
   val tests = Tests {
-    test(
-      "a move to adopted is refused in the plugin's words, then the way a person adopts, and runs nothing"
-    ) {
-      val s = amending(100)
-      (
-        OwnCommands.move.run(s.ran, args("""{"key":"m17/amend","state":"adopted"}""")),
-        s.names
-      ) ==> (Right(CommandOutcome.Refused(guarded)), Vector())
-    }
-
-    test("a batch with a step to adopted, after a harmless one, is refused so, and runs nothing") {
-      val s = amending(100)
-      val steps =
-        """[{"command":"keep","key":"m17/note","title":"N","body":"B."},""" +
-          """{"command":"move","key":"m17/amend","state":"adopted"}]"""
-      (
-        OwnCommands.batch.run(s.ran, args(s"""{"project":"m17","steps":$steps}""")),
-        s.names
-      ) ==> (Right(CommandOutcome.Refused(guarded)), Vector())
-    }
-
-    test("any other move or batch is run by the plugin as it was sent, and answers what it did") {
-      val s = new Scripted(Map.empty, Right(CommandOutcome.Refused("not that way")))
-      val move = args("""{"key":"m17/amend","state":"benched"}""")
-      val batch =
-        args("""{"project":"m17","steps":[{"command":"move","key":"m17/a","state":"done"}]}""")
-      (
-        OwnCommands.move.run(s.ran, move),
-        OwnCommands.batch.run(s.ran, batch),
-        s.calls.toVector
-      ) ==> (
-        Right(CommandOutcome.Refused("not that way")),
-        Right(CommandOutcome.Refused("not that way")),
-        Vector[(String, ujson.Value)](("project_move", move), ("project_batch", batch))
-      )
-    }
-
     test(
       "adopt batches the section kept at the version the diff is against, then the amendment adopted"
     ) {
@@ -236,30 +191,11 @@ object OwnCommandsTests extends TestSuite {
       )
     }
 
-    test(
-      "move, batch and standing ask a member's word and adopt an authority's, two guarding, two added"
-    ) {
+    test("standing asks a member's word and adopt an authority's, both added, none guarding") {
       OwnCommands.all.map(o => (ToolName.value(o.name), o.least, o.guards)) ==> Vector(
-        ("project_move", Integrity.Member, true),
-        ("project_batch", Integrity.Member, true),
         ("project_standing", Integrity.Member, false),
         ("project_adopt", Integrity.Authority, false)
       )
-    }
-
-    test("the plugin offers the commands guarded, and none of those added") {
-      val names = GritMethod.declared.left
-        .map(_.mkString)
-        .flatMap(Projects.of(_, GritMethod.Name).left.map(_.toString))
-        .map(_.commands.map(c => ToolName.value(c.spec.name)).toSet)
-        .fold(sys.error, identity)
-      OwnCommands.all.map(o => (ToolName.value(o.name), names.contains(ToolName.value(o.name)))) ==>
-        Vector(
-          ("project_move", true),
-          ("project_batch", true),
-          ("project_standing", false),
-          ("project_adopt", false)
-        )
     }
 
     test("the holding watch reads an artifact and its states, and nothing without an artifact") {

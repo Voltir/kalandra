@@ -13,7 +13,7 @@ import grit.projects.plugin.Projects
 import grit.projects.render.ProjectMarkdown
 
 import kalandra.amend.{AdoptRefusal, Adoption, Candidate, Diff, StandingSection}
-import kalandra.method.GritMethod
+import kalandra.method.Grit
 
 /** kalandra's own commands at grit's commands edge, and the wait its `/wait` reads besides a
   * commit's. Each asks a caller believed at [[Integrity.Member]] at least, and [[adopt]] at
@@ -24,50 +24,15 @@ import kalandra.method.GritMethod
 object OwnCommands {
 
   // First, as the commands below are built from them as the object starts.
-  private val Move = ToolName("project_move")
   private val Batch = ToolName("project_batch")
   private val Show = ToolName("project_show")
   private val Standing = ToolName("project_standing")
   private val Adopt = ToolName("project_adopt")
 
-  private val AdoptedName: String = StateName.value(GritMethod.Adopted)
-
-  /** What follows [[Projects.guardedMove]]'s words when a move to adopted is refused: how a
-    * person adopts an amendment.
-    */
-  val Adopting: String =
-    "A person adopts an amendment through project_adopt, which keeps its section's next " +
-      "version under the section's cap: run that with the amendment's key."
+  private val AdoptedName: String = StateName.value(Grit.Adopted)
 
   /** Why `project_standing` or `project_adopt` given no `key` is unread (400). */
   val KeyAlone: String = "give key, an amendment's or a standing section's, alone"
-
-  /** In place of `project_move`, at `/command` and `/mcp`: a move to `adopted` is refused (409)
-    * in [[Projects.guardedMove]]'s words, then [[Adopting]], running nothing, as only
-    * [[adopt]] moves an amendment there; any other move is the plugin's, as it was sent.
-    */
-  val move: OwnCommand = OwnCommand.guarding(
-    Move,
-    Integrity.Member,
-    (ran, args) =>
-      if (text(args, "state").contains(AdoptedName))
-        Right(CommandOutcome.Refused(adoptedOnly(text(args, "key"))))
-      else ran(Move, args)
-  )
-
-  /** In place of `project_batch`, at `/command` and `/mcp`: a batch with any step moving an
-    * artifact to `adopted` is refused (409) as [[move]] refuses that move, running no step; any
-    * other batch is the plugin's, as it was sent.
-    */
-  val batch: OwnCommand = OwnCommand.guarding(
-    Batch,
-    Integrity.Member,
-    (ran, args) =>
-      adopting(args) match {
-        case Some(step) => Right(CommandOutcome.Refused(adoptedOnly(text(step, "key"))))
-        case None => ran(Batch, args)
-      }
-  )
 
   /** `project_standing`, at `/command` alone (`bin/kalandra standing`), keeping nothing: the
     * standing text of the section `key` ([[StandingSection.file]]), or, for an amendment, of its
@@ -84,7 +49,7 @@ object OwnCommands {
         key <- keyOf(Standing, args)
         shown <- shownBy(ran, Standing, key)
         text <-
-          if (shown._1.head.kind == GritMethod.Amendment)
+          if (shown._1.head.kind == Grit.Amendment)
             candidate(ran, Standing, shown._1).map(_._3.standing.file)
           else
             StandingSection
@@ -99,7 +64,7 @@ object OwnCommands {
     * [[Integrity.Authority]], as adopting sets standing policy: the amendment `key`'s candidate
     * kept as its section's next version, at the version its diff is against, and the amendment
     * moved to `adopted`, in one plugin `project_batch`, which keeps both or neither and checks
-    * the move as any; done, it says the section, its standing text's size and its cap, then the
+    * the move as any its caller makes; done, it says the section, its standing text's size and its cap, then the
     * batch's answer. Unread (400) without `key`; refused (409), nothing batched, as [[standing]]
     * refuses a candidate, or as the batch refuses; a store failure (500) as [[standing]]'s.
     */
@@ -139,7 +104,7 @@ object OwnCommands {
   )
 
   /** Every own command kalandra's edge is given. */
-  val all: Vector[OwnCommand] = Vector(move, batch, standing, adopt)
+  val all: Vector[OwnCommand] = Vector(standing, adopt)
 
   /** The wait `/wait` reads from a body naming no commit, `bin/kalandra wait
     * '{"artifact":"<key>","state":["<state>",…]}'`: the artifact in one of the states
@@ -176,30 +141,6 @@ object OwnCommands {
 
   /** What a command came to, as an own command answers it. */
   private type Answer = Either[CommandError, CommandOutcome]
-
-  /** Why a move of the artifact `key` names to adopted is refused: [[Projects.guardedMove]]'s
-    * words, the plugin's own for a turn's such move, then [[Adopting]]; [[Adopting]] alone when
-    * `key` is none or no artifact's key.
-    */
-  private def adoptedOnly(key: Option[String]): String =
-    key
-      .flatMap(ArtifactKey.read(_).toOption)
-      .fold(Adopting)(k =>
-        s"${Projects.guardedMove(k, GritMethod.Amendment, GritMethod.Adopted)} $Adopting"
-      )
-
-  /** The first of a `project_batch`'s `steps` that moves an artifact to adopted, if one does. */
-  private def adopting(args: ujson.Obj): Option[ujson.Obj] =
-    args.value
-      .get("steps")
-      .flatMap(_.arrOpt)
-      .flatMap(_.collectFirst(Function.unlift { (s: ujson.Value) =>
-        s.objOpt
-          .map(ujson.Obj.from(_))
-          .filter(o =>
-            text(o, "command").contains("move") && text(o, "state").contains(AdoptedName)
-          )
-      }))
 
   private def keyOf(name: ToolName, args: ujson.Obj): Either[Answer, String] =
     text(args, "key").toRight(Left(CommandError.Unread(name, KeyAlone)))
