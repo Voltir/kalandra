@@ -6,6 +6,7 @@ import grit.projects.method.{
   Example,
   Method,
   MethodBench,
+  MethodJson,
   Migrated,
   Mover,
   Nesting,
@@ -180,6 +181,17 @@ object GritMethodTests extends TestSuite {
           )
         }
       )
+    }
+
+    test("project_methods gives each version back as its file, but for the file's last newline") {
+      // project_methods answers ujson.write(MethodJson.written(...), indent = 2) of what it reads.
+      MethodFiles.Versions.map(v =>
+        for {
+          d <- filed(v)
+          file <- MethodFiles.raw(v)
+          written = ujson.write(MethodJson.written(d.method, d.examples), indent = 2)
+        } yield (v, written == file.stripSuffix("\n"))
+      ) ==> MethodFiles.Versions.map(v => Right((v, true)))
     }
 
     test("every shipped method file's example artifacts and carried names read as handles") {

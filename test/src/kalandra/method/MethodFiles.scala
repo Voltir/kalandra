@@ -13,9 +13,12 @@ object MethodFiles {
 
   /** Version `v`'s file as JSON, or why not: no such file, or not JSON. */
   def text(v: Int): Either[String, ujson.Value] =
+    raw(v).flatMap(t => Try(ujson.read(t)).toEither.left.map(_.toString))
+
+  /** Version `v`'s file as it is written, or why not: no such file. */
+  def raw(v: Int): Either[String, String] =
     Using(Source.fromResource(s"grit@$v.json"))(_.mkString).toEither.left
       .map(_ => s"no file grit@$v.json")
-      .flatMap(t => Try(ujson.read(t)).toEither.left.map(_.toString))
 
   /** Version `v`'s file read as `project_declare` reads it, or every reason not, joined. */
   def filed(v: Int): Either[String, Declared] =

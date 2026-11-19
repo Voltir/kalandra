@@ -625,12 +625,14 @@
         },
         "artifacts": [
           {
-            "key": "p/amend-0",
             "head": {
+              "id": "p/1",
+              "handle": "amend-0",
               "kind": "amendment",
               "state": "proposed",
               "title": "an amendment lacking a section of its kind is not benched",
               "parent": null,
+              "rank": "n",
               "cites": [],
               "by": null
             },
@@ -747,7 +749,7 @@
       },
       "moves": [
         {
-          "key": "p/amend-0",
+          "key": "p/1",
           "to": "benched",
           "expect": {
             "kind": "refused-by",
@@ -767,12 +769,14 @@
         },
         "artifacts": [
           {
-            "key": "p/amend-1",
             "head": {
+              "id": "p/1",
+              "handle": "amend-1",
               "kind": "amendment",
               "state": "proposed",
               "title": "an undecided amendment is benched, then neither adopted nor rejected",
               "parent": null,
+              "rank": "n",
               "cites": [],
               "by": null
             },
@@ -889,14 +893,14 @@
       },
       "moves": [
         {
-          "key": "p/amend-1",
+          "key": "p/1",
           "to": "benched",
           "expect": {
             "kind": "allowed"
           }
         },
         {
-          "key": "p/amend-1",
+          "key": "p/1",
           "to": "adopted",
           "expect": {
             "kind": "refused-by",
@@ -905,7 +909,7 @@
           "by": "person"
         },
         {
-          "key": "p/amend-1",
+          "key": "p/1",
           "to": "rejected",
           "expect": {
             "kind": "refused-by",
@@ -925,12 +929,14 @@
         },
         "artifacts": [
           {
-            "key": "p/amend-2",
             "head": {
+              "id": "p/1",
+              "handle": "amend-2",
               "kind": "amendment",
               "state": "proposed",
               "title": "an amendment decided reject is rejected, never adopted",
               "parent": null,
+              "rank": "n",
               "cites": [],
               "by": null
             },
@@ -1140,14 +1146,14 @@
       },
       "moves": [
         {
-          "key": "p/amend-2",
+          "key": "p/1",
           "to": "benched",
           "expect": {
             "kind": "allowed"
           }
         },
         {
-          "key": "p/amend-2",
+          "key": "p/1",
           "to": "adopted",
           "expect": {
             "kind": "refused-by",
@@ -1156,7 +1162,7 @@
           "by": "person"
         },
         {
-          "key": "p/amend-2",
+          "key": "p/1",
           "to": "rejected",
           "expect": {
             "kind": "allowed"
@@ -1175,12 +1181,14 @@
         },
         "artifacts": [
           {
-            "key": "p/amend-3",
             "head": {
+              "id": "p/1",
+              "handle": "amend-3",
               "kind": "amendment",
               "state": "proposed",
               "title": "an amendment decided adopt, each feature named, is adopted",
               "parent": null,
+              "rank": "n",
               "cites": [],
               "by": null
             },
@@ -1390,14 +1398,14 @@
       },
       "moves": [
         {
-          "key": "p/amend-3",
+          "key": "p/1",
           "to": "benched",
           "expect": {
             "kind": "allowed"
           }
         },
         {
-          "key": "p/amend-3",
+          "key": "p/1",
           "to": "adopted",
           "expect": {
             "kind": "allowed"
@@ -1417,12 +1425,14 @@
         },
         "artifacts": [
           {
-            "key": "p/amend-4",
             "head": {
+              "id": "p/1",
+              "handle": "amend-4",
               "kind": "amendment",
               "state": "proposed",
               "title": "an amendment decided adopt without its cost is not adopted",
               "parent": null,
+              "rank": "n",
               "cites": [],
               "by": null
             },
@@ -1622,14 +1632,14 @@
       },
       "moves": [
         {
-          "key": "p/amend-4",
+          "key": "p/1",
           "to": "benched",
           "expect": {
             "kind": "allowed"
           }
         },
         {
-          "key": "p/amend-4",
+          "key": "p/1",
           "to": "adopted",
           "expect": {
             "kind": "refused-by",
@@ -1650,12 +1660,14 @@
         },
         "artifacts": [
           {
-            "key": "p/amend-5",
             "head": {
+              "id": "p/1",
+              "handle": "amend-5",
               "kind": "amendment",
               "state": "proposed",
               "title": "an agent's move of an amendment decided adopt is refused: a person adopts it",
               "parent": null,
+              "rank": "n",
               "cites": [],
               "by": null
             },
@@ -1865,21 +1877,21 @@
       },
       "moves": [
         {
-          "key": "p/amend-5",
+          "key": "p/1",
           "to": "benched",
           "expect": {
             "kind": "allowed"
           }
         },
         {
-          "key": "p/amend-5",
+          "key": "p/1",
           "to": "adopted",
           "expect": {
             "kind": "refused-person-only"
           }
         },
         {
-          "key": "p/amend-5",
+          "key": "p/1",
           "to": "adopted",
           "expect": {
             "kind": "allowed"
@@ -1899,12 +1911,14 @@
         },
         "artifacts": [
           {
-            "key": "p/checkpoint-0",
             "head": {
+              "id": "p/1",
+              "handle": "checkpoint-0",
               "kind": "checkpoint",
               "state": "planned",
               "title": "a checkpoint lacking a section of its plan is not ready",
               "parent": null,
+              "rank": "n",
               "cites": [],
               "by": null
             },
@@ -1970,7 +1984,7 @@
       },
       "moves": [
         {
-          "key": "p/checkpoint-0",
+          "key": "p/1",
           "to": "ready",
           "expect": {
             "kind": "refused-by",
@@ -1990,12 +2004,14 @@
         },
         "artifacts": [
           {
-            "key": "p/checkpoint-1",
             "head": {
+              "id": "p/1",
+              "handle": "checkpoint-1",
               "kind": "checkpoint",
               "state": "planned",
               "title": "a checkpoint whose plan is whole is ready, then built, reviewed and merged",
               "parent": null,
+              "rank": "n",
               "cites": [],
               "by": null
             },
@@ -2078,28 +2094,28 @@
       },
       "moves": [
         {
-          "key": "p/checkpoint-1",
+          "key": "p/1",
           "to": "ready",
           "expect": {
             "kind": "allowed"
           }
         },
         {
-          "key": "p/checkpoint-1",
+          "key": "p/1",
           "to": "building",
           "expect": {
             "kind": "allowed"
           }
         },
         {
-          "key": "p/checkpoint-1",
+          "key": "p/1",
           "to": "review",
           "expect": {
             "kind": "allowed"
           }
         },
         {
-          "key": "p/checkpoint-1",
+          "key": "p/1",
           "to": "merged",
           "expect": {
             "kind": "allowed"
