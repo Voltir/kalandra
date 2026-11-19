@@ -56,6 +56,20 @@ object MainTests extends TestSuite {
         Right(Vector("amend-a.md" -> rejected._2, "amend-b.md" -> proposed._2))
     }
 
+    test("amendments written again leave no file of an amendment whose handle changed") {
+      val into = java.nio.file.Files.createTempDirectory("amendments")
+      java.nio.file.Files.writeString(into.resolve("notes.txt"), "kept")
+      Amendments.written(into, Vector("amend-a.md" -> "a", "amend-b.md" -> "b"))
+      (
+        Amendments.written(into, Vector("amend-c.md" -> "a", "amend-b.md" -> "b2")),
+        scala.util
+          .Using(java.nio.file.Files.list(into))(
+            _.toArray.toVector.map(_.toString.split('/').last).sorted
+          )
+          .toOption
+      ) ==> (Right(2), Some(Vector("amend-b.md", "amend-c.md", "notes.txt")))
+    }
+
     test("an export writes each file at its path, nested ones in their directories") {
       val into = java.nio.file.Files.createTempDirectory("export").resolve("m17")
       val files = Vector("project.md" -> "index", "3.md" -> "root", "3/1.md" -> "child")
