@@ -440,12 +440,13 @@ case "$1" in
       exit 1
     fi
     # A section's version, for scripts/eval propose --against, on stderr so the text stays the
-    # file a bench reads. An amendment's candidate is no version of its section, so none is said.
+    # file a bench reads, named by the id project_show heads it with. An amendment's candidate is
+    # no version of its section, so none is said.
     if [[ "$name" == project_standing ]]; then
       shown="$(serve_curl -sS -X POST -H 'Content-Type: application/json' --data-binary "$body" \
         "http://$listen/command/project_show" 2>/dev/null || true)"
       if grep -qx 'kind: section' <<<"$shown"; then
-        echo "$(grep -m1 '^key: ' <<<"$shown" | cut -c6-) at version $(grep -m1 '^version: ' <<<"$shown" | cut -c10-)" >&2
+        echo "$(grep -m1 '^id: ' <<<"$shown" | cut -c5-) at version $(grep -m1 '^version: ' <<<"$shown" | cut -c10-)" >&2
       fi
     fi
     ;;
