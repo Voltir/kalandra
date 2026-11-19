@@ -9,7 +9,7 @@ import grit.projects.method.{Declared, MethodJson}
 object MethodFiles {
 
   /** The versions there are files of, oldest first. */
-  val Versions: Vector[Int] = Vector(1, 2, 3, 4, 5, 6)
+  val Versions: Vector[Int] = Vector(1, 2, 3, 4, 5, 6, 7)
 
   /** Version `v`'s file as JSON, or why not: no such file, or not JSON. */
   def text(v: Int): Either[String, ujson.Value] =

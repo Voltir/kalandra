@@ -1,7 +1,16 @@
 package kalandra.method
 
 import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project, Rank}
-import grit.projects.method.{Declared, Example, Method, MethodBench, Migrated, Mover, Remap}
+import grit.projects.method.{
+  Declared,
+  Example,
+  Method,
+  MethodBench,
+  Migrated,
+  Mover,
+  Nesting,
+  Remap
+}
 import grit.projects.name.{
   ArtifactKey,
   ArtifactRef,
@@ -10,6 +19,7 @@ import grit.projects.name.{
   KindName,
   Pin,
   ProjectKey,
+  RoleName,
   StateName
 }
 
@@ -55,7 +65,7 @@ object GritMethodTests extends TestSuite {
   val tests = Tests {
     test("each version's file is the method its project pinned, with its worked examples whole") {
       // Versions 1 to 5 are the pins grit_kalandra's projects held or hold (restore-check
-      // version 1, grit the rest); 6 is the pin it is declared with. The digest leaves the
+      // version 1, grit the rest); 6 is the pin it is declared with, and 7 the next. The digest leaves the
       // examples out, so their count is pinned beside it.
       (
         MethodFiles.Versions.map(v =>
@@ -77,8 +87,9 @@ object GritMethodTests extends TestSuite {
           "cdae558df99dfaeb924b1eb863a10004196e1bab2cdb65e90d49a42cdfb74f47",
           "a4324899142bd13487e2442f57fea1be8cd5e6972247bbd177aff000a0cff65d",
           "243738553f2f7368af940d5593ee7c2ac49cc9f3b66eeea85588854e3ba7b7cd",
-          "c334283c23b92f97a54dfc76648330355fc15b859be5bcc80f2d7507743097dc"
-        ).zip(MethodFiles.Versions.zip(Vector(0, 0, 0, 5, 5, 8)))
+          "c334283c23b92f97a54dfc76648330355fc15b859be5bcc80f2d7507743097dc",
+          "62e5060307938afd04b824a1884b11d3271eed1870a3fe651a91b7cf337881ae"
+        ).zip(MethodFiles.Versions.zip(Vector(0, 0, 0, 5, 5, 8, 8)))
           .map { case (pin, (v, examples)) => Right((Grit.Name, v, Vector(), examples, pin)) },
         true
       )
@@ -154,18 +165,18 @@ object GritMethodTests extends TestSuite {
           def to(k: KindName, s: String, m: Mover, e: Example.Expect) =
             (k, right(StateName.of(s)), m, e)
           Vector(
-            to(amendment, "benched", Mover.Agent, by("sections-present")),
-            to(amendment, "benched", Mover.Agent, Allowed),
+            to(amendment, "benched", Mover.Other, by("sections-present")),
+            to(amendment, "benched", Mover.Other, Allowed),
             to(amendment, "adopted", Mover.Person, by("decided-adopt")),
-            to(amendment, "rejected", Mover.Agent, by("decided-reject")),
-            to(amendment, "rejected", Mover.Agent, Allowed),
+            to(amendment, "rejected", Mover.Other, by("decided-reject")),
+            to(amendment, "rejected", Mover.Other, Allowed),
             to(amendment, "adopted", Mover.Person, Allowed),
-            to(amendment, "adopted", Mover.Agent, RefusedPersonOnly),
-            to(checkpoint, "ready", Mover.Agent, by("sections-present")),
-            to(checkpoint, "ready", Mover.Agent, Allowed),
-            to(checkpoint, "building", Mover.Agent, Allowed),
-            to(checkpoint, "review", Mover.Agent, Allowed),
-            to(checkpoint, "merged", Mover.Agent, Allowed)
+            to(amendment, "adopted", Mover.Other, RefusedPersonOnly),
+            to(checkpoint, "ready", Mover.Other, by("sections-present")),
+            to(checkpoint, "ready", Mover.Other, Allowed),
+            to(checkpoint, "building", Mover.Other, Allowed),
+            to(checkpoint, "review", Mover.Other, Allowed),
+            to(checkpoint, "merged", Mover.Other, Allowed)
           )
         }
       )
@@ -227,6 +238,69 @@ object GritMethodTests extends TestSuite {
         Artifact(head("a", "amendment", "benched"), right(Body.read("A.", ArtifactRef.id)))
       )
       v6.migrated(project(v5, as*), Remap()) ==> Right(Migrated(project(v6, as*), Vector()))
+    }
+
+    test("version 7 is version 6 with each kind's nesting and the manager's claims covering") {
+      val (v6, v7) = (version(6), version(7))
+      def nesting(m: Method) = m.kinds
+        .map(k =>
+          KindName.value(k.name) -> (k.nesting match {
+            case Nesting.Anywhere => "anywhere"
+            case Nesting.Root => "root"
+            case Nesting.Under(ks) =>
+              ks.toVector.map(KindName.value).sorted.mkString("under ", ", ", "")
+          })
+        )
+        .toMap
+      def bare(m: Method) = (
+        m.kinds.map(_.copy(nesting = Nesting.Anywhere)),
+        m.views.map(v => (v.role, v.kinds, v.depth, v.carried)),
+        m.transitions,
+        m.checks
+      )
+      (
+        nesting(v7),
+        v7.views.filter(_.covers).map(v => RoleName.value(v.role)),
+        bare(v7) == bare(v6)
+      ) ==> (
+        Map(
+          "milestone" -> "under section",
+          "plan" -> "under milestone",
+          "checkpoint" -> "under milestone, plan",
+          "section" -> "anywhere",
+          "mechanism" -> "under section",
+          "note" -> "anywhere",
+          "backlog" -> "under backlog, milestone, section",
+          "amendment" -> "root"
+        ),
+        Vector("manager"),
+        true
+      )
+    }
+
+    test(
+      "a version 6 project in version 7's shape migrates unchanged, and a milestone at the root is refused"
+    ) {
+      val (v6, v7) = (version(6), version(7))
+      def made(local: String, kind: String, state: String, parent: Option[String] = None) =
+        Artifact(head(local, kind, state, parent), right(Body.read("Text.", ArtifactRef.id)))
+      val placed = Vector(
+        made("s", "section", "current"),
+        made("m", "milestone", "now", parent = Some("s")),
+        made("c", "checkpoint", "planned", parent = Some("m")),
+        made("n", "note", "open"),
+        made("b", "backlog", "open", parent = Some("m")),
+        made("a", "amendment", "proposed")
+      )
+      val rootMilestone =
+        placed.map(a => if (a.head.key == key("m")) made("m", "milestone", "now") else a)
+      (
+        v7.migrated(project(v6, placed*), Remap()),
+        v7.migrated(project(v6, rootMilestone*), Remap())
+      ) ==> (
+        Right(Migrated(project(v7, placed*), Vector())),
+        Left("p/1 m, of kind milestone, cannot sit at the project's root: it may sit under section")
+      )
     }
   }
 }
