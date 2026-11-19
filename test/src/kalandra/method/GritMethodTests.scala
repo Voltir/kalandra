@@ -1,5 +1,6 @@
 package kalandra.method
 
+import grit.projects.artifact.Pin
 import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project, Rank}
 import grit.projects.method.{
   Declared,
@@ -18,7 +19,6 @@ import grit.projects.name.{
   CheckName,
   Handle,
   KindName,
-  Pin,
   ProjectKey,
   RoleName,
   StateName
@@ -153,7 +153,7 @@ object GritMethodTests extends TestSuite {
         Right(
           Vector(
             "proposed->benched [sections-present] Anyone",
-            "benched->adopted [decided-adopt] People",
+            "benched->adopted [decided-adopt] Person",
             "benched->rejected [decided-reject] Anyone",
             "proposed->dropped [] Anyone",
             "benched->dropped [] Anyone"
@@ -272,7 +272,9 @@ object GritMethodTests extends TestSuite {
       )
       (
         nesting(v7),
-        v7.views.filter(_.covers).map(v => RoleName.value(v.role)),
+        v7.views
+          .filter(_.covers == grit.projects.method.Cover.Under)
+          .map(v => RoleName.value(v.role)),
         bare(v7) == bare(v6)
       ) ==> (
         Map(

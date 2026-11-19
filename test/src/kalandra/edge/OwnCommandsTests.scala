@@ -2,7 +2,7 @@ package kalandra.edge
 
 import java.time.Instant
 
-import grit.commands.declare.Ran
+import grit.commands.declare.RunCommand
 import grit.core.edge.{CommandError, Watched}
 import grit.core.id.{DocKey, DocumentVersionId}
 import grit.core.plugin.CommandOutcome
@@ -66,7 +66,7 @@ object OwnCommandsTests extends TestSuite {
     3
   )
 
-  /** A [[Ran]] that keeps each call, in order, and answers `project_show` with the text `shows`
+  /** A [[RunCommand]] that keeps each call, in order, and answers `project_show` with the text `shows`
     * holds for its key, refusing any other key as the plugin does, and every other command
     * `answer`.
     */
@@ -75,7 +75,7 @@ object OwnCommandsTests extends TestSuite {
       answer: Either[CommandError, CommandOutcome] = Right(CommandOutcome.Done("Kept. Moved."))
   ) {
     val calls = scala.collection.mutable.ArrayBuffer.empty[(String, ujson.Value)]
-    val ran: Ran = (name, args) => {
+    val ran: RunCommand = (name, args) => {
       calls += ((ToolName.value(name), args))
       if (ToolName.value(name) != "project_show") answer
       else {

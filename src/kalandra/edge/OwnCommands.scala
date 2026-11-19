@@ -1,6 +1,6 @@
 package kalandra.edge
 
-import grit.commands.declare.{HoldingWatch, OwnCommand, Ran}
+import grit.commands.declare.{HoldingWatch, OwnCommand, RunCommand}
 import grit.core.edge.{CommandError, WatchFor}
 import grit.core.id.{DocKey, DocumentVersionId}
 import grit.core.plugin.CommandOutcome
@@ -8,7 +8,7 @@ import grit.core.store.StoreError
 import grit.core.tool.ToolName
 import grit.core.visibility.Integrity
 import grit.projects.artifact.{Artifact, Body}
-import grit.projects.name.{ArtifactKey, ArtifactRef, ProjectKey, StateName}
+import grit.projects.name.{ArtifactRef, ProjectKey, StateName}
 import grit.projects.plugin.Projects
 import grit.projects.render.ProjectMarkdown
 
@@ -160,7 +160,7 @@ object OwnCommands {
     * show's own when it did not show it, a store failure when its text is no artifact.
     */
   private def shownBy(
-      ran: Ran,
+      ran: RunCommand,
       name: ToolName,
       key: String
   ): Either[Answer, (Artifact, DocumentVersionId)] =
@@ -184,7 +184,7 @@ object OwnCommands {
     * candidate over it; or the answer refusing it.
     */
   private def candidate(
-      ran: Ran,
+      ran: RunCommand,
       name: ToolName,
       amendment: Artifact
   ): Either[Answer, (Artifact, DocumentVersionId, Candidate)] =
