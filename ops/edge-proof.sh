@@ -6,8 +6,9 @@
 # with the command line's credential missing and the sessions' digest not configured, stopped by a
 # data file that would drop a row's subject; failing after the data file is kept, and rolled back
 # to the copy as it began; failing so, with a reverse that raises, and rolled back by restoring its
-# dump, then with that restore failing; refused a record over the proof's budget, and given
-# --began; whole; refused a brief the running serve refuses; and again, with nothing to rewrite,
+# dump, then with that restore failing; stopped by a project its re-key refuses, before any re-key
+# is sent; refused a record over the proof's budget, and given --began; whole, re-keying every
+# project of the old form; refused a brief the running serve refuses; and again, with nothing to rewrite,
 # over a budget lowered to see it say so. It then drives the deployed serve the way the command
 # line, sessions, agents, the join and Claude Code will, and stops what it started and drops the
 # copy.
@@ -27,7 +28,9 @@
 # proved (serve.jar), the join script that jar serves (join.sh), grit's forward rewrite at the
 # commit the jar is built against (machine-from-worker.sql), this checkout's reverse
 # (worker-from-machine.sql), each with its sha256, a fresh join's output (join.txt), the whole
-# deploy's dry-run counts (forward-dry.txt) and each check's line (proof.txt), which names the
+# deploy's dry-run counts (forward-dry.txt), what its re-key did (rekey-report.txt: counts, seconds,
+# refusals, what is left in the old form, how far each artifact is believed, five samples) and
+# each check's line (proof.txt), which names the
 # commit proved: `bin/kalandra deploy` runs those exact files, and only that commit.
 #
 # It calls no model. Every call of the installed Claude Code (its --version, the fresh join's
@@ -588,6 +591,21 @@ rc=0; J "$repo" "$dhome" "$edge" --credential "$ses" --mcp-name kalandra <"$work
 holds "$rc" "  and the copy's join again in $repo exits 0"
 began_as
 
+stage "deploy g"
+# ---- 5c. (g) A project that cannot be re-keyed: an artifact of grit citing one the store does
+# not hold. The deploy's survey says so, so no re-key is sent, and the ordinary rollback leaves
+# the copy as it began, with no dump restored.
+gone="grit/edge-proof-gone"
+planted_cite="$(sql "WITH p AS (SELECT version FROM grit.documents WHERE plugin = 'projects' AND key = 'grit/roadmap' AND superseded_at IS NULL AND data ? 'head' AND NOT data -> 'head' ? 'id' LIMIT 1) UPDATE grit.documents d SET data = jsonb_set(d.data, '{head,cites}', (d.data -> 'head' -> 'cites') || '\"$gone\"'::jsonb) FROM p WHERE d.version = p.version RETURNING d.version")"
+[[ -n "$planted_cite" ]]; holds $? "grit/roadmap, of the old form, planted citing $gone in the copy (version $planted_cite)"
+stage_proof
+deploy g
+[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: project_rekey's survey says a project cannot be re-keyed: "*"it cites $gone, which this transaction reads no artifact under"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, machine-from-worker.sql reversed, joins as before in 2 checkouts, serve answering on $listen" ]]
+holds $? "(g) a project the survey cannot re-key rolls the deploy back before any re-key, exit 2"
+! grep -q "^deploy: rekey  \|restoring the dump" "$dlog"; holds $? "  no re-key was sent, and no dump restored"
+[[ -n "$planted_cite" ]] && sql "UPDATE grit.documents SET data = data #- '{head,cites,-1}' WHERE version = $planted_cite" >/dev/null
+began_as
+
 stage "deploys c, d"
 # ---- 6. A record of a proof over its budget is refused; (c) the whole deploy; (d) again, with
 # nothing to rewrite, over a budget lowered to 1 s, which it reports and holds; the deploy's health
@@ -601,6 +619,11 @@ holds $? "a proof that took $over s is refused, exit 1: $(tail -n 1 <<<"$out")"
 stage_proof
 expect 64 "a deploy given --began, which only the command gives its run, is refused as usage" \
   "${denv[@]}" "$wt/bin/kalandra" deploy --began 1.0 --checkout "$clone" --grit "$repo" "$work/proved"
+# Each current artifact of the projects plugin as the copy holds it before the re-key: its key,
+# label, how far it is believed, and its head and its body's references, for the report's
+# samples and to hold that each is believed as it was.
+artifacts_q="SELECT key, classification_id, integrity_id, jsonb_build_object('head', data -> 'head', 'references', data -> 'body' -> 'notes') AS d, data -> 'head' ->> 'id' AS id, data -> 'head' ->> 'handle' AS handle, jsonb_array_length(coalesce(data -> 'body' -> 'notes', '[]'::jsonb)) AS links FROM grit.documents WHERE plugin = 'projects' AND superseded_at IS NULL AND data ? 'head'"
+sql "CREATE TABLE e7proof.artifacts_before AS $artifacts_q" >/dev/null
 deploy c
 X12="${proved:0:12}"
 [[ "$drc" == 0 && "$dlast" == "deploy: held: kalandra $X12 with grit $version at ${at:0:12} serving on $listen; 1 data files kept, 2 checkouts joined" ]]
@@ -611,6 +634,50 @@ sed 's/^/dry     /' "$proof/forward-dry.txt" | tee -a "$proof/proof.txt"
 [[ "$(git -C "$clone" symbolic-ref -q --short HEAD) $(git -C "$clone" rev-parse HEAD)" == "$old_branch $proved" ]]
 holds $? "  the copy's $old_branch is at the proved commit, checked out"
 [[ "$(sha "$clone/out/assembly.dest/out.jar")" == "$(sha "$proof/serve.jar")" ]]; holds $? "  its jar is the proved jar"
+# ---- 6b. The re-key (c) ran on the restored live dump, written up as rekey-report.txt: what the
+# deploy's survey counted, what each re-key answered and how long it took, what is left in the
+# old form (none may be), how far each artifact is believed after it (as before), and five
+# samples, each artifact's head and references before and after.
+report="$proof/rekey-report.txt"
+sql "CREATE TABLE e7proof.artifacts_after AS $artifacts_q" >/dev/null
+left_old="$(sql "SELECT count(*) FROM e7proof.artifacts_after WHERE id IS NULL")"
+believed_changed="$(sql "SELECT count(*) FROM e7proof.artifacts_before b JOIN e7proof.artifacts_after a USING (key, classification_id) WHERE a.integrity_id <> b.integrity_id")"
+believed_lower="$(sql "SELECT count(*) FROM e7proof.artifacts_before b JOIN grit.integrity_labels l ON l.id = b.integrity_id WHERE l.level < 3")"
+{
+  echo "re-key rehearsal: kalandra ${proved:0:12} with grit $built, deploy (c) on $restored, restored from one dump of grit_kalandra at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo
+  echo "counts, the deploy's survey before the re-key (project: artifacts, links in bodies, cites in heads, handles carried as k-<name>):"
+  sed -n 's/^deploy: rekey dry  /  /p' "$dlog"
+  echo
+  echo "what each re-key answered:"
+  sed -n 's/^deploy: rekey  /  /p' "$dlog"
+  echo
+  echo "seconds:"
+  sed -n 's/^deploy: rekey: \(.* took .*\)$/  \1/p; s/^deploy: \(rekey took .*\)$/  the stage: \1/p' "$dlog"
+  echo "  the whole deploy: $(sed -n 's/^deploy: held: .*; \(took .*\)$/\1/p' "$dlog" | tail -n 1)"
+  echo
+  echo "refusals: $(grep -m 1 '^deploy: rollback: ' "$dlog" | sed 's/^deploy: rollback: //' || true)"
+  grep -q '^deploy: rollback: ' "$dlog" || echo "  none"
+  echo
+  echo "after the re-key:"
+  echo "  $left_old artifacts left in the old form (none may be)"
+  echo "  $believed_changed artifacts believed otherwise than before, of $(sql "SELECT count(*) FROM e7proof.artifacts_before") ($believed_lower of them believed below authority before)"
+  sed -n 's/^deploy: \(health: .*\)$/  \1/p' "$dlog"
+  echo
+  echo "five samples, each artifact's head and references, before and after (a carried handle first, if any; then the first by id with a link in its body):"
+  samples="$(sql "SELECT key FROM (SELECT key, 0 AS o, 0 AS n FROM e7proof.artifacts_after WHERE handle LIKE 'k-%' UNION ALL SELECT key, 1, regexp_replace(id, '^.*/', '')::int FROM e7proof.artifacts_after WHERE links > 0 AND id IS NOT NULL) s ORDER BY o, n LIMIT 5")"
+  for k in $samples; do
+    echo
+    echo "== $k"
+    diff -u --label "$k before" --label "$k after" \
+      <(sql "SELECT d FROM e7proof.artifacts_before WHERE key = '$k' LIMIT 1" | jq -S .) \
+      <(sql "SELECT d FROM e7proof.artifacts_after WHERE key = '$k' LIMIT 1" | jq -S .)
+  done
+} >"$report" 2>&1
+say "rekey $(sed -n 's/^deploy: \(rekey took .*\)$/\1/p' "$dlog"); the report is $report"
+grep -q "^deploy: rekey: a second survey lists none$" "$dlog"; holds $? "  the deploy re-keyed every project of the old form, and a second survey lists none"
+[[ "$left_old" == 0 ]]; holds $? "  no artifact is left in the old form ($left_old)"
+[[ "$believed_changed" == 0 ]]; holds $? "  every artifact is believed as it was before the re-key ($believed_changed changed)"
 grep -qxF "[kalandra] grit $version at $at" "$clone/logs/serve.log"; holds $? "  its serve logs [kalandra] grit $version at $at"
 w_left="$(under worker)"; m_now="$(under machine)"
 [[ "$w_left" == 0 && "$m_now" != 0 ]]; holds $? "  no place is under worker, $m_now under machine"
