@@ -52,7 +52,9 @@
 # 900 s, a stop 120 s, a start until serve answers 130 s, a join (its `claude mcp` calls with it)
 # 120 s, a re-key 120 s. Once serve answers, every project the store holds in the old form
 # (ADR 0063) is re-keyed through the new serve before the health check (project_rekey: a survey,
-# each project's re-key, a survey that lists none). When a data file's reverse raises, once a method version may have been declared new, or once a
+# each project's re-key, a survey that lists none). The checkouts are joined before the method
+# versions are declared and the re-key is sent, so the two steps only the dump undoes come last.
+# When a data file's reverse raises, once a method version may have been declared new, or once a
 # re-key has been sent, the rollback restores the dump into <db>_restoring and
 # only then renames <db> aside as <db>_rolled_back_<stamp>, a person's to drop, and the restored
 # one into its place. A rollback that cannot put the database right ends `rollback incomplete`
@@ -889,7 +891,7 @@ rollback() {
   finish "deploy: rolled back: $1; left as it began: $said; $(timing)"
 }
 
-for s in credentials backup stop connections dump data code start methods join rekey health; do
+for s in credentials backup stop connections dump data code start join methods rekey health; do
   stage="$s"
   why=""
   s0="$(now)"
