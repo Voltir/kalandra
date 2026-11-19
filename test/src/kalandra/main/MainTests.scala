@@ -28,6 +28,7 @@ object MainTests extends TestSuite {
          |state: $state
          |title: "T"
          |parent: null
+         |rank: n
          |cites: []
          |by: "workshop:local/nick"
          |---

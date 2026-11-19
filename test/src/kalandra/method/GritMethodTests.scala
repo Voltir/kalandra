@@ -1,6 +1,6 @@
 package kalandra.method
 
-import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project}
+import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project, Rank}
 import grit.projects.method.{Declared, Example, Method, MethodBench, Migrated, Mover, Remap}
 import grit.projects.name.{
   ArtifactKey,
@@ -38,6 +38,7 @@ object GritMethodTests extends TestSuite {
       right(StateName.of(state)),
       local,
       parent.map(key),
+      Rank.Middle,
       Vector.empty,
       None
     )

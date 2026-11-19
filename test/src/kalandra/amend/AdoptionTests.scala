@@ -2,7 +2,7 @@ package kalandra.amend
 
 import grit.core.host.Replace
 import grit.core.id.DocumentVersionId
-import grit.projects.artifact.{Artifact, ArtifactHead, Body}
+import grit.projects.artifact.{Artifact, ArtifactHead, Body, Rank}
 import grit.projects.name.{ArtifactKey, ArtifactRef, Handle, KindName, StateName}
 
 import utest.*
@@ -31,6 +31,7 @@ object AdoptionTests extends TestSuite {
         right(StateName.of("current")),
         "How a coder works",
         None,
+        Rank.Middle,
         Vector.empty,
         None
       ),

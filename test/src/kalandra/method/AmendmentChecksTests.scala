@@ -1,6 +1,6 @@
 package kalandra.method
 
-import grit.projects.artifact.{Artifact, ArtifactHead, Body}
+import grit.projects.artifact.{Artifact, ArtifactHead, Body, Rank}
 import grit.projects.name.{ArtifactKey, ArtifactRef, Handle, KindName, StateName}
 
 import utest.*
@@ -19,6 +19,7 @@ object AmendmentChecksTests extends TestSuite {
         right(StateName.of("benched")),
         "An amendment",
         None,
+        Rank.Middle,
         Vector.empty,
         None
       ),

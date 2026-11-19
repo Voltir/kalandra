@@ -8,7 +8,7 @@ import grit.core.id.{DocKey, DocumentVersionId}
 import grit.core.plugin.CommandOutcome
 import grit.core.tool.ToolName
 import grit.core.visibility.Integrity
-import grit.projects.artifact.{Artifact, ArtifactHead, ArtifactJson, Body}
+import grit.projects.artifact.{Artifact, ArtifactHead, ArtifactJson, Body, Rank}
 import grit.projects.name.{ArtifactKey, ArtifactRef, Handle, KindName, StateName}
 import grit.projects.plugin.Projects
 import grit.projects.render.ProjectMarkdown
@@ -35,6 +35,7 @@ object OwnCommandsTests extends TestSuite {
           ok(StateName.of(state)),
           s"The $local",
           None,
+          Rank.Middle,
           Vector.empty,
           None
         ),

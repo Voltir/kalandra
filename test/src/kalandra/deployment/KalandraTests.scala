@@ -180,6 +180,7 @@ object KalandraTests extends TestSuite {
         "project_keep",
         "project_edit",
         "project_move",
+        "project_reorder",
         "project_show",
         "project_history",
         "project_list",
