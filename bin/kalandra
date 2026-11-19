@@ -11,8 +11,6 @@
 #   bin/kalandra amendments <dir>           every amendment of the project grit, ended ones
 #                                           included, as exported, a file each under <dir>
 #   bin/kalandra export <project> <dir>     write a project's export files under <dir>
-#   bin/kalandra import <grit> [--dry-run]  import grit's planning tree into the project `grit`
-#   bin/kalandra verify <grit>              check the project `grit` holds that tree whole
 #   bin/kalandra <command> [json]           run a projects command through a running serve:
 #                                           `keep` or `project_keep`, its arguments a JSON object
 #   bin/kalandra declare methods/grit@6.json  declare a method version from its file: as
@@ -378,7 +376,7 @@ case "$1" in
     [[ -f "$jar" ]] || build
     exec "$java" --sun-misc-unsafe-memory-access=allow -jar "$jar" "$@"
     ;;
-  export | import | verify)
+  export)
     need_credential
     export KALANDRA_CREDENTIAL="$cred"
     [[ -f "$jar" ]] || build

@@ -9,7 +9,7 @@ import kalandra.edge.CommandClient
 import kalandra.method.Grit
 
 /** `kalandra amendments <directory>`: every amendment ([[Grit.Amendment]]) of the project
-  * [[Main.Imported]], ended ones included, each in a file of its own, as `scripts/eval propose
+  * [[Main.Planned]], ended ones included, each in a file of its own, as `scripts/eval propose
   * --amendments` reads them.
   */
 object Amendments {
@@ -38,7 +38,7 @@ object Amendments {
     val root = into.toAbsolutePath.normalize
     for {
       client <- CommandClient.of(env)
-      files <- client.exported(Main.Imported)
+      files <- client.exported(Main.Planned)
       amendments <- of(files)
       _ <- amendments.foldLeft[Either[String, Unit]](Right(())) { case (done, (path, text)) =>
         done.flatMap(_ => Export.write(root, path, text))

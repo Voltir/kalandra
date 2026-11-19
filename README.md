@@ -61,8 +61,7 @@ It compiles under grit's flags (`-no-indent`, capture and separation checking, `
 Packages, in one-way order: `method` (the method's names and checks) → `amend` (a standing section's
 amendments) → `edge` (the mount
 of grit's commands edge, kalandra's own commands, and the client) →
-`deployment` → `importer` (grit's planning tree → export-shaped files → `project_keep` over
-HTTP) → `main` (`serve`, `export`, `import`, `verify`).
+`deployment` → `main` (`serve`, `export`).
 
 ## Build and run
 
@@ -147,19 +146,6 @@ Every route refuses, with 403 and running nothing, a request whose `Host` is not
 same `Host`, or whose `Sec-Fetch-Site`, when sent, is not `same-origin` or `none`. Claude Code's
 MCP client sends the sessions' credential through the hook's `header`, its `headersHelper`, so the
 credential is in neither `~/.claude.json` nor a session's environment.
-
-## Importing grit's planning tree
-
-`bin/kalandra import <grit checkout>` reads `roadmap/` (the roadmap, `done.md`, the other notes,
-`mechanisms/`), `.local/backlog/` and the open plans (those the roadmap names outside Done and
-the Update Protocol) and keeps them, through a running serve, as the project `grit`, under the
-mapping `kalandra.importer.Importer` documents. It only ever adds and changes: an artifact whose
-source went away stays. An existing artifact keeps the state the store holds: the source sets a new
-artifact's state, and a milestone's (from its roadmap section, moved when the method has the way;
-a milestone with no such way is reported, not a stop). A second run over an unchanged tree writes nothing; `--dry-run` writes
-no artifact, and also checks the import against its own normal form. `bin/kalandra verify <grit
-checkout>` checks the stored project holds the tree whole (`Fidelity.problems`) and is at the
-round-trip law's normal form; it exits non-zero on any problem. The tree is only read.
 
 ## Backups and the restore test
 

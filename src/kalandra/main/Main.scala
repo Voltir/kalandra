@@ -18,16 +18,13 @@ import grit.kit.run.{Kit, KitFailure, LocalEdge, LocalTools}
 
 import org.slf4j.LoggerFactory
 import kalandra.deployment.Kalandra
-import kalandra.edge.{CommandClient, Mount}
-import kalandra.importer.Imports
+import kalandra.edge.Mount
 
 /** `kalandra serve`: serves the kalandra deployment until the process is
   * stopped; `kalandra chat`, the chat on this terminal in its room; `kalandra cache-report
   * [conversation-id]`, what a conversation's model calls read from and wrote to the cache
   * (the chat's, with no id); `kalandra work [--dry] <file>`, a proposal, [[Proposer]]; `kalandra amendments
-  * <directory>`, [[Amendments]]; `kalandra export`, [[Export]]; `kalandra import <checkout> [--dry-run]` and
-  * `kalandra verify <checkout>`, [[Imports]] into the project [[Imported]], through a running
-  * serve. It reads the environment alone: `GRIT_DATABASE_URL` (default
+  * <directory>`, [[Amendments]]; `kalandra export`, [[Export]], through a running serve. It reads the environment alone: `GRIT_DATABASE_URL` (default
   * [[Main.DefaultDatabase]]; a URL naming another deployment's database, `grit`
   * or `grit_bort`, is refused) and `KALANDRA_CHECKOUT`, the grit checkout its
   * room is (default `$HOME/Projects/grit`); and `KALANDRA_LISTEN`, where serve's edge listens and
@@ -38,8 +35,8 @@ import kalandra.importer.Imports
   */
 object Main {
 
-  /** `grit`: the project `import` and `verify` keep grit's planning tree in. */
-  val Imported: String = "grit"
+  /** `grit`: the project grit's own work is planned in. */
+  val Planned: String = "grit"
 
   /** Which grit this jar was built against, as its build wrote it (`0.3.0-SNAPSHOT at <commit>`
     * for a snapshot); `unknown` in a build that wrote none.
@@ -117,29 +114,11 @@ object Main {
         Amendments.run(sys.env, java.nio.file.Path.of(into)).map(n => println(s"$n amendments"))
       case List("export", project, into) =>
         Export.run(sys.env, project, java.nio.file.Path.of(into)).map(n => println(s"$n files"))
-      case "import" :: root :: flags if flags.forall(_ == "--dry-run") =>
-        for {
-          client <- CommandClient.of(sys.env)
-          report <- Imports.run(client, java.nio.file.Path.of(root), Imported, flags.nonEmpty)
-        } yield report.lines.foreach(println)
-      case List("verify", root) =>
-        for {
-          client <- CommandClient.of(sys.env)
-          checked <- Imports.verify(client, java.nio.file.Path.of(root), Imported)
-          _ = checked.problems.foreach(println)
-          _ = checked.imported.failed.foreach((p, why) => println(s"not imported: $p: $why"))
-          _ = println(
-            s"${checked.imported.project.artifacts.size} artifacts, " +
-              s"${checked.problems.size} problems, ${checked.imported.failed.size} not imported"
-          )
-          _ <- Either.cond(checked.problems.isEmpty, (), s"${checked.problems.size} problems")
-        } yield ()
       case _ =>
         Left(
           "usage: kalandra serve | kalandra chat | kalandra cache-report [conversation-id] | " +
             "kalandra work [--dry] <file> | kalandra amendments <directory> | " +
-            "kalandra export <project> <directory> | " +
-            "kalandra import <grit checkout> [--dry-run] | kalandra verify <grit checkout>"
+            "kalandra export <project> <directory>"
         )
     }
     ran.left.foreach { why =>
