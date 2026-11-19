@@ -379,14 +379,16 @@ set -euo pipefail
 f="$HOME/.claude.json"; [ -f "$f" ] || echo '{}' >"$f"
 top="$(git rev-parse --show-toplevel)"
 put() { jq --arg p "$top" --arg n "$1" --argjson e "$2" '.projects[$p].mcpServers[$n] = $e' "$f" >"$f.t" && mv "$f.t" "$f"; }
-# The planted failure, once: while a deploy joins, a keep through the serve it started, and a key
-# a session writes into the settings; then the add fails.
+# The planted failure, once: while a deploy joins, a key a session writes into the settings, and
+# a keep through the serve it started (a note, which sits anywhere under every version of the
+# method), once, as its project is new; then the add fails.
 if [[ -n "${EDGE_PROOF_PLANT-}" && -e "$EDGE_PROOF_PLANT" && "$1 $2" == "mcp add-json" ]]; then
   rm -f -- "$EDGE_PROOF_PLANT"
-  "$EDGE_PROOF_WT/bin/kalandra" new '{"project":"edge-proof-window"}' >/dev/null
-  "$EDGE_PROOF_WT/bin/kalandra" keep '{"project":"edge-proof-window","handle":"m","kind":"milestone","title":"Window","body":"window-text-1"}' >/dev/null
   s="$top/.claude/settings.local.json"
   jq '. + {proofMidDeploy: "kept"}' "$s" >"$s.t" && mv "$s.t" "$s"
+  if "$EDGE_PROOF_WT/bin/kalandra" new '{"project":"edge-proof-window"}' >/dev/null 2>&1; then
+    "$EDGE_PROOF_WT/bin/kalandra" keep '{"project":"edge-proof-window","handle":"m","kind":"note","title":"Window","body":"window-text-1"}' >/dev/null
+  fi
   exit 1
 fi
 case "$1 $2" in
@@ -527,7 +529,8 @@ grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$d
   [[ "$(grep -cxE 'KALANDRA_(OWNER|SESSIONS)_DIGEST=[0-9a-f]{64}' "$clone/.env")" == 2 ]]
 holds $? "  it keeps the credentials (a) made and appended, and appends no digest again"
 began_as
-expect 0 "the copy's serve, rolled back, shows what the new serve kept in its window" O show '{"key":"edge-proof-window/m"}'
+# The old serve knows no handle: it finds what the new serve kept by the key it is stored under.
+expect 0 "the copy's serve, rolled back, shows what the new serve kept in its window, by the key it is stored under" O show '{"key":"edge-proof-window/1"}'
 grep -q "window-text-1" <<<"$out"; holds $? "  as it kept it"
 
 stage "deploys e, f"
@@ -553,7 +556,7 @@ holds $? "  the aside database exists, and no ${restored}_restoring is left"
 [[ "$(pg psql -U grit -d "$aside" -At -c "SELECT count(*) FROM grit.sessions WHERE place[1] = 'machine'")" != 0 ]]; holds $? "  the aside database holds the copy as the deploy left it, under machine"
 [[ "$(sql "SELECT count(*) FROM grit.session_events WHERE session = $r_session AND seq = $r_seq")" == 1 && "$(sql "SELECT count(*) FROM grit.sessions WHERE place[1] = 'machine'")" == 0 ]]
 holds $? "  the copy's name holds the dump's content: the planted event, no session under machine"
-expect 0 "  the old jar answers on the restored copy" O show '{"key":"edge-proof-window/m"}'
+expect 0 "  the old jar answers on the restored copy" O show '{"key":"edge-proof-window/1"}'
 sql "DELETE FROM grit.session_events WHERE session = $r_session AND seq = $r_seq" >/dev/null
 began_as
 pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $aside WITH (FORCE)" >/dev/null
@@ -593,16 +596,22 @@ began_as
 
 stage "deploy g"
 # ---- 5c. (g) A project that cannot be re-keyed: an artifact of a project other than grit (whose
-# brief the deploy's preflight asks for) citing one the store does not hold. The deploy's survey says so, so no re-key is sent, and the ordinary rollback leaves
-# the copy as it began, with no dump restored.
+# brief the deploy's preflight asks for) citing one the store does not hold. The deploy's survey says so, so no re-key is sent; but grit@7 was declared
+# before it, which the old serve cannot read, so the rollback restores the dump, and the old serve
+# then lists no grit@7.
 read -r planted_cite planted_key <<<"$(sql "WITH p AS (SELECT version FROM grit.documents WHERE plugin = 'projects' AND key NOT LIKE 'grit/%' AND superseded_at IS NULL AND data ? 'head' AND NOT data -> 'head' ? 'id' ORDER BY key LIMIT 1) UPDATE grit.documents d SET data = jsonb_set(d.data, '{head,cites}', (d.data -> 'head' -> 'cites') || to_jsonb(split_part(d.key, '/', 1) || '/edge-proof-gone')) FROM p WHERE d.version = p.version RETURNING d.version, d.key" | head -n 1 | tr '|' ' ')"
 gone="${planted_key%%/*}/edge-proof-gone"
 [[ -n "$planted_cite" ]]; holds $? "$planted_key, of the old form, planted citing $gone in the copy (version $planted_cite)"
 stage_proof
 deploy g
-[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: project_rekey's survey says a project cannot be re-keyed: "*"it cites $gone, which this transaction reads no artifact under"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, machine-from-worker.sql reversed, joins as before in 2 checkouts, serve answering on $listen" ]]
-holds $? "(g) a project the survey cannot re-key rolls the deploy back before any re-key, exit 2"
-! grep -q "^deploy: rekey  \|restoring the dump" "$dlog"; holds $? "  no re-key was sent, and no dump restored"
+aside="$(sed -n "s/.*kept as \(${restored}_rolled_back_[0-9]*\), for a person.*/\1/p" <<<"$dlast")"
+[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: project_rekey's survey says a project cannot be re-keyed: "*"it cites $gone, which this transaction reads no artifact under"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, $restored restored from the dump taken before the deploy (the database as the deploy left it is kept as $aside, for a person to drop once satisfied), joins as before in 2 checkouts, serve answering on $listen" ]]
+holds $? "(g) a project the survey cannot re-key rolls the deploy back before any re-key, exit 2, restoring the dump"
+grep -qF "deploy: rollback: a method version was declared, which only the dump undoes; restoring the dump" "$dlog" && ! grep -q "^deploy: rekey  " "$dlog"
+holds $? "  for the method version it declared; no re-key was sent"
+expect 0 "  the old serve lists the method's versions" O methods '{"name":"grit"}'
+! grep -q "grit@7" <<<"$out"; holds $? "  and grit@7 is not among them: $(tr '\n' ' ' <<<"$out" | head -c 200)"
+[[ -z "$aside" ]] || pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $aside WITH (FORCE)" >/dev/null
 [[ -n "$planted_cite" ]] && sql "UPDATE grit.documents SET data = data #- '{head,cites,-1}' WHERE version = $planted_cite" >/dev/null
 began_as
 
@@ -774,23 +783,28 @@ level() { sql "SELECT l.level FROM grit.documents d JOIN grit.integrity_labels l
 
 expect 0 "list grit's now" K list '{"project":"grit","state":"now"}'
 expect 0 "show grit/plan-harness-edge" K show '{"key":"grit/plan-harness-edge"}'
+# An artifact's id, as project_show heads it.
+id_of() { K show "{\"key\":\"$1\",\"head\":true}" | sed -n 's/^id: //p' | head -1; }
+# The key an artifact is stored under, which a document's key column holds and a wait watches.
+stored_of() { K stored "{\"key\":\"$1\"}"; }
 rc=0
 K standing '{"key":"grit/roadmap-grit-coder"}' >"$work/standing.md" 2>"$work/standing.err" || rc=$?
-grep -q '^grit/roadmap-grit-coder at version [0-9]\+$' "$work/standing.err" || rc=1
-holds "$rc" "standing of grit/roadmap-grit-coder through the command line's credential, its version on stderr"
+coder_id="$(id_of grit/roadmap-grit-coder)"
+[[ -n "$coder_id" ]] && grep -qx "$coder_id at version [0-9]\+" "$work/standing.err" || rc=1
+holds "$rc" "standing of grit/roadmap-grit-coder through the command line's credential, its id's version on stderr: $(head -c 80 "$work/standing.err")"
 expect 0 "new project edge-proof" K new '{"project":"edge-proof"}'
-expect 0 "keep milestone edge-proof/m" K keep '{"project":"edge-proof","handle":"m","kind":"milestone","title":"Edge proof","body":"Kept by ops/edge-proof.sh in a restored copy."}'
+# A milestone sits under a section, as the method's latest version nests it.
+expect 0 "keep section edge-proof/s" K keep '{"project":"edge-proof","handle":"s","kind":"section","title":"Edge proof section","body":"Kept by ops/edge-proof.sh in a restored copy."}'
+expect 0 "keep milestone edge-proof/m under it" K keep '{"project":"edge-proof","handle":"m","kind":"milestone","title":"Edge proof","body":"Kept by ops/edge-proof.sh in a restored copy.","parent":"edge-proof/s"}'
 expect 0 "keep note edge-proof/c" K keep '{"project":"edge-proof","handle":"c","kind":"note","title":"Cited note","body":"cited-text-1","parent":"edge-proof/m"}'
 # The proof's note, of body `$1`: a new one by its handle, or with `$2` a key, a new version.
 note() { printf '{%s,"kind":"note","title":"Proof note","body":"%s See [the cited](artifact:edge-proof/c).","parent":"edge-proof/m","cites":["edge-proof/c"]}' "${2:-\"project\":\"edge-proof\",\"handle\":\"n\"}" "$1"; }
 expect 0 "keep note edge-proof/n citing edge-proof/c" K keep "$(note note-text-1)"
 expect 0 "a keep by the command line" K keep '{"project":"edge-proof","handle":"by-owner","kind":"note","title":"Owner","body":"kept by the command line","parent":"edge-proof/m"}'
 expect 0 "a keep by a session" S keep '{"project":"edge-proof","handle":"by-session","kind":"note","title":"Session","body":"kept by a session","parent":"edge-proof/m"}'
-# An artifact's id, as project_show heads it: the key a new artifact is kept under.
-id_of() { K show "{\"key\":\"$1\",\"head\":true}" | sed -n 's/^key: //p' | head -1; }
-key_of="$(id_of edge-proof/by-owner)"
-say "fact  a document's key column holds $key_of"
-lo="$(level "$key_of")"; ls_="$(level "$(id_of edge-proof/by-session)")"
+key_of="$(stored_of edge-proof/by-owner)"
+[[ "$key_of" == "$(id_of edge-proof/by-owner)" ]]; holds $? "a new artifact is stored under its id: project_stored answers $key_of"
+lo="$(level "$key_of")"; ls_="$(level "$(stored_of edge-proof/by-session)")"
 [[ "$lo" == 3 ]]; holds $? "the command line's keep is recorded at integrity level 3, authority ($lo)"
 [[ "$ls_" == 2 ]]; holds $? "the session's keep, KALANDRA_CREDENTIAL inherited, is recorded at level 2, member ($ls_)"
 before="$(K show '{"key":"edge-proof/n"}')"
@@ -829,10 +843,16 @@ expect 0 "keep it again with Commits" K keep '{"key":"edge-proof/k","kind":"chec
 expect 0 "a session moves it to ready" S move '{"key":"edge-proof/k","state":"ready"}'
 expect 0 "  and then to building" S move '{"key":"edge-proof/k","state":"building"}'
 state="$(sed -n 's/^state: //p' <<<"$before" | head -1)"
-# A wait watches the key an artifact is kept under: a new artifact's id.
-n_id="$(id_of edge-proof/n)"
-expect 0 "wait for edge-proof/n in $state" K wait "{\"artifact\":\"$n_id\",\"state\":[\"$state\"],\"within\":5}"
-expect 3 "wait for edge-proof/n in folded lapses" K wait "{\"artifact\":\"$n_id\",\"state\":[\"folded\"],\"within\":2}"
+# A wait is given an id or a handle, which serve resolves to the key the artifact is stored under:
+# a new artifact's id, a re-keyed one's name before.
+expect 0 "wait for edge-proof/n, by its handle, in $state" K wait "{\"artifact\":\"edge-proof/n\",\"state\":[\"$state\"],\"within\":5}"
+grep -q "^$(stored_of edge-proof/n) is in $state " <<<"$out"; holds $? "  met under the key it is stored under: $(head -c 120 <<<"$out")"
+expect 3 "wait for edge-proof/n in folded lapses" K wait "{\"artifact\":\"edge-proof/n\",\"state\":[\"folded\"],\"within\":2}"
+coder_state="$(K show '{"key":"grit/roadmap-grit-coder","head":true}' | sed -n 's/^state: //p' | head -1)"
+expect 0 "wait for grit/roadmap-grit-coder, re-keyed, by its id, in $coder_state" K wait "{\"artifact\":\"$coder_id\",\"state\":[\"$coder_state\"],\"within\":5}"
+grep -q "^grit/roadmap-grit-coder is in $coder_state " <<<"$out"; holds $? "  met under its name before the re-key: $(head -c 120 <<<"$out")"
+expect 1 "a wait for an artifact the project does not hold is refused" K wait '{"artifact":"edge-proof/none","state":["open"],"within":2}'
+grep -q "answered 400" <<<"$out" && grep -q "edge-proof/none" <<<"$out"; holds $? "  400, naming it: $(head -n 1 <<<"$out" | head -c 160)"
 expect 1 "a wait with a key it does not read is refused" K wait '{"artifact":"edge-proof/n","state":["open"],"slot":"x"}'
 grep -q "reads no slot" <<<"$out"; holds $? "  and names the key"
 H="$(K holder "{\"dir\":\"$repo\"}")" || H=""
@@ -1001,7 +1021,7 @@ done
 [[ ! -e "$hook" && ! -e "$repo/.git/hooks/post-commit" && ! -e "$repo/.git/hooks/post-rewrite" ]]
 holds $? "  the hook and its git hooks are gone"
 [[ "$(jq '[.hooks // {} | .[][].hooks[]] | length' "$repo/.claude/settings.local.json")" == 0 && "$(entry "$repo" "$dhome")" == null && "$(entry "$repo_wt" "$dhome")" == null ]]
-holds $? "  no handler and no MCP entry is left"
+holds $? "  no handler and no MCP entry is left: $(jq -c '[.hooks // {} | .[][].hooks[]] | length' "$repo/.claude/settings.local.json") $(entry "$repo" "$dhome") $(entry "$repo_wt" "$dhome")"
 undo2="$(sed -n 's/^Undo: //p' "$work/join2.out")"
 rc=0; R2 bash -o pipefail -c "$undo2" >"$work/undo2.out" 2>&1 || rc=$?
 [[ "$rc" == 0 && "$(entry "$work/repo2" "$work/jhome2")" == null ]]
