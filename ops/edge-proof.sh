@@ -637,6 +637,9 @@ deploy c
 X12="${proved:0:12}"
 [[ "$drc" == 0 && "$dlast" == "deploy: held: kalandra $X12 with grit $version at ${at:0:12} serving on $listen; 1 data files kept, 2 checkouts joined" ]]
 holds $? "(c) the deploy holds, exit 0"
+# A method file's worked examples are outside its digest, so each version declared before is kept.
+grep -qxF "deploy: methods: grit@1 kept grit@2 kept grit@3 kept grit@4 kept grit@5 kept grit@6 kept grit@7 declared" "$dlog"
+holds $? "  it keeps grit@1 to 6 as declared already, under the same digest, and declares grit@7"
 sed -n 's/^deploy: \([a-z]* took .*\)/time  (c) \1/p' "$dlog" | tee -a "$proof/proof.txt"
 sed -n 's/^deploy: dry  machine-from-worker.sql  //p' "$dlog" >"$proof/forward-dry.txt"
 sed 's/^/dry     /' "$proof/forward-dry.txt" | tee -a "$proof/proof.txt"
@@ -852,7 +855,7 @@ coder_state="$(K show '{"key":"grit/roadmap-grit-coder","head":true}' | sed -n '
 expect 0 "wait for grit/roadmap-grit-coder, re-keyed, by its id, in $coder_state" K wait "{\"artifact\":\"$coder_id\",\"state\":[\"$coder_state\"],\"within\":5}"
 grep -q "^grit/roadmap-grit-coder is in $coder_state " <<<"$out"; holds $? "  met under its name before the re-key: $(head -c 120 <<<"$out")"
 expect 1 "a wait for an artifact the project does not hold is refused" K wait '{"artifact":"edge-proof/none","state":["open"],"within":2}'
-grep -q "answered 400" <<<"$out" && grep -q "edge-proof/none" <<<"$out"; holds $? "  400, naming it: $(head -n 1 <<<"$out" | head -c 160)"
+[[ "$(head -n 1 <<<"$out")" == "project edge-proof has no artifact named none"* ]]; holds $? "  in project_stored's words: $(head -n 1 <<<"$out" | head -c 160)"
 expect 1 "a wait with a key it does not read is refused" K wait '{"artifact":"edge-proof/n","state":["open"],"slot":"x"}'
 grep -q "reads no slot" <<<"$out"; holds $? "  and names the key"
 H="$(K holder "{\"dir\":\"$repo\"}")" || H=""
