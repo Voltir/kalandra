@@ -3,7 +3,7 @@ package kalandra.amend
 import grit.core.host.Replace
 import grit.core.id.DocumentVersionId
 import grit.projects.artifact.{Artifact, ArtifactHead, Body}
-import grit.projects.name.{ArtifactKey, KindName, StateName}
+import grit.projects.name.{ArtifactKey, ArtifactRef, Handle, KindName, StateName}
 
 import utest.*
 
@@ -12,7 +12,10 @@ object AdoptionTests extends TestSuite {
   private def right[A](e: Either[String, A]): A =
     e.fold(why => throw new java.lang.AssertionError(why), identity)
 
-  private val key = right(ArtifactKey.read("p/standing"))
+  private val key = right(ArtifactKey.read("p/1"))
+
+  /** `markdown` as a body, its links by id. */
+  private def bodyOf(markdown: String) = Body.read(markdown, ArtifactRef.id)
   private def version(n: Long) = DocumentVersionId.of(n).getOrElse(sys.error("no version"))
 
   /** A standing text with a character outside the BMP, two UTF-16 units and one code point. */
@@ -23,6 +26,7 @@ object AdoptionTests extends TestSuite {
     Artifact(
       ArtifactHead(
         key,
+        Some(right(Handle.of("standing"))),
         right(KindName.of("section")),
         right(StateName.of("current")),
         "How a coder works",
@@ -31,7 +35,7 @@ object AdoptionTests extends TestSuite {
         None
       ),
       right(
-        Body.read(
+        bodyOf(
           s"What a coder works by.\n\n**Cap: $cap characters** below the line.\n\n---\n\n$text"
         )
       )
@@ -40,12 +44,12 @@ object AdoptionTests extends TestSuite {
   private def standing(a: Artifact) = StandingSection.of(key, a.body)
 
   /** `markdown` read as a body, then as a standing section. */
-  private def standing(markdown: String) = StandingSection.of(key, right(Body.read(markdown)))
+  private def standing(markdown: String) = StandingSection.of(key, right(bodyOf(markdown)))
 
-  /** An amendment's body, its diff against version 7 of `p/standing` the blocks given. */
+  /** An amendment's body, its diff against version 7 of `p/1` the blocks given. */
   private def amendment(blocks: String*): String =
     "Proposes a rule.\n\n## Diff\n\n" +
-      "Against [How a coder works](artifact:p/standing) at version 7.\n\n" +
+      "Against [How a coder works](artifact:p/1) at version 7.\n\n" +
       blocks.mkString("\n\n") + "\n\n## Moments\n\n- trial 1, call 3: `run` was refused."
 
   private def block(tag: String, text: String) = s"```$tag\n$text\n```"
@@ -91,7 +95,7 @@ object AdoptionTests extends TestSuite {
       // Read from the amendment as it is kept, so the tags and lines survive a keep.
       val kept = Body.markdown(
         right(
-          Body.read(
+          bodyOf(
             amendment(
               block("old", "A."),
               block("new", "B.\n\nC."),
@@ -108,8 +112,8 @@ object AdoptionTests extends TestSuite {
     test("a diff's section is the artifact its Against line cites, whatever its title holds") {
       val kept = Body.markdown(
         right(
-          Body.read(
-            "## Diff\n\nAgainst [How a coder works [draft] (v2)](artifact:p/standing) at version 7." +
+          bodyOf(
+            "## Diff\n\nAgainst [How a coder works [draft] (v2)](artifact:p/1) at version 7." +
               "\n\n" + block("old", "A.") + "\n\n" + block("new", "B.")
           )
         )
@@ -127,7 +131,7 @@ object AdoptionTests extends TestSuite {
         Diff.read(amendment(block("new", "C."))),
         Diff.read(
           amendment(
-            "Against [How a coder works](artifact:p/standing) at version 8.",
+            "Against [How a coder works](artifact:p/1) at version 8.",
             block("old", "A."),
             block("new", "B.")
           )
@@ -154,12 +158,12 @@ object AdoptionTests extends TestSuite {
 
     test("a candidate over its cap is refused, saying by how much") {
       Adoption.candidate(redFirst, section("80"), version(7)).left.map(_.message) ==>
-        Left("p/standing's standing text would be 90 characters, over its cap of 80: cut 10")
+        Left("p/1's standing text would be 90 characters, over its cap of 80: cut 10")
     }
 
     test("a diff against another version of its section is refused, naming both") {
       Adoption.candidate(redFirst, section("100"), version(9)).left.map(_.message) ==> Left(
-        "p/standing is at version 9, not 7 as the diff is against: bench the amendment again " +
+        "p/1 is at version 9, not 7 as the diff is against: bench the amendment again " +
           "against it, or write a new one"
       )
     }
@@ -169,7 +173,7 @@ object AdoptionTests extends TestSuite {
       Adoption.candidate(stale, section("100"), version(7)) ==> Left(
         AdoptRefusal.Unapplied(
           key,
-          "edits[0].oldText was not found in p/standing. It must match the file exactly, " +
+          "edits[0].oldText was not found in p/1. It must match the file exactly, " +
             "including whitespace and line breaks; read the file again to copy it."
         )
       )

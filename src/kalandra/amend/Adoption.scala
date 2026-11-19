@@ -3,7 +3,7 @@ package kalandra.amend
 import grit.core.host.{RelPath, Replace}
 import grit.core.id.DocumentVersionId
 import grit.projects.artifact.{Artifact, Body}
-import grit.projects.name.ArtifactKey
+import grit.projects.name.{ArtifactKey, ArtifactRef}
 import grit.prose.form.Block
 import grit.prose.markdown.Markdown
 
@@ -82,7 +82,7 @@ object Diff {
         case several => Left(s"it has ${several.size} lines `Against … at version …`, not one")
       }
       section <- Body
-        .read(named._1)
+        .read(named._1, ArtifactRef.id)
         .flatMap(line =>
           Body.cites(line) match {
             case Vector(one) => Right(one)
@@ -181,7 +181,7 @@ object Adoption {
         .onto(path, text, diff.edits)
         .left
         .map(e => AdoptRefusal.Unapplied(key, e.message))
-      body <- Body.read(edited._1).left.map(AdoptRefusal.Unkept(key, _))
+      body <- Body.read(edited._1, ArtifactRef.id).left.map(AdoptRefusal.Unkept(key, _))
       after <- StandingSection
         .of(key, body)
         .filterOrElse(_.header == before.header, AdoptRefusal.AboveTheRule(key))

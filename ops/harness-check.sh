@@ -100,7 +100,7 @@ if [[ "$up" != 0 ]]; then tail -20 "$work/serve.log" >&2; exit 1; fi
 set +e
 K() { env -u CLAUDE_CODE_SESSION_ID KALANDRA_LISTEN="$listen" KALANDRA_CREDENTIAL="$work/cred/owner" "$wt/bin/kalandra" "$@" >/dev/null; }
 K new '{"project":"harness-check"}' &&
-  K keep '{"key":"harness-check/m","kind":"milestone","title":"Harness check","body":"Kept by ops/harness-check.sh."}'
+  K keep '{"project":"harness-check","handle":"m","kind":"milestone","title":"Harness check","body":"Kept by ops/harness-check.sh."}'
 holds $? "the project harness-check is kept, holding one milestone"
 
 # ---- The join, through the installed claude, in a repository of its own.

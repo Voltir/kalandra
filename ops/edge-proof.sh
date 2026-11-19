@@ -381,7 +381,7 @@ put() { jq --arg p "$top" --arg n "$1" --argjson e "$2" '.projects[$p].mcpServer
 if [[ -n "${EDGE_PROOF_PLANT-}" && -e "$EDGE_PROOF_PLANT" && "$1 $2" == "mcp add-json" ]]; then
   rm -f -- "$EDGE_PROOF_PLANT"
   "$EDGE_PROOF_WT/bin/kalandra" new '{"project":"edge-proof-window"}' >/dev/null
-  "$EDGE_PROOF_WT/bin/kalandra" keep '{"key":"edge-proof-window/m","kind":"milestone","title":"Window","body":"window-text-1"}' >/dev/null
+  "$EDGE_PROOF_WT/bin/kalandra" keep '{"project":"edge-proof-window","handle":"m","kind":"milestone","title":"Window","body":"window-text-1"}' >/dev/null
   s="$top/.claude/settings.local.json"
   jq '. + {proofMidDeploy: "kept"}' "$s" >"$s.t" && mv "$s.t" "$s"
   exit 1
@@ -712,15 +712,18 @@ K standing '{"key":"grit/roadmap-grit-coder"}' >"$work/standing.md" 2>"$work/sta
 grep -q '^grit/roadmap-grit-coder at version [0-9]\+$' "$work/standing.err" || rc=1
 holds "$rc" "standing of grit/roadmap-grit-coder through the command line's credential, its version on stderr"
 expect 0 "new project edge-proof" K new '{"project":"edge-proof"}'
-expect 0 "keep milestone edge-proof/m" K keep '{"key":"edge-proof/m","kind":"milestone","title":"Edge proof","body":"Kept by ops/edge-proof.sh in a restored copy."}'
-expect 0 "keep note edge-proof/c" K keep '{"key":"edge-proof/c","kind":"note","title":"Cited note","body":"cited-text-1","parent":"edge-proof/m"}'
-note() { printf '{"key":"edge-proof/n","kind":"note","title":"Proof note","body":"%s See [the cited](artifact:edge-proof/c).","parent":"edge-proof/m","cites":["edge-proof/c"]}' "$1"; }
+expect 0 "keep milestone edge-proof/m" K keep '{"project":"edge-proof","handle":"m","kind":"milestone","title":"Edge proof","body":"Kept by ops/edge-proof.sh in a restored copy."}'
+expect 0 "keep note edge-proof/c" K keep '{"project":"edge-proof","handle":"c","kind":"note","title":"Cited note","body":"cited-text-1","parent":"edge-proof/m"}'
+# The proof's note, of body `$1`: a new one by its handle, or with `$2` a key, a new version.
+note() { printf '{%s,"kind":"note","title":"Proof note","body":"%s See [the cited](artifact:edge-proof/c).","parent":"edge-proof/m","cites":["edge-proof/c"]}' "${2:-\"project\":\"edge-proof\",\"handle\":\"n\"}" "$1"; }
 expect 0 "keep note edge-proof/n citing edge-proof/c" K keep "$(note note-text-1)"
-expect 0 "a keep by the command line" K keep '{"key":"edge-proof/by-owner","kind":"note","title":"Owner","body":"kept by the command line","parent":"edge-proof/m"}'
-expect 0 "a keep by a session" S keep '{"key":"edge-proof/by-session","kind":"note","title":"Session","body":"kept by a session","parent":"edge-proof/m"}'
-key_of="$(sql "SELECT key FROM grit.documents WHERE key LIKE '%edge-proof/by-owner' AND superseded_at IS NULL")"
+expect 0 "a keep by the command line" K keep '{"project":"edge-proof","handle":"by-owner","kind":"note","title":"Owner","body":"kept by the command line","parent":"edge-proof/m"}'
+expect 0 "a keep by a session" S keep '{"project":"edge-proof","handle":"by-session","kind":"note","title":"Session","body":"kept by a session","parent":"edge-proof/m"}'
+# An artifact's id, as project_show heads it: the key a new artifact is kept under.
+id_of() { K show "{\"key\":\"$1\",\"head\":true}" | sed -n 's/^key: //p' | head -1; }
+key_of="$(id_of edge-proof/by-owner)"
 say "fact  a document's key column holds $key_of"
-lo="$(level "$key_of")"; ls_="$(level "${key_of%by-owner}by-session")"
+lo="$(level "$key_of")"; ls_="$(level "$(id_of edge-proof/by-session)")"
 [[ "$lo" == 3 ]]; holds $? "the command line's keep is recorded at integrity level 3, authority ($lo)"
 [[ "$ls_" == 2 ]]; holds $? "the session's keep, KALANDRA_CREDENTIAL inherited, is recorded at level 2, member ($ls_)"
 before="$(K show '{"key":"edge-proof/n"}')"
@@ -746,21 +749,23 @@ expect 0 "  and grit's now lists" K list '{"project":"grit","state":"now"}'
 [[ -n "$now_before" && "$out" == "$now_before" ]]
 holds $? "  what it listed before the migration, $(grep -c . <<<"$now_before") lines"
 amend="## Diff\n\nd\n\n## Moments\n\nm\n\n## Cue\n\nc\n\n## Lesson\n\nl\n\n## Confidence\n\nc\n\n## Observable\n\no\n\n## Contrast\n\nkept -> amendment.\n\n## Verdict: helped\n\nh\n\n## Decision: adopt\n\n- By: proof.\n- Activation: 1.\n- Checks: 1.\n- Cost: 0.\n- Held-out regression: none."
-expect 0 "keep amendment edge-proof/a, decided adopt" K keep "{\"key\":\"edge-proof/a\",\"kind\":\"amendment\",\"title\":\"Proof amendment\",\"body\":\"$amend\"}"
+expect 0 "keep amendment edge-proof/a, decided adopt" K keep "{\"project\":\"edge-proof\",\"handle\":\"a\",\"kind\":\"amendment\",\"title\":\"Proof amendment\",\"body\":\"$amend\"}"
 expect 0 "a session benches it" S move '{"key":"edge-proof/a","state":"benched"}'
 expect 1 "a session's move of it to adopted is refused" S move '{"key":"edge-proof/a","state":"adopted"}'
 grep -q "answered 409" <<<"$out" && grep -q -i "authority" <<<"$out"; holds $? "  409, naming authority: $(head -n 1 <<<"$out" | head -c 160)"
 expect 0 "the command line's move of it to adopted is made" K move '{"key":"edge-proof/a","state":"adopted"}'
 K show '{"key":"edge-proof/a"}' | grep -qx "state: adopted"; holds $? "  and edge-proof/a is adopted"
-expect 0 "keep checkpoint edge-proof/k, its plan lacking Commits" K keep '{"key":"edge-proof/k","kind":"checkpoint","title":"Proof checkpoint","body":"## Goal\n\ng\n\n## Signatures\n\ns\n\n## Reads\n\nr","parent":"edge-proof/m"}'
+expect 0 "keep checkpoint edge-proof/k, its plan lacking Commits" K keep '{"project":"edge-proof","handle":"k","kind":"checkpoint","title":"Proof checkpoint","body":"## Goal\n\ng\n\n## Signatures\n\ns\n\n## Reads\n\nr","parent":"edge-proof/m"}'
 expect 1 "a session's move of it to ready is refused" S move '{"key":"edge-proof/k","state":"ready"}'
 grep -q "sections-present" <<<"$out"; holds $? "  by sections-present"
 expect 0 "keep it again with Commits" K keep '{"key":"edge-proof/k","kind":"checkpoint","title":"Proof checkpoint","body":"## Goal\n\ng\n\n## Signatures\n\ns\n\n## Reads\n\nr\n\n## Commits\n\nc","parent":"edge-proof/m"}'
 expect 0 "a session moves it to ready" S move '{"key":"edge-proof/k","state":"ready"}'
 expect 0 "  and then to building" S move '{"key":"edge-proof/k","state":"building"}'
 state="$(sed -n 's/^state: //p' <<<"$before" | head -1)"
-expect 0 "wait for edge-proof/n in $state" K wait "{\"artifact\":\"edge-proof/n\",\"state\":[\"$state\"],\"within\":5}"
-expect 3 "wait for edge-proof/n in folded lapses" K wait '{"artifact":"edge-proof/n","state":["folded"],"within":2}'
+# A wait watches the key an artifact is kept under: a new artifact's id.
+n_id="$(id_of edge-proof/n)"
+expect 0 "wait for edge-proof/n in $state" K wait "{\"artifact\":\"$n_id\",\"state\":[\"$state\"],\"within\":5}"
+expect 3 "wait for edge-proof/n in folded lapses" K wait "{\"artifact\":\"$n_id\",\"state\":[\"folded\"],\"within\":2}"
 expect 1 "a wait with a key it does not read is refused" K wait '{"artifact":"edge-proof/n","state":["open"],"slot":"x"}'
 grep -q "reads no slot" <<<"$out"; holds $? "  and names the key"
 H="$(K holder "{\"dir\":\"$repo\"}")" || H=""
@@ -830,7 +835,7 @@ start="$(payload proof-s1 SessionStart | jq -c '. + {source: "startup"}')"
 ctx="$(fire brief <<<"$start" | jq -r '.hookSpecificOutput.additionalContext // empty')" || ctx=""
 grep -q "Proof note" <<<"$ctx" && grep -q "note-text-1" <<<"$ctx" && grep -q "cited-text-1" <<<"$ctx"
 holds $? "the hook's brief at SessionStart holds the claimed note and what it cites"
-expect 0 "keep edge-proof/n with a changed body" K keep "$(note note-text-2)"
+expect 0 "keep edge-proof/n with a changed body" K keep "$(note note-text-2 '"key":"edge-proof/n"')"
 ctx="$(fire brief <<<"$start" | jq -r '.hookSpecificOutput.additionalContext // empty')" || ctx=""
 grep -q "note-text-2" <<<"$ctx" && ! grep -q "note-text-1" <<<"$ctx"; holds $? "  and the next brief shows the keep"
 op="$(fire opening <<<"$start" | jq -r '.hookSpecificOutput.additionalContext // empty')" || op=""
@@ -842,7 +847,7 @@ AH="$(fire holder coder-proof --dir "$repo" --session proof-s1 2>/dev/null)" || 
 KH="$(K holder "{\"dir\":\"$repo\",\"type\":\"coder-proof\",\"session\":\"proof-s1\"}")" || KH=""
 [[ -n "$AH" && "$AH" == "$KH" && "$AH" == "$H"/coder-proof/* ]]
 holds $? "bin/kalandra holder with dir, type and session is the hook's holder coder-proof: $AH"
-expect 0 "keep checkpoint edge-proof/w" K keep '{"key":"edge-proof/w","kind":"checkpoint","title":"Agent checkpoint","body":"## Goal\n\nagent-text-1","parent":"edge-proof/m"}'
+expect 0 "keep checkpoint edge-proof/w" K keep '{"project":"edge-proof","handle":"w","kind":"checkpoint","title":"Agent checkpoint","body":"## Goal\n\nagent-text-1","parent":"edge-proof/m"}'
 expect 0 "claim edge-proof/w as coder for $AH" K claim "{\"key\":\"edge-proof/w\",\"role\":\"coder\",\"holder\":\"$AH\"}"
 sub="$(payload proof-s1 SubagentStart | jq -c '. + {agent_id: "proof-a1", agent_type: "coder-proof"}')"
 actx="$(fire brief <<<"$sub" | jq -r '.hookSpecificOutput.additionalContext // empty')" || actx=""

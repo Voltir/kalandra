@@ -2,7 +2,16 @@ package kalandra.method
 
 import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project}
 import grit.projects.method.{Declared, Example, Method, MethodBench, Migrated, Mover, Remap}
-import grit.projects.name.{ArtifactKey, CheckName, KindName, Pin, ProjectKey, StateName}
+import grit.projects.name.{
+  ArtifactKey,
+  ArtifactRef,
+  CheckName,
+  Handle,
+  KindName,
+  Pin,
+  ProjectKey,
+  StateName
+}
 
 import kalandra.method.MethodFiles.filed
 import utest.*
@@ -14,13 +23,21 @@ object GritMethodTests extends TestSuite {
 
   private def version(v: Int): Method = right(filed(v)).method
 
+  /** Each test artifact's number, by its handle. */
+  private val Numbers: Map[String, Int] =
+    Map("m" -> 1, "s" -> 2, "n" -> 3, "c" -> 4, "b" -> 5, "a" -> 6)
+
+  private def key(local: String): ArtifactKey =
+    right(ArtifactKey.read(s"p/${Numbers.getOrElse(local, 0)}"))
+
   private def head(local: String, kind: String, state: String, parent: Option[String] = None) =
     ArtifactHead(
-      right(ArtifactKey.read(s"p/$local")),
+      key(local),
+      Some(right(Handle.of(local))),
       right(KindName.of(kind)),
       right(StateName.of(state)),
       local,
-      parent.map(p => right(ArtifactKey.read(s"p/$p"))),
+      parent.map(key),
       Vector.empty,
       None
     )
@@ -153,16 +170,31 @@ object GritMethodTests extends TestSuite {
       )
     }
 
+    test("every shipped method file's example artifacts and carried names read as handles") {
+      MethodFiles.Versions.map(v =>
+        filed(v).map(d =>
+          d.examples.forall(_.start.artifacts.forall(_.head.handle.isDefined)) &&
+            d.method.views.forall(_.carried.forall(h => Handle.of(Handle.value(h)) == Right(h)))
+        )
+      ) ==> MethodFiles.Versions.map(_ => Right(true))
+    }
+
     test("a version 2 project migrates to version 3, its stages checkpoints, a note re-kinded") {
       val (v2, v3) = (version(2), version(3))
-      val m = Artifact(head("m", "milestone", "now"), right(Body.read("M.")))
-      val s = Artifact(head("s", "stage", "building", parent = Some("m")), right(Body.read("S.")))
-      val n = Artifact(head("n", "note", "open", parent = Some("m")), right(Body.read("N.")))
+      val m = Artifact(head("m", "milestone", "now"), right(Body.read("M.", ArtifactRef.id)))
+      val s = Artifact(
+        head("s", "stage", "building", parent = Some("m")),
+        right(Body.read("S.", ArtifactRef.id))
+      )
+      val n = Artifact(
+        head("n", "note", "open", parent = Some("m")),
+        right(Body.read("N.", ArtifactRef.id))
+      )
       v3.migrated(
         project(v2, m, s, n),
         Remap(
           kinds = Map(right(KindName.of("stage")) -> right(KindName.of("checkpoint"))),
-          artifacts = Map(right(ArtifactKey.read("p/n")) -> right(KindName.of("backlog")))
+          artifacts = Map(key("n") -> right(KindName.of("backlog")))
         )
       ) ==> Right(
         Migrated(
@@ -172,7 +204,7 @@ object GritMethodTests extends TestSuite {
             Artifact(s.head.copy(kind = right(KindName.of("checkpoint"))), s.body),
             Artifact(n.head.copy(kind = right(KindName.of("backlog"))), n.body)
           ),
-          Vector(right(ArtifactKey.read("p/n")), right(ArtifactKey.read("p/s")))
+          Vector(key("s"), key("n"))
         )
       )
     }
@@ -182,10 +214,16 @@ object GritMethodTests extends TestSuite {
     ) {
       val (v5, v6) = (version(5), right(filed(6)).method)
       val as = Vector(
-        Artifact(head("m", "milestone", "now"), right(Body.read("M."))),
-        Artifact(head("c", "checkpoint", "planned", parent = Some("m")), right(Body.read("C."))),
-        Artifact(head("b", "checkpoint", "building", parent = Some("m")), right(Body.read("B."))),
-        Artifact(head("a", "amendment", "benched"), right(Body.read("A.")))
+        Artifact(head("m", "milestone", "now"), right(Body.read("M.", ArtifactRef.id))),
+        Artifact(
+          head("c", "checkpoint", "planned", parent = Some("m")),
+          right(Body.read("C.", ArtifactRef.id))
+        ),
+        Artifact(
+          head("b", "checkpoint", "building", parent = Some("m")),
+          right(Body.read("B.", ArtifactRef.id))
+        ),
+        Artifact(head("a", "amendment", "benched"), right(Body.read("A.", ArtifactRef.id)))
       )
       v6.migrated(project(v5, as*), Remap()) ==> Right(Migrated(project(v6, as*), Vector()))
     }

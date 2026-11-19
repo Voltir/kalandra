@@ -64,14 +64,23 @@ else
 fi
 
 # Kept the same each run, so a second run writes no new version: a method version declared already
-# under its digest changes nothing. Methods first, as a project is read under its method's.
+# under its digest changes nothing, and an artifact kept already is kept again by its handle, not
+# made anew. Methods first, as a project is read under its method's.
 export KALANDRA_LISTEN="$live_listen"
 for f in $(cd "$root/methods" && ls -- *.json | sort -t@ -k1,1 -k2,2n); do
   "$kalandra" declare "$root/methods/$f"
 done
 "$kalandra" new '{"project":"restore-check"}' || true
-"$kalandra" keep '{"key":"restore-check/plan","kind":"milestone","title":"Restore check","body":"Kept by ops/restore-test.sh, to see a dump restore whole."}'
-"$kalandra" keep '{"key":"restore-check/dump","kind":"stage","title":"Dump and restore","body":"## Goal\n\nThe export after a restore is the export before it. See [the plan](artifact:restore-check/plan).","parent":"restore-check/plan","cites":["restore-check/plan"]}'
+# A keep of restore-check/<$1>, of the fields `$2`: of the one by that handle, or a new one.
+keep_check() {
+  if "$kalandra" show "{\"key\":\"restore-check/$1\",\"head\":true}" >/dev/null 2>&1; then
+    "$kalandra" keep "{\"key\":\"restore-check/$1\",$2}"
+  else
+    "$kalandra" keep "{\"project\":\"restore-check\",\"handle\":\"$1\",$2}"
+  fi
+}
+keep_check plan '"kind":"milestone","title":"Restore check","body":"Kept by ops/restore-test.sh, to see a dump restore whole."'
+keep_check dump '"kind":"stage","title":"Dump and restore","body":"## Goal\n\nThe export after a restore is the export before it. See [the plan](artifact:restore-check/plan).","parent":"restore-check/plan","cites":["restore-check/plan"]'
 
 dump="$("$root/ops/backup.sh")"
 echo "dumped $dump"

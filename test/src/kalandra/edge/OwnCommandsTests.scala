@@ -4,12 +4,12 @@ import java.time.Instant
 
 import grit.commands.declare.Ran
 import grit.core.edge.{CommandError, Watched}
-import grit.core.id.DocumentVersionId
+import grit.core.id.{DocKey, DocumentVersionId}
 import grit.core.plugin.CommandOutcome
 import grit.core.tool.ToolName
 import grit.core.visibility.Integrity
 import grit.projects.artifact.{Artifact, ArtifactHead, ArtifactJson, Body}
-import grit.projects.name.{ArtifactKey, KindName, StateName}
+import grit.projects.name.{ArtifactKey, ArtifactRef, Handle, KindName, StateName}
 import grit.projects.plugin.Projects
 import grit.projects.render.ProjectMarkdown
 
@@ -21,12 +21,16 @@ object OwnCommandsTests extends TestSuite {
 
   private def version(n: Long) = DocumentVersionId.of(n).getOrElse(sys.error("no version"))
 
+  /** The number of each artifact of the project `m17` by its handle. */
+  private val Numbers: Map[String, Int] = Map("amend" -> 1, "standing" -> 2)
+
   /** An artifact of the project `m17`, as `project_show` gives it kept as version `n`. */
   private def shownAs(local: String, kind: String, state: String, body: String, n: Long): String =
     ProjectMarkdown.shown(
       Artifact(
         ArtifactHead(
-          ok(ArtifactKey.read(s"m17/$local")),
+          ok(ArtifactKey.read(s"m17/${Numbers.getOrElse(local, 0)}")),
+          Some(ok(Handle.of(local))),
           ok(KindName.of(kind)),
           ok(StateName.of(state)),
           s"The $local",
@@ -34,14 +38,14 @@ object OwnCommandsTests extends TestSuite {
           Vector.empty,
           None
         ),
-        ok(Body.read(body))
+        ok(Body.read(body, ArtifactRef.id))
       ),
       version(n)
     )
 
   private val below = "You make one change.\n\n## Rules\n\n- Never push."
 
-  /** The section `m17/standing`, kept as version 7, its cap `cap` characters. */
+  /** The section `m17/2`, kept as version 7, its cap `cap` characters. */
   private def section(cap: Int): String =
     shownAs(
       "standing",
@@ -51,12 +55,12 @@ object OwnCommandsTests extends TestSuite {
       7
     )
 
-  /** The amendment `m17/amend`, benched: its diff adds a rule, against version 7. */
+  /** The amendment `m17/1`, benched: its diff adds a rule, against version 7. */
   private val amendment = shownAs(
     "amend",
     "amendment",
     "benched",
-    "## Diff\n\nAgainst [the standing](artifact:m17/standing) at version 7.\n\n" +
+    "## Diff\n\nAgainst [the standing](artifact:m17/2) at version 7.\n\n" +
       "```old\n- Never push.\n```\n\n```new\n- Never push.\n- Red first.\n```",
     3
   )
@@ -86,7 +90,7 @@ object OwnCommandsTests extends TestSuite {
   }
 
   private def amending(cap: Int) =
-    new Scripted(Map("m17/amend" -> amendment, "m17/standing" -> section(cap)))
+    new Scripted(Map("m17/1" -> amendment, "m17/2" -> section(cap)))
 
   private def args(json: String): ujson.Obj = ujson.read(json).obj
 
@@ -99,18 +103,18 @@ object OwnCommandsTests extends TestSuite {
     ) {
       val s = amending(100)
       (
-        OwnCommands.adopt.run(s.ran, args("""{"key":"m17/amend"}""")),
+        OwnCommands.adopt.run(s.ran, args("""{"key":"m17/1"}""")),
         s.calls.toVector
       ) ==> (
         Right(
           CommandOutcome.Done(
-            "Adopted m17/amend: m17/standing kept again, its standing text 58 characters of " +
+            "Adopted m17/1: m17/2 kept again, its standing text 58 characters of " +
               "its cap 100.\nKept. Moved."
           )
         ),
         Vector[(String, ujson.Value)](
-          ("project_show", ujson.Obj("key" -> "m17/amend")),
-          ("project_show", ujson.Obj("key" -> "m17/standing")),
+          ("project_show", ujson.Obj("key" -> "m17/1")),
+          ("project_show", ujson.Obj("key" -> "m17/2")),
           (
             "project_batch",
             ujson.Obj(
@@ -118,12 +122,12 @@ object OwnCommandsTests extends TestSuite {
               "steps" -> ujson.Arr(
                 ujson.Obj(
                   "command" -> "keep",
-                  "key" -> "m17/standing",
+                  "key" -> "m17/2",
                   "title" -> "The standing",
                   "body" -> s"**Cap: 100 characters** below.\n\n***\n\n$below\n- Red first.",
                   "version" -> 7
                 ),
-                ujson.Obj("command" -> "move", "key" -> "m17/amend", "state" -> "adopted")
+                ujson.Obj("command" -> "move", "key" -> "m17/1", "state" -> "adopted")
               )
             )
           )
@@ -133,10 +137,10 @@ object OwnCommandsTests extends TestSuite {
 
     test("an amendment over its section's cap is refused, and nothing is batched") {
       val s = amending(50)
-      (OwnCommands.adopt.run(s.ran, args("""{"key":"m17/amend"}""")), s.names) ==> (
+      (OwnCommands.adopt.run(s.ran, args("""{"key":"m17/1"}""")), s.names) ==> (
         Right(
           CommandOutcome.Refused(
-            "m17/standing's standing text would be 58 characters, over its cap of 50: cut 8"
+            "m17/2's standing text would be 58 characters, over its cap of 50: cut 8"
           )
         ),
         Vector("project_show", "project_show")
@@ -146,16 +150,16 @@ object OwnCommandsTests extends TestSuite {
     test(
       "adopt of an amendment whose section is missing is refused as the show was, nothing batched"
     ) {
-      val s = new Scripted(Map("m17/amend" -> amendment))
-      (OwnCommands.adopt.run(s.ran, args("""{"key":"m17/amend"}""")), s.names) ==> (
-        Right(CommandOutcome.Refused("project m17 has no artifact m17/standing")),
+      val s = new Scripted(Map("m17/1" -> amendment))
+      (OwnCommands.adopt.run(s.ran, args("""{"key":"m17/1"}""")), s.names) ==> (
+        Right(CommandOutcome.Refused("project m17 has no artifact m17/2")),
         Vector("project_show", "project_show")
       )
     }
 
     test("a show that is not an artifact's is a store failure, nothing batched") {
-      val s = new Scripted(Map("m17/amend" -> "no front matter"))
-      val adopted = OwnCommands.adopt.run(s.ran, args("""{"key":"m17/amend"}"""))
+      val s = new Scripted(Map("m17/1" -> "no front matter"))
+      val adopted = OwnCommands.adopt.run(s.ran, args("""{"key":"m17/1"}"""))
       assert(
         adopted match {
           case Left(CommandError.Store(n, _)) => ToolName.value(n) == "project_adopt"
@@ -168,8 +172,8 @@ object OwnCommandsTests extends TestSuite {
     test("standing answers a section's text, or an amendment's candidate's, and keeps nothing") {
       val s = amending(100)
       (
-        OwnCommands.standing.run(s.ran, args("""{"key":"m17/standing"}""")),
-        OwnCommands.standing.run(s.ran, args("""{"key":"m17/amend"}""")),
+        OwnCommands.standing.run(s.ran, args("""{"key":"m17/2"}""")),
+        OwnCommands.standing.run(s.ran, args("""{"key":"m17/1"}""")),
         s.names.toSet
       ) ==> (
         Right(CommandOutcome.Done(below + "\n")),
@@ -182,7 +186,7 @@ object OwnCommandsTests extends TestSuite {
       val s = amending(100)
       (
         OwnCommands.adopt.run(s.ran, args("{}")),
-        OwnCommands.standing.run(s.ran, args("""{"title":"m17/standing"}""")),
+        OwnCommands.standing.run(s.ran, args("""{"title":"m17/2"}""")),
         s.names
       ) ==> (
         Left(CommandError.Unread(ToolName("project_adopt"), OwnCommands.KeyAlone)),
@@ -206,7 +210,7 @@ object OwnCommandsTests extends TestSuite {
         read(args("""{"state":["review"]}"""))
       ) ==> (
         Set("artifact", "state"),
-        Some(Projects.reaching(ok(ArtifactKey.read("grit/plan-x")), Set(review, merged))),
+        Some(Projects.reaching(ok(DocKey.of("grit/plan-x")), Set(review, merged))),
         None
       )
     }
@@ -223,7 +227,7 @@ object OwnCommandsTests extends TestSuite {
 
     test("a met holding watch says the artifact, the states it is in, its version and when") {
       val at = Instant.parse("2026-10-27T12:00:00Z")
-      val watch = ok(Projects.reaching(ok(ArtifactKey.read("grit/plan-x")), Set(review, merged)))
+      val watch = ok(Projects.reaching(ok(DocKey.of("grit/plan-x")), Set(review, merged)))
       OwnCommands.reaching.met(
         watch,
         Watched.Held(version(7), Set(ArtifactJson.stateRef(review)), at)

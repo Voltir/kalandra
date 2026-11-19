@@ -19,10 +19,11 @@ object MainTests extends TestSuite {
   private def dir(s: String): Directory = Directory.of(s).fold(sys.error, identity)
 
   /** An exported artifact's file: its path and its text, as `project_export` writes it. */
-  private def exported(key: String, kind: String, state: String): (String, String) =
+  private def exported(key: String, handle: String, kind: String, state: String): (String, String) =
     s"$key.md" ->
       s"""---
          |key: $key
+         |handle: $handle
          |kind: $kind
          |state: $state
          |title: "T"
@@ -36,7 +37,7 @@ object MainTests extends TestSuite {
 
   val tests = Tests {
     test(
-      "every amendment, an ended one among them, is written as exported at its key's name, and nothing else"
+      "every amendment, an ended one among them, is written as exported at its handle, and nothing else"
     ) {
       val index = "project.md" ->
         s"""---
@@ -46,9 +47,11 @@ object MainTests extends TestSuite {
            |digest: ${"0" * 64}
            |---
            |""".stripMargin
-      val rejected = exported("m17/amend-a", "amendment", "rejected")
-      val proposed = exported("m17/amend-b", "amendment", "proposed")
-      Amendments.of(Vector(index, exported("m17/note", "note", "open"), proposed, rejected)) ==>
+      val rejected = exported("m17/2", "amend-a", "amendment", "rejected")
+      val proposed = exported("m17/3", "amend-b", "amendment", "proposed")
+      Amendments.of(
+        Vector(index, exported("m17/1", "note", "note", "open"), proposed, rejected)
+      ) ==>
         Right(Vector("amend-a.md" -> rejected._2, "amend-b.md" -> proposed._2))
     }
 

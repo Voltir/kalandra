@@ -8,7 +8,7 @@ import grit.core.store.StoreError
 import grit.core.tool.ToolName
 import grit.core.visibility.Integrity
 import grit.projects.artifact.{Artifact, Body}
-import grit.projects.name.{ArtifactKey, ProjectKey, StateName}
+import grit.projects.name.{ArtifactKey, ArtifactRef, ProjectKey, StateName}
 import grit.projects.plugin.Projects
 import grit.projects.render.ProjectMarkdown
 
@@ -107,8 +107,9 @@ object OwnCommands {
 
   /** The wait `/wait` reads from a body naming no commit, `bin/kalandra wait
     * '{"artifact":"<key>","state":["<state>",…]}'`: the artifact in one of the states
-    * ([[Projects.reaching]]). None without `artifact`; refused, naming why, for a key no
-    * artifact's may be, or `state` not a non-empty list of states' names. Met, it says
+    * ([[Projects.reaching]]), watched under the key as given: an id watches an artifact made
+    * with one, a name one a re-key left under it (an id of such an artifact never fires). None
+    * without `artifact`; refused, naming why, for a key no artifact's may be, or `state` not a non-empty list of states' names. Met, it says
     * `<key> is in <states> (version <v>, written <instant>)`.
     */
   val reaching: HoldingWatch = HoldingWatch(
@@ -118,7 +119,8 @@ object OwnCommands {
         .get("artifact")
         .map(a =>
           for {
-            key <- a.strOpt.toRight("artifact is a key").flatMap(ArtifactKey.read)
+            ref <- a.strOpt.toRight("artifact is a key").flatMap(ArtifactRef.read)
+            key <- DocKey.of(ref.value)
             names <- body.value
               .get("state")
               .flatMap(_.arrOpt)

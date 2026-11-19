@@ -2,7 +2,7 @@ package kalandra.main
 
 import java.nio.file.Path
 
-import grit.projects.name.LocalKey
+import grit.projects.name.{ArtifactNumber, Handle}
 import grit.projects.render.ProjectMarkdown
 
 import kalandra.edge.CommandClient
@@ -14,8 +14,8 @@ import kalandra.method.Grit
   */
 object Amendments {
 
-  /** Of `files`, a project's export files, each amendment's: `<name>.md`, `<name>` the artifact's
-    * part of its key, holding its file as exported, in order of key. Why not: `files` are not a
+  /** Of `files`, a project's export files, each amendment's: `<name>.md`, `<name>` its handle,
+    * or its number when it has none, holding its file as exported, in order of number. Why not: `files` are not a
     * project ([[ProjectMarkdown.read]]), naming each file it refuses and why.
     */
   def of(files: Vector[(String, String)]): Either[String, Vector[(String, String)]] =
@@ -26,8 +26,11 @@ object Amendments {
       .map(
         _.artifacts
           .filter(_.head.kind == Grit.Amendment)
-          .sortBy(_.head.key.value)
-          .map(a => s"${LocalKey.value(a.head.key.local)}.md" -> ProjectMarkdown.file(a)._2)
+          .sortBy(_.head.key)
+          .map(a =>
+            s"${a.head.handle.fold(ArtifactNumber.value(a.head.key.number).toString)(Handle.value)}.md" ->
+              ProjectMarkdown.file(a)._2
+          )
       )
 
   /** Writes [[of]] the project's export files, asked of a running serve ([[CommandClient]]),

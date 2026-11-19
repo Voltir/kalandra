@@ -1,7 +1,7 @@
 package kalandra.method
 
 import grit.projects.artifact.{Artifact, ArtifactHead, Body}
-import grit.projects.name.{ArtifactKey, KindName, StateName}
+import grit.projects.name.{ArtifactKey, ArtifactRef, Handle, KindName, StateName}
 
 import utest.*
 
@@ -13,7 +13,8 @@ object AmendmentChecksTests extends TestSuite {
   private def judged(body: String): Artifact =
     Artifact(
       ArtifactHead(
-        right(ArtifactKey.read("p/amend")),
+        right(ArtifactKey.read("p/1")),
+        Some(right(Handle.of("amend"))),
         right(KindName.of("amendment")),
         right(StateName.of("benched")),
         "An amendment",
@@ -21,7 +22,7 @@ object AmendmentChecksTests extends TestSuite {
         Vector.empty,
         None
       ),
-      right(Body.read(body))
+      right(Body.read(body, ArtifactRef.id))
     )
 
   private val features =
