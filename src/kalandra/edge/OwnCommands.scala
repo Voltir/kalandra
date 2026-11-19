@@ -26,6 +26,7 @@ object OwnCommands {
   // First, as the commands below are built from them as the object starts.
   private val Batch = ToolName("project_batch")
   private val Show = ToolName("project_show")
+  private val Stored = ToolName("project_stored")
   private val Standing = ToolName("project_standing")
   private val Adopt = ToolName("project_adopt")
 
@@ -107,33 +108,42 @@ object OwnCommands {
 
   /** The wait `/wait` reads from a body naming no commit, `bin/kalandra wait
     * '{"artifact":"<key>","state":["<state>",…]}'`: the artifact in one of the states
-    * ([[Projects.reaching]]), watched under the key as given: an id watches an artifact made
-    * with one, a name one a re-key left under it (an id of such an artifact never fires). None
-    * without `artifact`; refused, naming why, for a key no artifact's may be, or `state` not a non-empty list of states' names. Met, it says
-    * `<key> is in <states> (version <v>, written <instant>)`.
+    * ([[Projects.reaching]]), the key, an id or a handle, resolved by `project_stored` to the key
+    * it is stored under before the wait. None without `artifact`; refused 400, naming why, for a
+    * key no artifact's may be or `state` not a non-empty list of states' names, and as
+    * `project_stored` refuses the key; a store failure as the command's. Met, it says
+    * `<stored key> is in <states> (version <v>, written <instant>)`.
     */
   val reaching: HoldingWatch = HoldingWatch(
     Set("artifact", "state"),
-    body =>
-      body.value
-        .get("artifact")
-        .map(a =>
+    (ran, body) =>
+      body.value.get("artifact") match {
+        case None => Right(None)
+        case Some(a) =>
+          val unread = (why: String) => CommandError.Unread(Stored, why)
           for {
-            ref <- a.strOpt.toRight("artifact is a key").flatMap(ArtifactRef.read)
-            key <- DocKey.of(ref.value)
+            ref <- a.strOpt.toRight("artifact is a key").flatMap(ArtifactRef.read).left.map(unread)
             names <- body.value
               .get("state")
               .flatMap(_.arrOpt)
-              .toRight("state is a list of states' names")
-            states <- names.toVector.foldLeft[Either[String, Set[StateName]]](Right(Set.empty)) {
-              (acc, n) =>
+              .toRight(unread("state is a list of states' names"))
+            states <- names.toVector
+              .foldLeft[Either[String, Set[StateName]]](Right(Set.empty)) { (acc, n) =>
                 acc.flatMap(got =>
                   n.strOpt.toRight(s"$n is no state's name").flatMap(StateName.of).map(got + _)
                 )
+              }
+              .left
+              .map(unread)
+            // The watch as asked, read first, so a body it refuses runs no command.
+            _ <- DocKey.of(ref.value).flatMap(Projects.reaching(_, states)).left.map(unread)
+            stored <- ran(Stored, ujson.Obj("key" -> ref.value)).flatMap {
+              case CommandOutcome.Done(text) => Right(text.trim)
+              case CommandOutcome.Refused(why) => Left(unread(why))
             }
-            watch <- Projects.reaching(key, states)
-          } yield watch
-        ),
+            watch <- DocKey.of(stored).flatMap(Projects.reaching(_, states)).left.map(unread)
+          } yield Some(watch)
+      },
     (watch: WatchFor.Holding, held) => {
       val states = Projects.reached(held).map(StateName.value).toVector.sorted.mkString(" and ")
       s"${DocKey.value(watch.key)} is in $states (version ${held.version}, written ${held.written})"

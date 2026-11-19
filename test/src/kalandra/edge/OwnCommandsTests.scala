@@ -203,27 +203,51 @@ object OwnCommandsTests extends TestSuite {
       )
     }
 
-    test("the holding watch reads an artifact and its states, and nothing without an artifact") {
-      val read = OwnCommands.reaching.read
+    test(
+      "the holding watch watches the key project_stored gives an artifact's, and nothing without an artifact"
+    ) {
+      val stored = new Scripted(Map.empty, Right(CommandOutcome.Done("grit/412")))
       (
         OwnCommands.reaching.keys,
-        read(args("""{"artifact":"grit/plan-x","state":["review","merged"]}""")),
-        read(args("""{"state":["review"]}"""))
+        OwnCommands.reaching.read(
+          stored.ran,
+          args("""{"artifact":"grit/plan-x","state":["review","merged"]}""")
+        ),
+        stored.calls.toVector,
+        OwnCommands.reaching.read(stored.ran, args("""{"state":["review"]}"""))
       ) ==> (
         Set("artifact", "state"),
-        Some(Projects.reaching(ok(DocKey.of("grit/plan-x")), Set(review, merged))),
-        None
+        Right(Some(ok(Projects.reaching(ok(DocKey.of("grit/412")), Set(review, merged))))),
+        Vector("project_stored" -> ujson.Obj("key" -> "grit/plan-x")),
+        Right(None)
       )
     }
 
-    test("a holding watch with a bad key, no states, or a state that is no name is refused") {
-      val read = OwnCommands.reaching.read
+    test(
+      "a holding watch with a bad key, no states, a state that is no name, or a key project_stored refuses is unread, saying why"
+    ) {
+      val stored = new Scripted(
+        Map.empty,
+        Right(CommandOutcome.Refused("project grit has no artifact named plan-y"))
+      )
       Vector(
         """{"artifact":"no-slash","state":["review"]}""",
         """{"artifact":"grit/plan-x","state":[]}""",
         """{"artifact":"grit/plan-x"}""",
-        """{"artifact":"grit/plan-x","state":[3]}"""
-      ).map(b => read(args(b)).map(_.isLeft)) ==> Vector.fill(4)(Some(true))
+        """{"artifact":"grit/plan-x","state":[3]}""",
+        """{"artifact":"grit/plan-y","state":["review"]}"""
+      ).map(b =>
+        OwnCommands.reaching.read(stored.ran, args(b)).left.map {
+          case CommandError.Unread(name, why) => s"${ToolName.value(name)}: $why"
+          case other => other.toString
+        }
+      ) ==> Vector(
+        Left("project_stored: an artifact's key has no '/': no-slash"),
+        Left("project_stored: a watch names a ref to hold"),
+        Left("project_stored: state is a list of states' names"),
+        Left("project_stored: 3 is no state's name"),
+        Left("project_stored: project grit has no artifact named plan-y")
+      )
     }
 
     test("a met holding watch says the artifact, the states it is in, its version and when") {
