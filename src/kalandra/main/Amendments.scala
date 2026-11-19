@@ -29,7 +29,7 @@ object Amendments {
           .sortBy(_.head.key)
           .map(a =>
             s"${a.head.handle.fold(ArtifactNumber.value(a.head.key.number).toString)(Handle.value)}.md" ->
-              ProjectMarkdown.file(a)._2
+              ProjectMarkdown.text(a)
           )
       )
 

@@ -774,6 +774,7 @@ expect 0 "claim edge-proof/n as manager for $H" K claim "{\"key\":\"edge-proof/n
 expect 0 "export edge-proof through CommandClient" K export edge-proof "$work/export"
 n="$(find "$work/export" -type f | wc -l)"
 [[ "$n" -ge 3 ]]; holds $? "  $n export files"
+find "$work/export" -mindepth 2 -name '*.md' | grep -q .; holds $? "  a child's file is under its parent's number"
 expect 0 "a session's export through CommandClient" S export edge-proof "$work/export-s"
 # The lines a person reads (grit/note-e7-bin-kalandra-lines), exactly.
 gone="$work/none/credential"

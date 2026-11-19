@@ -10,7 +10,7 @@
 #                                           its first model call instead, and reads no key
 #   bin/kalandra amendments <dir>           every amendment of the project grit, ended ones
 #                                           included, as exported, a file each under <dir>
-#   bin/kalandra export <project> <dir>     write a project's export files under <dir>
+#   bin/kalandra export <project> <dir>     write a project's export files into a new or empty <dir>
 #   bin/kalandra <command> [json]           run a projects command through a running serve:
 #                                           `keep` or `project_keep`, its arguments a JSON object
 #   bin/kalandra declare methods/grit@6.json  declare a method version from its file: as

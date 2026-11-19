@@ -18,11 +18,11 @@ object MainTests extends TestSuite {
 
   private def dir(s: String): Directory = Directory.of(s).fold(sys.error, identity)
 
-  /** An exported artifact's file: its path and its text, as `project_export` writes it. */
-  private def exported(key: String, handle: String, kind: String, state: String): (String, String) =
-    s"$key.md" ->
+  /** An exported root artifact's file: its path and its text, as `project_export` writes it. */
+  private def exported(id: String, handle: String, kind: String, state: String): (String, String) =
+    s"${id.drop(id.indexOf('/') + 1)}.md" ->
       s"""---
-         |key: $key
+         |id: $id
          |handle: $handle
          |kind: $kind
          |state: $state
@@ -54,6 +54,33 @@ object MainTests extends TestSuite {
         Vector(index, exported("m17/1", "note", "note", "open"), proposed, rejected)
       ) ==>
         Right(Vector("amend-a.md" -> rejected._2, "amend-b.md" -> proposed._2))
+    }
+
+    test("an export writes each file at its path, nested ones in their directories") {
+      val into = java.nio.file.Files.createTempDirectory("export").resolve("m17")
+      val files = Vector("project.md" -> "index", "3.md" -> "root", "3/1.md" -> "child")
+      (
+        Export.written(into, files),
+        files.map((path, _) =>
+          scala.util.Try(java.nio.file.Files.readString(into.resolve(path))).toOption
+        )
+      ) ==> (Right(3), Vector(Some("index"), Some("root"), Some("child")))
+    }
+
+    test(
+      "an export into a directory holding a file, or into a file, is refused, naming it, and writes nothing"
+    ) {
+      val into = java.nio.file.Files.createTempDirectory("export")
+      val file = java.nio.file.Files.writeString(into.resolve("12.md"), "an earlier export's")
+      (
+        Export.written(into, Vector("project.md" -> "index")),
+        Export.written(file, Vector("project.md" -> "index")),
+        java.nio.file.Files.exists(into.resolve("project.md"))
+      ) ==> (
+        Left(s"$into is neither new nor an empty directory: kalandra export writes only into one"),
+        Left(s"$file is neither new nor an empty directory: kalandra export writes only into one"),
+        false
+      )
     }
 
     test(
