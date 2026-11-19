@@ -186,11 +186,15 @@ asked() {
   body="${body%$'\n'*}"
 }
 # The health check's brief, asked of serve through the credential in the file $1: true when it
-# answers 200 with the brief; its answer in `code` and `body` either way.
+# answers 200 with the brief, headed by its key (before ids) or by its id and handle, `grit/<n>
+# roadmap-coder-rules`; its answer in `code` and `body` either way.
 brief_asked() {
   asked cred_curl "$1" -X POST -H 'Content-Type: application/json' \
     --data-binary "{\"key\":\"$health_brief_key\",\"role\":\"$health_brief_role\",\"chars\":100000}" "$edge/command/project_brief"
-  [[ "$code" == 200 && "$(head -n 1 <<<"$body")" == "$health_brief_key | "* ]]
+  local head
+  head="$(head -n 1 <<<"$body")"
+  [[ "$code" == 200 && ( "$head" == "$health_brief_key | "* ||
+    "$head" =~ ^${health_brief_key%%/*}/[0-9]+\ ${health_brief_key#*/}\ \|\  ) ]]
 }
 # What the health check asks serve, by commands that only read, so it writes nothing; `why` says
 # the first answer that is not what it should be.
