@@ -52,7 +52,7 @@
 # 900 s, a stop 120 s, a start until serve answers 130 s, a join (its `claude mcp` calls with it)
 # 120 s, a re-key 120 s. Once serve answers, every project the store holds in the old form
 # (ADR 0063) is re-keyed through the new serve before the health check (project_rekey: a survey,
-# each project's re-key, a survey that lists none). When a data file's reverse raises, or once a
+# each project's re-key, a survey that lists none). When a data file's reverse raises, once a method version may have been declared new, or once a
 # re-key has been sent, the rollback restores the dump into <db>_restoring and
 # only then renames <db> aside as <db>_rolled_back_<stamp>, a person's to drop, and the restored
 # one into its place. A rollback that cannot put the database right ends `rollback incomplete`
@@ -662,17 +662,28 @@ stage_start() {
 # Each method version the proved commit holds (methods/<name>@<version>.json), declared through
 # the command line's credential, oldest first: a version declared already under its digest changes
 # nothing, so only a new one is kept; one declared under another digest, or refused for any other
-# reason, fails the deploy. A rollback leaves what was declared: a serve before methods were
-# declared reads no method document.
+# reason, fails the deploy. The old serve reads every declared version, and refuses one it cannot
+# read, so once a declaration may have kept a new version (counted so before it is sent, as a data
+# file is, since one that times out may have committed), the rollback restores the dump, as only
+# it undoes one. A rollback of a deploy that adds a version so loses what the new serve kept in the
+# seconds it served, as after a re-key.
+methods_new=0
 stage_methods() {
-  local f code body said=()
+  local f code body said=() declared=0
   for f in $(cd "$checkout/methods" 2>/dev/null && ls -- *.json | sort -t@ -k1,1 -k2,2n); do
+    methods_new=1
     code="$(jq -nc --rawfile m "$checkout/methods/$f" '{method: $m}' |
       cred_curl "$owner_cred" -o "$run/declare.out" -w '%{http_code}' -X POST \
         -H 'Content-Type: application/json' --data-binary @- "$edge/command/project_declare")"
     body="$(head -c 300 "$run/declare.out")"
     [[ "$code" == 200 ]] || { why="declaring $f answered $code: $body"; return 1; }
-    if [[ "$body" == *"declared already, under the same digest"* ]]; then said+=("${f%.json} kept"); else said+=("${f%.json} declared"); fi
+    if [[ "$body" == *"declared already, under the same digest"* ]]; then
+      said+=("${f%.json} kept")
+      methods_new="$declared"
+    else
+      said+=("${f%.json} declared")
+      declared=1
+    fi
   done
   log "methods: ${said[*]:-none in $checkout/methods}"
 }
@@ -824,10 +835,15 @@ rollback() {
       incomplete "the old jar did not go back" "copy $run/before/out.jar to $checkout/out/assembly.dest/out.jar"
   fi
   if ((code_switched)) && managed; then timeout 30 systemctl --user daemon-reload || true; fi
-  # A re-key is undone only by the dump, which was taken before the data files ran, so it undoes
-  # them too.
-  ((rekey_sent == 0)) || restore_dump "project_rekey was sent, which only the dump undoes"
-  for ((i = ${#kept[@]} - 1; i >= 0 && rekey_sent == 0; i--)); do
+  # A re-key, or a method version the old serve may not read, is undone only by the dump, which was
+  # taken before the data files ran, so it undoes them too.
+  local dumped=0
+  if ((rekey_sent == 1)); then
+    restore_dump "project_rekey was sent, which only the dump undoes"; dumped=1
+  elif ((methods_new == 1)); then
+    restore_dump "a method version was declared, which only the dump undoes"; dumped=1
+  fi
+  for ((i = ${#kept[@]} - 1; i >= 0 && dumped == 0; i--)); do
     r="${rev[${kept[i]}]}"
     rc=0
     data_run "$proof/$r" -c COMMIT || rc=$?
