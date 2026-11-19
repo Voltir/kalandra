@@ -592,12 +592,12 @@ holds "$rc" "  and the copy's join again in $repo exits 0"
 began_as
 
 stage "deploy g"
-# ---- 5c. (g) A project that cannot be re-keyed: an artifact of grit citing one the store does
-# not hold. The deploy's survey says so, so no re-key is sent, and the ordinary rollback leaves
+# ---- 5c. (g) A project that cannot be re-keyed: an artifact of a project other than grit (whose
+# brief the deploy's preflight asks for) citing one the store does not hold. The deploy's survey says so, so no re-key is sent, and the ordinary rollback leaves
 # the copy as it began, with no dump restored.
-gone="grit/edge-proof-gone"
-planted_cite="$(sql "WITH p AS (SELECT version FROM grit.documents WHERE plugin = 'projects' AND key = 'grit/roadmap' AND superseded_at IS NULL AND data ? 'head' AND NOT data -> 'head' ? 'id' LIMIT 1) UPDATE grit.documents d SET data = jsonb_set(d.data, '{head,cites}', (d.data -> 'head' -> 'cites') || '\"$gone\"'::jsonb) FROM p WHERE d.version = p.version RETURNING d.version")"
-[[ -n "$planted_cite" ]]; holds $? "grit/roadmap, of the old form, planted citing $gone in the copy (version $planted_cite)"
+read -r planted_cite planted_key <<<"$(sql "WITH p AS (SELECT version FROM grit.documents WHERE plugin = 'projects' AND key NOT LIKE 'grit/%' AND superseded_at IS NULL AND data ? 'head' AND NOT data -> 'head' ? 'id' ORDER BY key LIMIT 1) UPDATE grit.documents d SET data = jsonb_set(d.data, '{head,cites}', (d.data -> 'head' -> 'cites') || to_jsonb(split_part(d.key, '/', 1) || '/edge-proof-gone')) FROM p WHERE d.version = p.version RETURNING d.version, d.key" | head -n 1 | tr '|' ' ')"
+gone="${planted_key%%/*}/edge-proof-gone"
+[[ -n "$planted_cite" ]]; holds $? "$planted_key, of the old form, planted citing $gone in the copy (version $planted_cite)"
 stage_proof
 deploy g
 [[ "$drc" == 2 && "$dlast" == "deploy: rolled back: project_rekey's survey says a project cannot be re-keyed: "*"it cites $gone, which this transaction reads no artifact under"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, machine-from-worker.sql reversed, joins as before in 2 checkouts, serve answering on $listen" ]]
