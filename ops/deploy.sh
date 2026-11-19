@@ -50,7 +50,10 @@
 #
 # Every step that waits is bounded: a Postgres statement or data file 300 s, a dump or restore
 # 900 s, a stop 120 s, a start until serve answers 130 s, a join (its `claude mcp` calls with it)
-# 120 s. When a data file's reverse raises, the rollback restores the dump into <db>_restoring and
+# 120 s, a re-key 120 s. Once serve answers, every project the store holds in the old form
+# (ADR 0063) is re-keyed through the new serve before the health check (project_rekey: a survey,
+# each project's re-key, a survey that lists none). When a data file's reverse raises, or once a
+# re-key has been sent, the rollback restores the dump into <db>_restoring and
 # only then renames <db> aside as <db>_rolled_back_<stamp>, a person's to drop, and the restored
 # one into its place. A rollback that cannot put the database right ends `rollback incomplete`
 # with serve stopped, the old code and jar in place, and the unit disabled when it owns serve.
@@ -689,6 +692,45 @@ stage_join() {
   done
 }
 
+# project_rekey through the command line's credential, the JSON $1 its arguments; its answer in
+# `code` and `body`. Bounded at 120 s, as one re-key of every artifact of a project is one
+# transaction.
+rekey_ask() {
+  asked cred_curl "$owner_cred" --max-time 120 -X POST -H 'Content-Type: application/json' \
+    --data-binary "$1" "$edge/command/project_rekey"
+}
+# What a survey line of a project left to re-key is; any other line is why one cannot be.
+rekey_line='^[a-z0-9][a-z0-9-]*: [0-9]+ artifacts, [0-9]+ body links, [0-9]+ head cites, [0-9]+ handles carried$'
+rekey_none="No project is left to re-key."
+rekey_sent=0
+
+# Every project the store holds in the old form (ADR 0063), re-keyed by the new serve, as a
+# pending data file is run: a survey (project_rekey with dry and no project), whose lines go to
+# the log; a refusal it reports fails the stage before any re-key is sent; then each project's
+# re-key, one transaction each; then a survey that must list none. Once a re-key is sent, the
+# rollback restores the dump, as only it undoes one.
+stage_rekey() {
+  local p line bad s0
+  rekey_ask '{"dry":true}'
+  [[ "$code" == 200 ]] || { why="project_rekey's survey answered $code: $(head -n 1 <<<"$body" | head -c 200)"; return 1; }
+  if [[ "$body" == "$rekey_none" ]]; then log "rekey: nothing to re-key"; return 0; fi
+  while IFS= read -r line; do log "rekey dry  $line"; done <<<"$body"
+  bad="$(grep -vE "$rekey_line" <<<"$body")"
+  [[ -z "$bad" ]] || { why="project_rekey's survey says a project cannot be re-keyed: $(head -n 1 <<<"$bad" | head -c 300)"; return 1; }
+  for p in $(sed 's/:.*//' <<<"$body"); do
+    rekey_sent=1
+    s0="$(now)"
+    rekey_ask "{\"project\":\"$p\"}"
+    [[ "$code" == 200 ]] || { why="project_rekey of $p answered $code: $(head -n 1 <<<"$body" | head -c 300)"; return 1; }
+    while IFS= read -r line; do log "rekey  $line"; done <<<"$body"
+    log "rekey: $p took $(since "$s0") s"
+  done
+  rekey_ask '{"dry":true}'
+  [[ "$code" == 200 && "$body" == "$rekey_none" ]] ||
+    { why="after the re-key, project_rekey's survey answered $code: $(head -n 1 <<<"$body" | head -c 200)"; return 1; }
+  log "rekey: a second survey lists none"
+}
+
 stage_health() {
   local line code
   line="$(tail -c +"$((serve_log_size + 1))" "$checkout/logs/serve.log" | grep -a '^\[kalandra\] grit ' | tail -n 1)"
@@ -778,7 +820,10 @@ rollback() {
       incomplete "the old jar did not go back" "copy $run/before/out.jar to $checkout/out/assembly.dest/out.jar"
   fi
   if ((code_switched)) && managed; then timeout 30 systemctl --user daemon-reload || true; fi
-  for ((i = ${#kept[@]} - 1; i >= 0; i--)); do
+  # A re-key is undone only by the dump, which was taken before the data files ran, so it undoes
+  # them too.
+  ((rekey_sent == 0)) || restore_dump "project_rekey was sent, which only the dump undoes"
+  for ((i = ${#kept[@]} - 1; i >= 0 && rekey_sent == 0; i--)); do
     r="${rev[${kept[i]}]}"
     rc=0
     data_run "$proof/$r" -c COMMIT || rc=$?
@@ -824,7 +869,7 @@ rollback() {
   finish "deploy: rolled back: $1; left as it began: $said; $(timing)"
 }
 
-for s in credentials backup stop connections dump data code start methods join health; do
+for s in credentials backup stop connections dump data code start methods join rekey health; do
   stage="$s"
   why=""
   s0="$(now)"

@@ -200,6 +200,10 @@ object KalandraTests extends TestSuite {
       val greps = DeployScript.alreadyDeclaredGreps
       (greps.size, greps.forall(grit.projects.plugin.Projects.DeclaredAlready.contains)) ==> (1, true)
     }
+
+    test("the survey answer ops/deploy.sh reads as nothing left to re-key is Projects.NothingToRekey") {
+      DeployScript.nothingToRekey ==> Some(grit.projects.plugin.Projects.NothingToRekey)
+    }
   }
 }
 
@@ -214,6 +218,10 @@ object DeployScript {
     .find(java.nio.file.Files.exists(_))
     .map(java.nio.file.Files.readString(_))
     .getOrElse(sys.error("ops/deploy.sh not found above the working directory"))
+
+  /** The answer the script reads as no project being left to re-key: its `rekey_none`. */
+  def nothingToRekey: Option[String] =
+    """(?m)^rekey_none="([^"]+)"$""".r.findFirstMatchIn(text).map(_.group(1))
 
   /** The phrases `== *"…"*` the script matches with, that name a declared method's reply. */
   def alreadyDeclaredGreps: Vector[String] =
