@@ -766,7 +766,7 @@ incomplete() {
   finish "deploy: rollback incomplete: $1; a person must $2; $(timing)"
 }
 
-# The names of the data files kept, as a person reads them.
+# The names of the data files kept and not reversed, as a person reads them.
 kept_names() {
   local i names=()
   for i in "${kept[@]}"; do names+=("${fwd[i]}"); done
@@ -855,6 +855,8 @@ rollback() {
           bad_db "$r, run to reverse ${fwd[${kept[i]}]}, counts other than 0 on a second run" "$db is as the reverse left it"
         log "rollback: $r kept"
         left+=("${fwd[${kept[i]}]} reversed")
+        # Reversed, so no longer among those a later failure says are kept.
+        unset 'kept[i]'
         ;;
       1)
         restore_dump "$r raised: $err"
