@@ -506,6 +506,19 @@ if [[ "$failed" != 0 ]]; then
 fi
 
 O() { env -i PATH=/usr/bin:/bin HOME="$dhome" KALANDRA_LISTEN="$listen" "$clone/bin/kalandra" "$@"; }
+# The method versions the proved commit holds, as a deploy declares them, oldest first: each the
+# copy has declared already is kept, and each it has not is declared (new_methods), which only
+# the dump undoes.
+expect 0 "the copy's serve lists the method's versions it has declared" O methods '{"name":"grit"}'
+declared="$out"
+methods_line="" new_methods=()
+for f in $(cd "$wt/methods" && ls -- *.json | sort -t@ -k1,1 -k2,2n); do
+  v="${f%.json}"
+  if grep -q "^$v " <<<"$declared"; then methods_line+=" $v kept"; else methods_line+=" $v declared"; new_methods+=("$v"); fi
+done
+methods_line="${methods_line# }"
+new_said="${new_methods[*]:-no method version}"
+say "fact  the deploys declare $new_said: $methods_line"
 
 stage "deploy a"
 # ---- 4. (a) A data file that would drop a row's subject stops the deploy: one commit event under
@@ -626,24 +639,38 @@ began_as
 
 stage "deploy g"
 # ---- 5c. (g) A project that cannot be re-keyed: an artifact of a project other than grit (whose
-# brief the deploy's preflight asks for) citing one the store does not hold. The deploy's survey says so, so no re-key is sent; but grit@7 was declared
-# before it, which the old serve cannot read, so the rollback restores the dump, and the old serve
-# then lists no grit@7.
-read -r planted_cite planted_key <<<"$(sql "WITH p AS (SELECT version FROM grit.documents WHERE plugin = 'projects' AND key NOT LIKE 'grit/%' AND superseded_at IS NULL AND data ? 'head' AND NOT data -> 'head' ? 'id' ORDER BY key LIMIT 1) UPDATE grit.documents d SET data = jsonb_set(d.data, '{head,cites}', (d.data -> 'head' -> 'cites') || to_jsonb(split_part(d.key, '/', 1) || '/edge-proof-gone')) FROM p WHERE d.version = p.version RETURNING d.version, d.key" | head -n 1 | tr '|' ' ')"
-gone="${planted_key%%/*}/edge-proof-gone"
-[[ -n "$planted_cite" ]]; holds $? "$planted_key, of the old form, planted citing $gone in the copy (version $planted_cite)"
-stage_proof
-deploy g
-aside="$(sed -n "s/.*kept as \(${restored}_rolled_back_[0-9]*\), for a person.*/\1/p" <<<"$dlast")"
-[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: project_rekey's survey says a project cannot be re-keyed: "*"it cites $gone, which this transaction reads no artifact under"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, $restored restored from the dump taken before the deploy (the database as the deploy left it is kept as $aside, for a person to drop once satisfied), joins as before in 2 checkouts, serve answering on $listen" ]]
-holds $? "(g) a project the survey cannot re-key rolls the deploy back before any re-key, exit 2, restoring the dump"
-grep -qF "deploy: rollback: a method version was declared, which only the dump undoes; restoring the dump" "$dlog" && ! grep -q "^deploy: rekey  " "$dlog"
-holds $? "  for the method version it declared; no re-key was sent"
-expect 0 "  the old serve lists the method's versions" O methods '{"name":"grit"}'
-! grep -q "grit@7" <<<"$out"; holds $? "  and grit@7 is not among them: $(tr '\n' ' ' <<<"$out" | head -c 200)"
-[[ -z "$aside" ]] || pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $aside WITH (FORCE)" >/dev/null
-[[ -n "$planted_cite" ]] && sql "UPDATE grit.documents SET data = data #- '{head,cites,-1}' WHERE version = $planted_cite" >/dev/null
-began_as
+# brief the deploy's preflight asks for) citing one the store does not hold. The deploy's survey
+# says so, so no re-key is sent. When a method version was declared before it, which the old serve
+# cannot read, the rollback restores the dump, and the old serve then lists no such version;
+# otherwise it reverses the data files it kept. Once live holds no artifact of the old form, no
+# re-key can be refused, and (g) is not run.
+old_form="$(sql "SELECT count(*) FROM grit.documents WHERE plugin = 'projects' AND key NOT LIKE 'grit/%' AND superseded_at IS NULL AND data ? 'head' AND NOT data -> 'head' ? 'id'")"
+if [[ "$old_form" == 0 ]]; then
+  say "skip  (g): the copy holds no artifact of the old form outside grit, so no re-key can be refused"
+else
+  read -r planted_cite planted_key <<<"$(sql "WITH p AS (SELECT version FROM grit.documents WHERE plugin = 'projects' AND key NOT LIKE 'grit/%' AND superseded_at IS NULL AND data ? 'head' AND NOT data -> 'head' ? 'id' ORDER BY key LIMIT 1) UPDATE grit.documents d SET data = jsonb_set(d.data, '{head,cites}', (d.data -> 'head' -> 'cites') || to_jsonb(split_part(d.key, '/', 1) || '/edge-proof-gone')) FROM p WHERE d.version = p.version RETURNING d.version, d.key" | head -n 1 | tr '|' ' ')"
+  gone="${planted_key%%/*}/edge-proof-gone"
+  [[ -n "$planted_cite" ]]; holds $? "$planted_key, of the old form, planted citing $gone in the copy (version $planted_cite)"
+  stage_proof
+  deploy g
+  aside="$(sed -n "s/.*kept as \(${restored}_rolled_back_[0-9]*\), for a person.*/\1/p" <<<"$dlast")"
+  refused="deploy: rolled back: project_rekey's survey says a project cannot be re-keyed: "
+  if ((${#new_methods[@]} > 0)); then
+    [[ "$drc" == 2 && "$dlast" == "$refused"*"it cites $gone, which this transaction reads no artifact under"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, $restored restored from the dump taken before the deploy (the database as the deploy left it is kept as $aside, for a person to drop once satisfied), joins as before in 2 checkouts, serve answering on $listen" ]]
+    holds $? "(g) a project the survey cannot re-key rolls the deploy back before any re-key, exit 2, restoring the dump"
+    grep -qF "deploy: rollback: a method version was declared, which only the dump undoes; restoring the dump" "$dlog" && ! grep -q "^deploy: rekey  " "$dlog"
+    holds $? "  for the method version it declared; no re-key was sent"
+    expect 0 "  the old serve lists the method's versions" O methods '{"name":"grit"}'
+    ! grep -q "^${new_methods[-1]} " <<<"$out"; holds $? "  and ${new_methods[-1]} is not among them: $(tr '\n' ' ' <<<"$out" | head -c 200)"
+  else
+    [[ "$drc" == 2 && "$dlast" == "$refused"*"it cites $gone, which this transaction reads no artifact under"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, $reversed, joins as before in 2 checkouts, serve answering on $listen" ]]
+    holds $? "(g) a project the survey cannot re-key rolls the deploy back before any re-key, exit 2, reversing its data files"
+    ! grep -q "^deploy: rekey  " "$dlog"; holds $? "  no re-key was sent"
+  fi
+  [[ -z "$aside" ]] || pg psql -U grit -d postgres -q -c "DROP DATABASE IF EXISTS $aside WITH (FORCE)" >/dev/null
+  [[ -n "$planted_cite" ]] && sql "UPDATE grit.documents SET data = data #- '{head,cites,-1}' WHERE version = $planted_cite" >/dev/null
+  began_as
+fi
 
 stage "deploys c, d"
 # ---- 6. A record of a proof over its budget is refused; (c) the whole deploy; (d) again, with
@@ -673,8 +700,8 @@ if [[ "$claims_pending" == 1 ]]; then
   holds $? "  it kept claim-session.sql, and grit.claims has both its columns"
 fi
 # A method file's worked examples are outside its digest, so each version declared before is kept.
-grep -qxF "deploy: methods: grit@1 kept grit@2 kept grit@3 kept grit@4 kept grit@5 kept grit@6 kept grit@7 declared" "$dlog"
-holds $? "  it keeps grit@1 to 6 as declared already, under the same digest, and declares grit@7"
+grep -qxF "deploy: methods: $methods_line" "$dlog"
+holds $? "  it keeps each version declared already, under the same digest, and declares $new_said"
 sed -n 's/^deploy: \([a-z]* took .*\)/time  (c) \1/p' "$dlog" | tee -a "$proof/proof.txt"
 sed -n 's/^deploy: dry  machine-from-worker.sql  //p' "$dlog" >"$proof/forward-dry.txt"
 sed 's/^/dry     /' "$proof/forward-dry.txt" | tee -a "$proof/proof.txt"
@@ -722,7 +749,7 @@ believed_lower="$(sql "SELECT count(*) FROM e7proof.artifacts_before b JOIN grit
   done
 } >"$report" 2>&1
 say "rekey $(sed -n 's/^deploy: \(rekey took .*\)$/\1/p' "$dlog"); the report is $report"
-grep -q "^deploy: rekey: a second survey lists none$" "$dlog"; holds $? "  the deploy re-keyed every project of the old form, and a second survey lists none"
+grep -qxE "deploy: rekey: (a second survey lists none|nothing to re-key)" "$dlog"; holds $? "  the deploy re-keyed every project of the old form, and a survey lists none"
 [[ "$left_old" == 0 ]]; holds $? "  no artifact is left in the old form ($left_old)"
 [[ "$believed_changed" == 0 ]]; holds $? "  every artifact is believed as it was before the re-key ($believed_changed changed)"
 grep -qxF "[kalandra] grit $version at $at" "$clone/logs/serve.log"; holds $? "  its serve logs [kalandra] grit $version at $at"
