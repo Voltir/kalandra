@@ -27,7 +27,9 @@
 # Into the proof's directory, ${KALANDRA_PROOF_DIR:-$HOME/.cache/kalandra-e7}, it saves the jar it
 # proved (serve.jar), the join script that jar serves (join.sh), grit's forward rewrite at the
 # commit the jar is built against (machine-from-worker.sql), this checkout's reverse
-# (worker-from-machine.sql), each with its sha256, a fresh join's output (join.txt), the whole
+# (worker-from-machine.sql), this checkout's claim-session.sql, whose statements must be grit's
+# claim-session.sql's at that commit, and its reverse (claim-session-reverse.sql), each with its
+# sha256, a fresh join's output (join.txt), the whole
 # deploy's dry-run counts (forward-dry.txt), what its re-key did (rekey-report.txt: counts, seconds,
 # refusals, what is left in the old form, how far each artifact is believed, five samples) and
 # each check's line (proof.txt), which names the
@@ -53,7 +55,8 @@
 # Refused, exit 1, before anything is started: KALANDRA_LISTEN names 7317, the checkout has
 # changes, there is no jar, the jar is not built against the grit build.mill pins (a release's
 # commit, its tag's in grit's checkout; a snapshot's, its marker's), grit's checkout has no
-# machine-from-worker.sql at that commit, the live checkout has no jar, grit_kalandra_e7 or
+# machine-from-worker.sql or claim-session.sql at that commit, or ops/claim-session.sql's ALTER
+# statements are not that claim-session.sql's, the live checkout has no jar, grit_kalandra_e7 or
 # grit_kalandra_e7_join exists, something listens on 7318, 7319 or 7320, or claude is not on
 # PATH. Prints a line a check, and `edge-proof: passed`, exit 0, only when every check held. Every process it starts,
 # and every one a deploy starts, runs in a directory under its own, and is stopped by its PID only
@@ -129,6 +132,12 @@ built="$(python3 -I -c 'import sys, zipfile; print(zipfile.ZipFile(sys.argv[1]).
 [[ "$built" == "$version at $at" ]] || refuse "the jar is built against grit $built, not $version at $at: build again"
 forward_sql="$(git -C "$grit_checkout" show "$at:core/dbos/it/resources/machine-from-worker.sql")" ||
   refuse "grit's checkout has no machine-from-worker.sql at $at"
+# A file's ALTER statements, one a line, its comments dropped and its whitespace made one space.
+alters() { sed 's/--.*$//' | tr '\n' ' ' | tr -s ' ' | tr ';' '\n' | sed 's/^ //; s/ $//' | grep '^ALTER TABLE ' || true; }
+grit_claims_sql="$(git -C "$grit_checkout" show "$at:core/dbos/it/resources/claim-session.sql")" ||
+  refuse "grit's checkout has no claim-session.sql at $at"
+[[ -n "$(alters <<<"$grit_claims_sql")" && "$(alters <<<"$grit_claims_sql")" == "$(alters <"$wt/ops/claim-session.sql")" ]] ||
+  refuse "ops/claim-session.sql's ALTER statements are not grit's claim-session.sql's at $at"
 [[ -f "$live/out/assembly.dest/out.jar" ]] || refuse "no live jar at $live/out/assembly.dest/out.jar"
 for d in "$restored" "$joindb"; do
   if [[ -n "$(pg psql -U grit -d postgres -At -c "SELECT 1 FROM pg_database WHERE datname = '$d'")" ]]; then
@@ -238,6 +247,8 @@ keep_file "$jar" serve.jar
 printf '%s\n' "$forward_sql" >"$work/machine-from-worker.sql"
 keep_file "$work/machine-from-worker.sql" machine-from-worker.sql
 keep_file "$wt/ops/worker-from-machine.sql" worker-from-machine.sql
+keep_file "$wt/ops/claim-session.sql" claim-session.sql
+keep_file "$wt/ops/claim-session-reverse.sql" claim-session-reverse.sql
 
 stage copy
 # ---- 1. The copy, and what it holds before anything changes it.
@@ -261,6 +272,20 @@ if [[ "$machine_before" != 0 && "$(under worker)" == 0 ]]; then
   machine_before="$(under machine)"
 fi
 [[ "$machine_before" == 0 ]]; holds $? "no place is under machine before the rename, so the reverse is exact ($machine_before)"
+# How many of the two columns claim-session.sql adds grit.claims has: none while live is before
+# it, when each deploy below runs it as it runs the rename; both once live is past it, when it
+# has nothing to rewrite (the copy is not put back before it, as the live jar reads the columns).
+claims_columns() { sql "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'grit' AND table_name = 'claims' AND column_name IN ('session_harness', 'session_local')"; }
+case "$(claims_columns)" in
+  0) claims_pending=1 ;;
+  2) claims_pending=0 ;;
+  *) claims_pending=x ;;
+esac
+[[ "$claims_pending" != x ]]; holds $? "grit.claims has both or neither of claim-session.sql's columns ($(claims_columns)): claim-session.sql pending $claims_pending"
+# What a rollback that reverses every data file it kept says of them, the last kept first.
+claims_reversed_first=""
+[[ "$claims_pending" != 1 ]] || claims_reversed_first="claim-session.sql reversed, "
+reversed="${claims_reversed_first}machine-from-worker.sql reversed"
 # Every rewritten table's place, by primary key, kept in the copy to compare after each rollback.
 pg psql -U grit -d "$restored" -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 CREATE SCHEMA e7proof;
@@ -440,11 +465,12 @@ fingerprint() {
   done
   echo "places changed: $(sql "$changed_q" | tr '\n' ' ')"
   echo "places under machine: $(under machine)"
+  echo "claims columns: $(claims_columns)"
 }
 fingerprint >"$work/began.txt"
 say "began $(grep -c . "$work/began.txt") facts of the copy as it began"
 mkdir -p "$work/proved"
-for f in serve.jar join.sh machine-from-worker.sql worker-from-machine.sql; do
+for f in serve.jar join.sh machine-from-worker.sql worker-from-machine.sql claim-session.sql claim-session-reverse.sql; do
   cp -- "$proof/$f" "$proof/$f.sha256" "$work/proved/"
 done
 # The deploys read this proof's files and its lines so far, which end as a passed proof's do: a
@@ -518,9 +544,13 @@ stage "deploy b"
 touch "$plant"
 stage_proof
 deploy b
-[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: the join in $repo exited 1: grit claude-code: claude mcp add failed"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, machine-from-worker.sql reversed, joins as before in 1 checkouts, serve answering on $listen" ]]
+[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: the join in $repo exited 1: grit claude-code: claude mcp add failed"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, $reversed, joins as before in 1 checkouts, serve answering on $listen" ]]
 holds $? "(b) the deploy rolls back from a failed join, exit 2"
 grep -qxF "deploy: machine-from-worker.sql: kept" "$dlog"; holds $? "  after it kept the data file"
+if [[ "$claims_pending" == 1 ]]; then
+  grep -qxF "deploy: claim-session.sql: kept" "$dlog" && grep -qxF "deploy: rollback: claim-session-reverse.sql kept" "$dlog"
+  holds $? "  and claim-session.sql, which the rollback reversed"
+fi
 [[ ! -e "$plant" ]]; holds $? "  the plant fired"
 [[ "$(jq -r '.proofMidDeploy' "$repo/.claude/settings.local.json")" == kept ]]; holds $? "  the key written mid-deploy is still in the settings"
 say "fact  (b) $(grep -m 1 '^deploy: preflight: ' "$dlog" || echo "deploy: preflight said nothing of the brief")"
@@ -548,7 +578,7 @@ touch "$plant"
 stage_proof
 deploy e
 aside="$(sed -n "s/.*kept as \(${restored}_rolled_back_[0-9]*\), for a person.*/\1/p" <<<"$dlast")"
-[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: the join in $repo exited 1: grit claude-code: claude mcp add failed"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, $restored restored from the dump taken before the deploy (the database as the deploy left it is kept as $aside, for a person to drop once satisfied), joins as before in 1 checkouts, serve answering on $listen" ]]
+[[ "$drc" == 2 && "$dlast" == "deploy: rolled back: the join in $repo exited 1: grit claude-code: claude mcp add failed"*"; left as it began: kalandra ${old_head:0:12}, jar ${old_jar:0:12}, ${claims_reversed_first}$restored restored from the dump taken before the deploy (the database as the deploy left it is kept as $aside, for a person to drop once satisfied), joins as before in 1 checkouts, serve answering on $listen" ]]
 holds $? "(e) the deploy rolls back by restoring the dump, exit 2, naming the aside database $aside"
 grep -q "^deploy: rollback: worker-from-machine.sql raised: .*ERROR: " "$dlog"; holds $? "  after the reverse raised a server error"
 [[ -n "$aside" && "$(pg psql -U grit -d postgres -At -c "SELECT count(*) FROM pg_database WHERE datname IN ('$aside', '${restored}_restoring')")" == 1 ]]
@@ -635,8 +665,13 @@ artifacts_q="SELECT key, classification_id, integrity_id, jsonb_build_object('he
 sql "CREATE TABLE e7proof.artifacts_before AS $artifacts_q" >/dev/null
 deploy c
 X12="${proved:0:12}"
-[[ "$drc" == 0 && "$dlast" == "deploy: held: kalandra $X12 with grit $version at ${at:0:12} serving on $listen; 1 data files kept, 2 checkouts joined" ]]
+[[ "$drc" == 0 && "$dlast" == "deploy: held: kalandra $X12 with grit $version at ${at:0:12} serving on $listen; $((1 + claims_pending)) data files kept, 2 checkouts joined" ]]
 holds $? "(c) the deploy holds, exit 0"
+if [[ "$claims_pending" == 1 ]]; then
+  grep -qxF "deploy: dry  claim-session.sql  grit.claims session columns added  1" "$dlog" &&
+    grep -qxF "deploy: claim-session.sql: kept" "$dlog" && [[ "$(claims_columns)" == 2 ]]
+  holds $? "  it kept claim-session.sql, and grit.claims has both its columns"
+fi
 # A method file's worked examples are outside its digest, so each version declared before is kept.
 grep -qxF "deploy: methods: grit@1 kept grit@2 kept grit@3 kept grit@4 kept grit@5 kept grit@6 kept grit@7 declared" "$dlog"
 holds $? "  it keeps grit@1 to 6 as declared already, under the same digest, and declares grit@7"
@@ -718,8 +753,9 @@ over_line="$(grep '^deploy: over its' "$dlog")"
 holds $? "  its log's last line but one, and the command's, says: $over_line"
 expect 0 "  serve answers after it, not rolled back" O show '{"key":"edge-proof-window/m"}'
 [[ ! -e "$dhome/.local/state/kalandra-deploy/running" ]]; holds $? "  and the next deploy is not refused for it"
-grep -qxF "deploy: machine-from-worker.sql: nothing to rewrite" "$dlog" && ! grep -q "machine-from-worker.sql: kept" "$dlog"
-holds $? "  its dry run counts 0, and nothing is kept"
+grep -qxF "deploy: machine-from-worker.sql: nothing to rewrite" "$dlog" && grep -qxF "deploy: claim-session.sql: nothing to rewrite" "$dlog" &&
+  ! grep -q "\.sql: kept" "$dlog"
+holds $? "  each data file's dry run counts 0, and nothing is kept"
 grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$dlog"; holds $? "  and the credentials are kept as they are"
 grep -q "^deploy: health: a brief of .* answers 200 to the sessions' credential" "$dlog"; holds $? "  its health check asks for a brief"
 grep -qxF "deploy: preflight: a brief of grit/roadmap-coder-rules as coder answers 200 to the running serve" "$dlog"

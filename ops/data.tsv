@@ -13,3 +13,4 @@
 # record of what it ran, as the database is that record. A row named in the third field must be
 # in the dry run and count 0, or deploy stops and rolls back for a person to decide.
 machine-from-worker.sql	worker-from-machine.sql	grit.session_events deleted, too long to rewrite;grit.session_events rewritten without their subject
+claim-session.sql	claim-session-reverse.sql	grit.claims deleted
