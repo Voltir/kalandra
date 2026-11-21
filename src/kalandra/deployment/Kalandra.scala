@@ -191,10 +191,14 @@ object Kalandra {
   val ProposerVersion: String = "proposer"
 
   /** The projects plugin over [[Grit.Checks]], new projects under [[Grit.Name]], its turns
-    * offered `turns`, its methods kept at [[Kept]], which every caller in the room reads.
+    * offered `turns`, its methods kept at [[Kept]], which every caller in the room reads, and its
+    * commands run by a person as `bin/kalandra`'s, so a claim's brief names that command line.
     */
   private def projects(turns: TurnCommands): Either[String, Projects] =
-    Projects.of(Grit.Checks, Grit.Name, turns, methodsAt = Kept).left.map(_.toString)
+    Projects
+      .of(Grit.Checks, Grit.Name, turns, methodsAt = Kept, commandLine = Some("bin/kalandra"))
+      .left
+      .map(_.toString)
 
   /** The proposer over the checkout `checkout`: one person's turns, said by `bin/kalandra work` in
     * an evidence checkout under `evidence`, which is a room at [[Kept]] as the checkout is,

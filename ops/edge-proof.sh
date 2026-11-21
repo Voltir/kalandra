@@ -945,6 +945,12 @@ actx="$(fire brief <<<"$sub" | jq -r '.hookSpecificOutput.additionalContext // e
 grep -q "agent-text-1" <<<"$actx" && ! grep -q "note-text-2" <<<"$actx"
 holds $? "the hook's brief at SubagentStart holds the agent's claimed checkpoint, not the session's note"
 rc=0; fire event <<<"$start" || rc=$?; holds "$rc" "the hook posts the start"
+# proof-s1, started, works $H's claim of edge-proof/n: a second session of $H opens with one line
+# in place of the brief, naming the command line a person moves the claim with.
+start2="$(payload proof-s2 SessionStart | jq -c '. + {source: "startup"}')"
+held="$(fire brief <<<"$start2" | jq -r '.hookSpecificOutput.additionalContext // empty')" || held=""
+grep -qF "the person who made the claim runs bin/kalandra project_claim themselves, outside any session" <<<"$held"
+holds $? "a second session of $H opens with one line naming bin/kalandra project_claim: $(head -c 240 <<<"$held")"
 read_="$(payload proof-s1 PostToolUse | jq -c --arg f "$repo/README" '. + {tool_name: "Read", tool_input: {file_path: $f}, tool_response: {type: "text", file: {filePath: $f, content: "hello\n", numLines: 1, startLine: 1, totalLines: 1}}}')"
 rc=0; fire event <<<"$read_" || rc=$?; holds "$rc" "the hook posts a read"
 stop_="$(payload proof-s1 Stop | jq -c '. + {last_assistant_message: "The proof session is done.", stop_hook_active: false}')"
