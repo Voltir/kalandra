@@ -8,7 +8,9 @@
 #
 # Run from a checkout after `bin/kalandra build`. It serves that jar on an empty database,
 # grit_kalandra_harness, at 127.0.0.1:7318, with credentials of its own and keys that are no keys
-# (serve calls no model here); keeps a project, harness-check, holding one milestone; joins a
+# (serve calls no model here); declares every method version in methods/; keeps a project,
+# harness-check, holding a section and a milestone under it (a milestone sits under a section);
+# joins a
 # throwaway repository with the join script serve serves, through the installed claude with a
 # HOME of its own; then runs `claude -p`, with the real HOME so that it is logged in, its MCP
 # config the joined entry pointed at a forwarder on 127.0.0.1:7319 (ops/forward.py), which checks
@@ -99,9 +101,17 @@ holds "$up" "the jar serves an empty database on $edge"
 if [[ "$up" != 0 ]]; then tail -20 "$work/serve.log" >&2; exit 1; fi
 set +e
 K() { env -u CLAUDE_CODE_SESSION_ID KALANDRA_LISTEN="$listen" KALANDRA_CREDENTIAL="$work/cred/owner" "$wt/bin/kalandra" "$@" >/dev/null; }
+# An empty database declares no method, so each version in methods/ is declared first, oldest
+# first, as a deploy declares them.
+declared=0
+for f in $(cd "$wt/methods" && ls -- *.json | sort -t@ -k1,1 -k2,2n); do
+  K declare "$wt/methods/$f" || declared=1
+done
+holds "$declared" "every method version in methods/ is declared"
 K new '{"project":"harness-check"}' &&
-  K keep '{"project":"harness-check","handle":"m","kind":"milestone","title":"Harness check","body":"Kept by ops/harness-check.sh."}'
-holds $? "the project harness-check is kept, holding one milestone"
+  K keep '{"project":"harness-check","handle":"s","kind":"section","title":"Harness check section","body":"Kept by ops/harness-check.sh."}' &&
+  K keep '{"project":"harness-check","handle":"m","kind":"milestone","title":"Harness check","body":"Kept by ops/harness-check.sh.","parent":"harness-check/s"}'
+holds $? "the project harness-check is kept, holding one section and a milestone under it"
 
 # ---- The join, through the installed claude, in a repository of its own.
 curl -q -fsS --noproxy '*' --max-time 10 -H @<(printf 'Authorization: Bearer %s\n' "$(<"$ses")") "$edge/join/claude-code" >"$work/join.sh"
