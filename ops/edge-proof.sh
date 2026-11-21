@@ -884,8 +884,8 @@ for f in "$wt"/methods/*.json; do
 done
 holds "$rc" "project_methods gives each version the deploy declared back as its file in methods/, 1 to $latest"
 expect 1 "a session's declaration of a version is refused" S declare "$wt/methods/grit@$latest.json"
-grep -q "answered 409" <<<"$out" && grep -q "only by a caller believed at Authority" <<<"$out"
-holds $? "  409, a declaration being an authority's: $(head -n 1 <<<"$out" | head -c 160)"
+grep -q "answered 409" <<<"$out" && grep -q "only by a person running the command themselves" <<<"$out"
+holds $? "  409, a declaration being a person's, run themselves: $(head -n 1 <<<"$out" | head -c 160)"
 # A migration is refused while an artifact is claimed, and the copy holds live's claims: they are
 # set aside for it and put back after, as live migrates once its claims are released.
 now_before="$(K list '{"project":"grit","state":"now"}')"
@@ -899,7 +899,8 @@ amend="## Diff\n\nd\n\n## Moments\n\nm\n\n## Cue\n\nc\n\n## Lesson\n\nl\n\n## Co
 expect 0 "keep amendment edge-proof/a, decided adopt" K keep "{\"project\":\"edge-proof\",\"handle\":\"a\",\"kind\":\"amendment\",\"title\":\"Proof amendment\",\"body\":\"$amend\"}"
 expect 0 "a session benches it" S move '{"key":"edge-proof/a","state":"benched"}'
 expect 1 "a session's move of it to adopted is refused" S move '{"key":"edge-proof/a","state":"adopted"}'
-grep -q "answered 409" <<<"$out" && grep -q -i "authority" <<<"$out"; holds $? "  409, naming authority: $(head -n 1 <<<"$out" | head -c 160)"
+grep -q "answered 409" <<<"$out" && grep -q "made only by a person running the command themselves" <<<"$out"
+holds $? "  409, saying a person makes it, running the command themselves: $(head -n 1 <<<"$out" | head -c 160)"
 expect 0 "the command line's move of it to adopted is made" K move '{"key":"edge-proof/a","state":"adopted"}'
 K show '{"key":"edge-proof/a"}' | grep -qx "state: adopted"; holds $? "  and edge-proof/a is adopted"
 expect 0 "keep checkpoint edge-proof/k, its plan lacking Commits" K keep '{"project":"edge-proof","handle":"k","kind":"checkpoint","title":"Proof checkpoint","body":"## Goal\n\ng\n\n## Signatures\n\ns\n\n## Reads\n\nr","parent":"edge-proof/m"}'
