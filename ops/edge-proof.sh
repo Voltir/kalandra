@@ -22,7 +22,8 @@
 # Everything it serves is on 127.0.0.1:7318, with keys that are no keys, so nothing it serves can
 # spend; the deploys run with a HOME of the proof's own, holding credentials of its own, as live
 # holds its, each with its digest in the copy's .env, never printed: the first deploy makes the
-# command line's again and appends both digests, and the rest keep them.
+# command line's again and appends both digests, and the rest keep them. The copy's .env names
+# one other machine, laptop, by a credential of the proof's own, which every deploy leaves as it is.
 #
 # Into the proof's directory, ${KALANDRA_PROOF_DIR:-$HOME/.cache/kalandra-e7}, it saves the jar it
 # proved (serve.jar), the join script that jar serves (join.sh), grit's forward rewrite at the
@@ -308,10 +309,10 @@ changed_q="SELECT b.tbl || ' ' || b.k FROM e7proof.before b LEFT JOIN e7proof.pl
 
 stage "join script"
 # ---- 2. The proved jar's join script, from a serve of it on an empty database; serve refuses to
-# start without either digest.
+# start without either digest, or with an entry of KALANDRA_MACHINES not <machine>:<digest>.
 mkdir -p "$work/home" "$work/cred"
 ( umask 077
-  for c in a b wrong; do head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_' >"$work/cred/$c"; done
+  for c in a b wrong laptop; do head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_' >"$work/cred/$c"; done
   printf 'Authorization: Bearer %s\n' "$(<"$work/cred/wrong")" >"$work/cred/wrong.header" )
 d() { tr -d '\n' <"$1" | sha256sum | cut -d' ' -f1; }
 wrong="$work/cred/wrong"
@@ -327,6 +328,13 @@ for missing in KALANDRA_OWNER_DIGEST KALANDRA_SESSIONS_DIGEST; do
   [[ "$rc" == 1 ]] && grep -qxF "[kalandra] $missing is not set: the SHA-256 digest, 64 lowercase hex, of $([[ $missing == *OWNER* ]] && echo "the command line's" || echo "the sessions'") credential" "$work/refused.log"
   holds $? "serve without $missing exits 1, its log naming the variable: $(tail -1 "$work/refused.log")"
 done
+# An entry written as a variable is, `=` for `:`, which the refusal names by its number alone.
+rc=0
+(cd "$work/run" && exec timeout 120 "${serve_env[@]}" KALANDRA_OWNER_DIGEST="$(d "$work/cred/a")" KALANDRA_SESSIONS_DIGEST="$(d "$work/cred/b")" \
+  KALANDRA_MACHINES="laptop=$(d "$work/cred/laptop")" "$wt/bin/kalandra" serve) >"$work/refused.log" 2>&1 || rc=$?
+[[ "$rc" == 1 ]] && grep -qxF "[kalandra] KALANDRA_MACHINES: entry 1 is not <machine>:<digest>" "$work/refused.log" &&
+  ! grep -qF "$(d "$work/cred/laptop")" "$work/refused.log"
+holds $? "serve with a KALANDRA_MACHINES entry not <machine>:<digest> exits 1, its log naming the variable, not the digest: $(tail -1 "$work/refused.log")"
 # serve_up <pid> <log>: 0 once the log says it serves, 1 when the pid ends or 120 s pass first.
 serve_up() {
   for _ in $(seq 1 240); do
@@ -396,8 +404,9 @@ own="$dhome/.config/kalandra/credential"; ses="$dhome/.config/grit/credential"
 ( umask 077
   mkdir -p "$(dirname "$own")" "$(dirname "$ses")"
   for c in "$own" "$ses"; do head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_' >"$c"; done
-  printf 'ANTHROPIC_API_KEY=edge-proof-no-key\nJEV_API_KEY=edge-proof-no-key\nKALANDRA_OWNER_DIGEST=%s\nKALANDRA_SESSIONS_DIGEST=%s\n' \
-    "$(d "$own")" "$(d "$ses")" >"$clone/.env" )
+  printf 'ANTHROPIC_API_KEY=edge-proof-no-key\nJEV_API_KEY=edge-proof-no-key\nKALANDRA_OWNER_DIGEST=%s\nKALANDRA_SESSIONS_DIGEST=%s\nKALANDRA_MACHINES=laptop:%s\n' \
+    "$(d "$own")" "$(d "$ses")" "$(d "$work/cred/laptop")" >"$clone/.env" )
+machines_line="KALANDRA_MACHINES=laptop:$(d "$work/cred/laptop")"
 cat >"$work/shim/claude" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -545,6 +554,8 @@ holds $? "  it made the command line's credential and appended both digests"
 [[ "$(grep -cxE 'KALANDRA_(OWNER|SESSIONS)_DIGEST=[0-9a-f]{64}' "$clone/.env")" == 2 ]] &&
   grep -qxF "KALANDRA_OWNER_DIGEST=$(d "$own")" "$clone/.env" && grep -qxF "KALANDRA_SESSIONS_DIGEST=$(d "$ses")" "$clone/.env"
 holds $? "  and the copy's .env holds each digest once, the credential's"
+[[ "$(grep -c '^KALANDRA_MACHINES=' "$clone/.env")" == 1 ]] && grep -qxF "$machines_line" "$clone/.env"
+holds $? "  and its KALANDRA_MACHINES line once, as it was"
 expect 0 "  the old serve, rolled back, takes the credential the deploy made" O list '{"project":"grit","state":"now"}'
 # The patterns read from the credentials' files, never put on a command line.
 grep -qF -f "$own" -f "$ses" "$dlog" "$work/deploy-a.out"; [[ $? == 1 ]]; holds $? "  and neither log holds either credential"
@@ -953,6 +964,13 @@ holds $? "  403, naming project_adopt and authority"
 expect 1 "the command line's adopt reaches the command, which refuses a note as no amendment" K adopt '{"key":"edge-proof/n"}'
 grep -q "answered 409" <<<"$out"; holds $? "  409, the command's own refusal: $(head -1 <<<"$out")"
 expect 0 "a session's standing reaches the command" S standing '{"key":"grit/roadmap-grit-coder"}'
+# Another machine's sessions, by the credential KALANDRA_MACHINES names: believed as a session.
+L() { env -u CLAUDE_CODE_SESSION_ID KALANDRA_LISTEN="$listen" KALANDRA_CREDENTIAL="$work/cred/laptop" "$wt/bin/kalandra" "$@"; }
+LH="$(L holder "{\"dir\":\"$repo\"}")" || LH=""
+[[ "$LH" =~ ^laptop/repo-[0-9a-f]{8}$ ]]; holds $? "holder for the repository through laptop's credential is laptop/repo-<8 hex>: $LH"
+expect 1 "laptop's adopt is refused" L adopt '{"key":"edge-proof/n"}'
+grep -q "answered 403" <<<"$out" && grep -q "project_adopt" <<<"$out" && grep -q "authority" <<<"$out"
+holds $? "  403, naming project_adopt and authority, as a session's: $(head -1 <<<"$out")"
 [[ "$(K show '{"key":"edge-proof/n"}')" == "$before" ]]; holds $? "edge-proof/n unchanged after the adopts"
 
 stage "join and hook"
