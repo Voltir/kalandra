@@ -8,8 +8,9 @@
 # to the copy as it began; failing so, with a reverse that raises, and rolled back by restoring its
 # dump, then with that restore failing; stopped by a project its re-key refuses, before any re-key
 # is sent; refused a record over the proof's budget, and given --began; whole, re-keying every
-# project of the old form; refused a brief the running serve refuses; and again, with nothing to rewrite,
-# over a budget lowered to see it say so. It then drives the deployed serve the way the command
+# project of the old form, its serve's start making grit's index of a session's agents; refused a
+# brief the running serve refuses; and again, with nothing to rewrite, over a budget lowered to see
+# it say so, its start quiet about the index. It then drives the deployed serve the way the command
 # line, sessions, agents, the join and Claude Code will, and stops what it started and drops the
 # copy.
 #
@@ -283,6 +284,11 @@ case "$(claims_columns)" in
   *) claims_pending=x ;;
 esac
 [[ "$claims_pending" != x ]]; holds $? "grit.claims has both or neither of claim-session.sql's columns ($(claims_columns)): claim-session.sql pending $claims_pending"
+# The index of a session's agents by their parent (grit's schema.sql), which a start of a build
+# that has it makes and every later start leaves as it is: whether the copy has it before any
+# deploy, as live does.
+parent_index() { sql "SELECT count(*) FROM pg_indexes WHERE schemaname = 'grit' AND tablename = 'sessions' AND indexname = 'idx_sessions_parent'"; }
+say "fact  idx_sessions_parent in the copy before any deploy: $(parent_index)"
 # What a rollback that reverses every data file it kept says of them, the last kept first.
 claims_reversed_first=""
 [[ "$claims_pending" != 1 ]] || claims_reversed_first="claim-session.sql reversed, "
@@ -719,6 +725,7 @@ sed 's/^/dry     /' "$proof/forward-dry.txt" | tee -a "$proof/proof.txt"
 [[ "$(git -C "$clone" symbolic-ref -q --short HEAD) $(git -C "$clone" rev-parse HEAD)" == "$old_branch $proved" ]]
 holds $? "  the copy's $old_branch is at the proved commit, checked out"
 [[ "$(sha "$clone/out/assembly.dest/out.jar")" == "$(sha "$proof/serve.jar")" ]]; holds $? "  its jar is the proved jar"
+[[ "$(parent_index)" == 1 ]]; holds $? "  its serve's start made idx_sessions_parent on grit.sessions ($(parent_index))"
 # ---- 6b. The re-key (c) ran on the restored live dump, written up as rekey-report.txt: what the
 # deploy's survey counted, what each re-key answered and how long it took, what is left in the
 # old form (none may be), how far each artifact is believed after it (as before), and five
@@ -782,6 +789,7 @@ holds $? "a brief the running serve refuses, its artifact hidden in the copy, re
 [[ "$(git -C "$clone" rev-parse HEAD)" == "$proved" && ! -e "$dhome/.local/state/kalandra-deploy/running" ]]
 holds $? "  and nothing was changed: the copy's code is as deploy c left it, and no run was started"
 stage_proof
+log_before_d="$(stat -c %s "$clone/logs/serve.log")"
 deploy d KALANDRA_DEPLOY_BUDGET=1
 [[ "$drc" == 4 && "$dlast" == "deploy: held: kalandra $X12 with grit $version at ${at:0:12} serving on $listen; 0 data files kept, 2 checkouts joined" ]]
 holds $? "(d) a second deploy holds over its budget, exit 4"
@@ -795,6 +803,9 @@ grep -qxF "deploy: machine-from-worker.sql: nothing to rewrite" "$dlog" && grep 
   ! grep -q "\.sql: kept" "$dlog"
 holds $? "  each data file's dry run counts 0, and nothing is kept"
 grep -qxF "deploy: credentials: $own kept; its digest is configured already" "$dlog"; holds $? "  and the credentials are kept as they are"
+said_d="$(tail -c +"$((log_before_d + 1))" "$clone/logs/serve.log" | grep -aiE 'idx_sessions_parent|already exists' | head -n 3)"
+[[ "$(parent_index)" == 1 && -z "$said_d" ]]
+holds $? "  its serve's start, the second of the new build, keeps idx_sessions_parent and logs nothing of it${said_d:+: $said_d}"
 grep -q "^deploy: health: a brief of .* answers 200 to the sessions' credential" "$dlog"; holds $? "  its health check asks for a brief"
 grep -qxF "deploy: preflight: a brief of grit/roadmap-coder-rules as coder answers 200 to the running serve" "$dlog"
 holds $? "  which its preflight asked first of the serve running before it"
