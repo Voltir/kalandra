@@ -1,6 +1,6 @@
 package kalandra.method
 
-import grit.core.id.AgentType
+import grit.core.id.{AgentType, ClaimHolder}
 import grit.projects.artifact.Pin
 import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project, Rank}
 import grit.projects.method.{
@@ -320,7 +320,7 @@ object GritMethodTests extends TestSuite {
     }
 
     test(
-      "the draft of version 8 is version 7 with coder held by coder agents and manager by a session, its examples replayed"
+      "the draft of version 8 is version 7 with coder held by coder agents, manager by a session and a lander role, its examples replayed"
     ) {
       val (v7, drafted) = (version(7), MethodFiles.drafted(8))
       def holders(m: Method) = m.views.map(v =>
@@ -335,7 +335,9 @@ object GritMethodTests extends TestSuite {
         m.name,
         m.kinds,
         m.transitions,
-        m.views.map(v => (v.role, v.kinds, v.depth, v.carried, v.covers)),
+        m.views
+          .filter(v => RoleName.value(v.role) != "lander")
+          .map(v => (v.role, v.kinds, v.depth, v.carried, v.covers)),
         m.checks
       )
       (
@@ -362,7 +364,8 @@ object GritMethodTests extends TestSuite {
               "coder" -> "agents coder-haiku, coder-opus",
               "manager" -> "a session",
               "reviewer" -> "anyone",
-              "grit-coder" -> "anyone"
+              "grit-coder" -> "anyone",
+              "lander" -> "agents lander"
             ),
             true,
             Vector(),
@@ -371,6 +374,34 @@ object GritMethodTests extends TestSuite {
           )
         ),
         Right(true)
+      )
+    }
+
+    test(
+      "the draft's lander shows a mechanism alone, covering nothing, and is held only by a lander agent"
+    ) {
+      val session = right(ClaimHolder.session("desk", "grit"))
+      def agent(kind: String) = right(ClaimHolder.agent(session, kind, "t1"))
+      MethodFiles
+        .drafted(8)
+        .map(_.method.views.filter(v => RoleName.value(v.role) == "lander").map { v =>
+          (
+            v.kinds.map(KindName.value),
+            v.depth,
+            v.carried,
+            v.covers,
+            Vector(agent("lander"), session, agent("coder-opus")).map(v.holders.admits)
+          )
+        }) ==> Right(
+        Vector(
+          (
+            Set("mechanism"),
+            0,
+            Set.empty[Handle],
+            grit.projects.method.Cover.Alone,
+            Vector(true, false, false)
+          )
+        )
       )
     }
   }

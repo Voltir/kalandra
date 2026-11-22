@@ -630,6 +630,19 @@
       "carried": [
         "roadmap-grit-coder"
       ]
+    },
+    {
+      "role": "lander",
+      "kinds": [
+        "mechanism"
+      ],
+      "depth": 0,
+      "carried": [],
+      "holders": {
+        "agents": [
+          "lander"
+        ]
+      }
     }
   ],
   "checks": [
