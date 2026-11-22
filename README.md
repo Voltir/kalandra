@@ -34,6 +34,13 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   integrity. serve knows each by its SHA-256 digest, `KALANDRA_OWNER_DIGEST` and
   `KALANDRA_SESSIONS_DIGEST` in `.env`, and refuses to start without both; a digest is no secret,
   and the texts live in `~/.config/kalandra/credential` and `~/.config/grit/credential`, mode 0600.
+  Sessions on another machine bear that machine's own credential: `KALANDRA_MACHINES` in `.env`
+  names each, `<machine>:<digest>` joined by commas, and serve believes it as the account's
+  sessions on that machine, at member, never at the command line's authority. Its text lives on
+  that machine alone, and whoever runs serve adds the line; deploy neither makes nor changes it.
+  serve refuses to start, naming the variable and the entry's machine, on an entry not
+  `<machine>:<digest>`, a machine named `local` or twice, a name grit refuses as a machine's, or a
+  digest another credential holds.
   `POST /command/<name>` runs a projects command with its body, a JSON
   object, as its arguments; `POST /mcp` serves the same commands as MCP tools; `POST /wait`
   (`bin/kalandra wait`) waits for a commit (`{"commit":{"holder":…}}` or `{"commit":{"worktree":…}}`)

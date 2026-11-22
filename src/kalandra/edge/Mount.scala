@@ -19,9 +19,10 @@ object Mount {
   /** `commands`: the edge's name, as serve's log and a refusal say it. */
   val Name: EdgeName = EdgeName("commands")
 
-  /** `local`: the machine every credential kalandra configures is on. It is part of every claim
-    * holder (`local/<dir>-<8 hex>`) and worktree place the edge gives, so changing it orphans
-    * every live claim: it changes only in a commit that re-makes them.
+  /** `local`: the machine serve runs on, which the command line's and the sessions' credentials
+    * are on. It is part of every claim holder (`local/<dir>-<8 hex>`) and worktree place the edge
+    * gives them, so changing it orphans every live claim: it changes only in a commit that re-makes
+    * them.
     */
   val Machine: MachineName =
     // A literal MachineName.of accepts.
@@ -44,6 +45,12 @@ object Mount {
     * the sessions' credential; never its text.
     */
   val SessionsDigestVar: String = "KALANDRA_SESSIONS_DIGEST"
+
+  /** `KALANDRA_MACHINES`: the variable naming the other machines whose sessions serve believes,
+    * `<machine>:<digest>` joined by commas, each digest the SHA-256, 64 lowercase hex, of that
+    * machine's sessions' credential. Unset or blank names none.
+    */
+  val MachinesVar: String = "KALANDRA_MACHINES"
 
   /** `workshop`: the attester the edge is for its realm. */
   // Stored, so kept from the deployment's earlier name: workshop.
@@ -73,10 +80,13 @@ object Mount {
   def listening(env: Map[String, String]): Either[String, Listen] =
     Listen.parse(env.getOrElse(ListenVar, DefaultListen).trim).left.map(why => s"$ListenVar: $why")
 
-  /** The callers `env` names, each `owner` on [[Machine]]: believed at [[CommandLine]] for
-    * [[OwnerDigestVar]]'s credential and at [[Sessions]] for [[SessionsDigestVar]]'s. Or why
-    * not: a variable unset, or not 64 lowercase hex, said by its name, never its value; or both
-    * holding one digest.
+  /** The callers `env` names, each `owner`: on [[Machine]], believed at [[CommandLine]] for
+    * [[OwnerDigestVar]]'s credential and at [[Sessions]] for [[SessionsDigestVar]]'s; and on each
+    * machine [[MachinesVar]] names, at [[Sessions]] for that machine's credential. Or why not, by
+    * a variable's name and an entry's machine, never a digest's value: a digest variable unset, or
+    * not 64 lowercase hex; an entry of [[MachinesVar]] not `<machine>:<digest>`, its machine a
+    * name [[MachineName.of]] refuses, [[Machine]] itself, or named twice; or two credentials of
+    * one digest.
     */
   def callers(owner: Account, env: Map[String, String]): Either[String, Callers] = {
     def digest(name: String, whose: String): Either[String, Sha256] =
@@ -94,12 +104,62 @@ object Mount {
         (),
         s"$OwnerDigestVar and $SessionsDigestVar name one credential: give each its own"
       )
+      others <- machines(env.getOrElse(MachinesVar, ""), Set(own, sessions))
       made <- Callers.of(
         Callers.Token(own, Caller(owner, CommandLine, Machine)),
-        Callers.Token(sessions, Caller(owner, Sessions, Machine))
+        (Callers.Token(sessions, Caller(owner, Sessions, Machine)) +:
+          others.map((machine, d) => Callers.Token(d, Caller(owner, Sessions, machine))))*
       )
     } yield made
   }
+
+  /** [[MachinesVar]]'s entries in `text`, in order, none of their digests in `taken` nor shared;
+    * or why not, as [[callers]] says.
+    */
+  private def machines(
+      text: String,
+      taken: Set[Sha256]
+  ): Either[String, Vector[(MachineName, Sha256)]] =
+    if (text.isBlank) Right(Vector.empty)
+    else
+      text
+        .split(",", -1)
+        .toVector
+        .zipWithIndex
+        .foldLeft[Either[String, Vector[(MachineName, Sha256)]]](Right(Vector.empty)) {
+          case (Left(why), _) => Left(why)
+          case (Right(seen), (entry, at)) =>
+            entry.trim.split(":", -1) match {
+              case Array(name, hex) =>
+                for {
+                  machine <- MachineName
+                    .of(name)
+                    .left
+                    .map(why => s"$MachinesVar: entry ${at + 1}: $why")
+                  _ <- Either.cond(
+                    machine != Machine,
+                    (),
+                    s"$MachinesVar names $name, this machine, whose sessions $SessionsDigestVar names"
+                  )
+                  _ <- Either.cond(
+                    !seen.exists(_._1 == machine),
+                    (),
+                    s"$MachinesVar names $name twice"
+                  )
+                  d <- Sha256
+                    .read(hex)
+                    .toRight(
+                      s"$MachinesVar: $name's digest is not a SHA-256 digest, 64 lowercase hex"
+                    )
+                  _ <- Either.cond(
+                    !taken(d) && !seen.exists(_._2 == d),
+                    (),
+                    s"$MachinesVar: $name's digest is another credential's: give each its own"
+                  )
+                } yield seen :+ (machine -> d)
+              case _ => Left(s"$MachinesVar: entry ${at + 1} is not <machine>:<digest>")
+            }
+        }
 
   /** The commands edge [[Name]] at `at` in `room`, each request from the caller of the credential
     * it bears ([[callers]]), every caller vouched a full member of `realm` by [[Attester]];

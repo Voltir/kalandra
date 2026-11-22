@@ -82,6 +82,74 @@ object MountTests extends TestSuite {
       )
     }
 
+    test(
+      "each machine KALANDRA_MACHINES names gives the owner's sessions on that machine, at member"
+    ) {
+      def machine(name: String) = MachineName.of(name).fold(sys.error, identity)
+      val laptopText = "l" * 43
+      val boxText = "b" * 43
+      val named = Mount
+        .callers(
+          owner,
+          digests + ("KALANDRA_MACHINES" ->
+            s" laptop:${Sha256.text(laptopText).hex} , box-2:${Sha256.text(boxText).hex} ")
+        )
+        .fold(sys.error, identity)
+      (
+        named.from(bearing(laptopText)),
+        named.from(bearing(boxText)),
+        named.from(bearing(sessionsText)),
+        named.from(bearing(ownText))
+      ) ==> (
+        Right(Caller(owner, Integrity.Member, machine("laptop"))),
+        Right(Caller(owner, Integrity.Member, machine("box-2"))),
+        Right(Caller(owner, Integrity.Member, machine("local"))),
+        Right(Caller(owner, Integrity.Authority, machine("local")))
+      )
+    }
+
+    test("KALANDRA_MACHINES unset or blank names no other machine") {
+      val laptopText = "l" * 43
+      (
+        Mount
+          .callers(owner, digests + ("KALANDRA_MACHINES" -> "  "))
+          .map(_.from(bearing(laptopText))),
+        callers.from(bearing(laptopText))
+      ) ==> (Right(Left(Challenge.Refused)), Left(Challenge.Refused))
+    }
+
+    test(
+      "a KALANDRA_MACHINES entry is refused by the variable and its machine, never a digest's value"
+    ) {
+      val one = Sha256.text("l" * 43).hex
+      val two = Sha256.text("b" * 43).hex
+      def refusal(value: String): Either[String, Vector[Account]] =
+        Mount.callers(owner, digests + ("KALANDRA_MACHINES" -> value)).map(_.accounts)
+      (
+        refusal(s"laptop:$one,$two"),
+        refusal(s"laptop:$one,"),
+        refusal(s"Laptop:$one"),
+        refusal(s"local:$one"),
+        refusal(s"laptop:$one,laptop:$two"),
+        refusal(s"laptop:${one.toUpperCase}"),
+        refusal(s"laptop:$one,box:$one"),
+        refusal(s"laptop:${digests("KALANDRA_SESSIONS_DIGEST")}")
+      ) ==> (
+        Left("KALANDRA_MACHINES: entry 2 is not <machine>:<digest>"),
+        Left("KALANDRA_MACHINES: entry 2 is not <machine>:<digest>"),
+        Left(
+          "KALANDRA_MACHINES: entry 1: a machine's name holds 'L', not a lowercase letter, a digit or '-': Laptop"
+        ),
+        Left(
+          "KALANDRA_MACHINES names local, this machine, whose sessions KALANDRA_SESSIONS_DIGEST names"
+        ),
+        Left("KALANDRA_MACHINES names laptop twice"),
+        Left("KALANDRA_MACHINES: laptop's digest is not a SHA-256 digest, 64 lowercase hex"),
+        Left("KALANDRA_MACHINES: box's digest is another credential's: give each its own"),
+        Left("KALANDRA_MACHINES: laptop's digest is another credential's: give each its own")
+      )
+    }
+
     test("the edge is named commands, and a request with no credential is asked for one") {
       (
         Mount.edge(at("127.0.0.1:7318"), room, callers, realm).map(_.name),
