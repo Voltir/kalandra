@@ -1,10 +1,12 @@
 package kalandra.method
 
+import grit.core.id.AgentType
 import grit.projects.artifact.Pin
 import grit.projects.artifact.{Artifact, ArtifactHead, Body, Project, Rank}
 import grit.projects.method.{
   Declared,
   Example,
+  Holders,
   Method,
   MethodBench,
   MethodJson,
@@ -314,6 +316,61 @@ object GritMethodTests extends TestSuite {
       ) ==> (
         Right(Migrated(project(v7, placed*), Vector())),
         Left("p/1 m, of kind milestone, cannot sit at the project's root: it may sit under section")
+      )
+    }
+
+    test(
+      "the draft of version 8 is version 7 with coder held by coder agents and manager by a session, its examples replayed"
+    ) {
+      val (v7, drafted) = (version(7), MethodFiles.drafted(8))
+      def holders(m: Method) = m.views.map(v =>
+        RoleName.value(v.role) -> (v.holders match {
+          case Holders.Anyone => "anyone"
+          case Holders.Session => "a session"
+          case Holders.Agents(ts) =>
+            ts.toVector.map(AgentType.value).sorted.mkString("agents ", ", ", "")
+        })
+      )
+      def bare(m: Method) = (
+        m.name,
+        m.kinds,
+        m.transitions,
+        m.views.map(v => (v.role, v.kinds, v.depth, v.carried, v.covers)),
+        m.checks
+      )
+      (
+        drafted.map(d =>
+          (
+            d.method.version,
+            holders(d.method),
+            bare(d.method) == bare(v7),
+            MethodBench.failures(d.method, d.examples),
+            d.examples == right(filed(7)).examples,
+            d.method.digest != v7.digest
+          )
+        ),
+        for {
+          d <- drafted
+          file <- MethodFiles.rawDraft(8)
+        } yield ujson.write(MethodJson.written(d.method, d.examples), indent = 2) == file
+          .stripSuffix("\n")
+      ) ==> (
+        Right(
+          (
+            8,
+            Vector(
+              "coder" -> "agents coder-haiku, coder-opus",
+              "manager" -> "a session",
+              "reviewer" -> "anyone",
+              "grit-coder" -> "anyone"
+            ),
+            true,
+            Vector(),
+            true,
+            true
+          )
+        ),
+        Right(true)
       )
     }
   }

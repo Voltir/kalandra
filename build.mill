@@ -86,12 +86,21 @@ object `package` extends ScalaModule {
    * one changes. */
   def methods = Task.Source(moduleDir / "methods")
 
+  /* Method versions drafted and not yet declared (`ops/drafts/grit@<version>.json`), which a
+   * deploy never reads: on the tests' classpath under `drafts/`, so a draft is read and replayed
+   * before it moves to methods/. */
+  def drafts = Task.Source(moduleDir / "ops" / "drafts")
+
   /* kalandra's tests: utest, as grit's, with the method's files on their classpath. Scala 3.9's
    * -Wunused reports a pattern variable read only inside utest's `assert` macro as unused;
    * silenced in tests, as grit does. */
   object test extends ScalaTests with TestModule.Utest {
     def mvnDeps = Seq(mvn"com.lihaoyi::utest:0.9.5")
-    def resources = Task { super.resources() :+ build.methods() }
+    def resources = Task { super.resources() :+ build.methods() :+ draftResource() }
+    def draftResource = Task {
+      os.copy(build.drafts().path, Task.dest / "drafts", createFolders = true)
+      PathRef(Task.dest)
+    }
     def forkArgs = Seq("--sun-misc-unsafe-memory-access=allow")
     def scalacOptions = Task {
       super.scalacOptions() ++

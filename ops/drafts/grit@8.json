@@ -1,0 +1,2164 @@
+{
+  "name": "grit",
+  "version": 8,
+  "kinds": [
+    {
+      "name": "milestone",
+      "first": "later",
+      "states": [
+        "next",
+        "now",
+        "parallel",
+        "done",
+        "dropped"
+      ],
+      "ends": [
+        "done",
+        "dropped"
+      ],
+      "sections": [],
+      "nesting": {
+        "under": [
+          "section"
+        ]
+      }
+    },
+    {
+      "name": "plan",
+      "first": "open",
+      "states": [
+        "closed",
+        "dropped"
+      ],
+      "ends": [
+        "closed",
+        "dropped"
+      ],
+      "sections": [],
+      "nesting": {
+        "under": [
+          "milestone"
+        ]
+      }
+    },
+    {
+      "name": "checkpoint",
+      "first": "planned",
+      "states": [
+        "ready",
+        "building",
+        "review",
+        "merged",
+        "dropped"
+      ],
+      "ends": [
+        "dropped",
+        "merged"
+      ],
+      "sections": [
+        "Goal",
+        "Signatures",
+        "Reads",
+        "Commits"
+      ],
+      "nesting": {
+        "under": [
+          "milestone",
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "section",
+      "first": "current",
+      "states": [
+        "retired"
+      ],
+      "ends": [
+        "retired"
+      ],
+      "sections": []
+    },
+    {
+      "name": "mechanism",
+      "first": "current",
+      "states": [
+        "retired"
+      ],
+      "ends": [
+        "retired"
+      ],
+      "sections": [],
+      "nesting": {
+        "under": [
+          "section"
+        ]
+      }
+    },
+    {
+      "name": "note",
+      "first": "open",
+      "states": [
+        "folded",
+        "dropped"
+      ],
+      "ends": [
+        "dropped",
+        "folded"
+      ],
+      "sections": []
+    },
+    {
+      "name": "backlog",
+      "first": "open",
+      "states": [
+        "taken",
+        "folded",
+        "dropped"
+      ],
+      "ends": [
+        "dropped",
+        "folded",
+        "taken"
+      ],
+      "sections": [],
+      "nesting": {
+        "under": [
+          "backlog",
+          "milestone",
+          "section"
+        ]
+      }
+    },
+    {
+      "name": "amendment",
+      "first": "proposed",
+      "states": [
+        "benched",
+        "adopted",
+        "rejected",
+        "dropped"
+      ],
+      "ends": [
+        "adopted",
+        "dropped",
+        "rejected"
+      ],
+      "sections": [
+        "Diff",
+        "Moments",
+        "Cue",
+        "Lesson",
+        "Confidence",
+        "Observable"
+      ],
+      "nesting": "root"
+    }
+  ],
+  "transitions": [
+    {
+      "kind": "milestone",
+      "from": "later",
+      "to": "next",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "later",
+      "to": "now",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "later",
+      "to": "parallel",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "next",
+      "to": "later",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "next",
+      "to": "now",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "next",
+      "to": "parallel",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "now",
+      "to": "later",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "now",
+      "to": "next",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "now",
+      "to": "parallel",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "parallel",
+      "to": "later",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "parallel",
+      "to": "next",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "parallel",
+      "to": "now",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "later",
+      "to": "done",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "next",
+      "to": "done",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "now",
+      "to": "done",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "parallel",
+      "to": "done",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "later",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "next",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "now",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "milestone",
+      "from": "parallel",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "plan",
+      "from": "open",
+      "to": "closed",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "plan",
+      "from": "open",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "planned",
+      "to": "ready",
+      "checks": [
+        "sections-present"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "ready",
+      "to": "building",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "building",
+      "to": "review",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "review",
+      "to": "building",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "review",
+      "to": "merged",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "planned",
+      "to": "dropped",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "ready",
+      "to": "dropped",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "checkpoint",
+      "from": "building",
+      "to": "dropped",
+      "checks": [
+        "children-ended"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "section",
+      "from": "current",
+      "to": "retired",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "mechanism",
+      "from": "current",
+      "to": "retired",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "note",
+      "from": "open",
+      "to": "folded",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "note",
+      "from": "open",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "backlog",
+      "from": "open",
+      "to": "taken",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "backlog",
+      "from": "open",
+      "to": "folded",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "backlog",
+      "from": "open",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "amendment",
+      "from": "proposed",
+      "to": "benched",
+      "checks": [
+        "sections-present"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "amendment",
+      "from": "benched",
+      "to": "adopted",
+      "checks": [
+        "decided-adopt"
+      ],
+      "action": {
+        "kind": "nothing"
+      },
+      "movers": "people"
+    },
+    {
+      "kind": "amendment",
+      "from": "benched",
+      "to": "rejected",
+      "checks": [
+        "decided-reject"
+      ],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "amendment",
+      "from": "proposed",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    },
+    {
+      "kind": "amendment",
+      "from": "benched",
+      "to": "dropped",
+      "checks": [],
+      "action": {
+        "kind": "nothing"
+      }
+    }
+  ],
+  "views": [
+    {
+      "role": "coder",
+      "kinds": [
+        "checkpoint",
+        "mechanism",
+        "milestone",
+        "plan",
+        "section"
+      ],
+      "depth": 2,
+      "carried": [
+        "roadmap-coder-rules"
+      ],
+      "holders": {
+        "agents": [
+          "coder-haiku",
+          "coder-opus"
+        ]
+      }
+    },
+    {
+      "role": "manager",
+      "kinds": [
+        "amendment",
+        "backlog",
+        "checkpoint",
+        "mechanism",
+        "milestone",
+        "note",
+        "plan",
+        "section"
+      ],
+      "depth": 1,
+      "carried": [
+        "roadmap-update-protocol"
+      ],
+      "covers": true,
+      "holders": "session"
+    },
+    {
+      "role": "reviewer",
+      "kinds": [
+        "amendment",
+        "backlog",
+        "checkpoint",
+        "mechanism",
+        "milestone",
+        "note",
+        "plan",
+        "section"
+      ],
+      "depth": 2,
+      "carried": []
+    },
+    {
+      "role": "grit-coder",
+      "kinds": [
+        "checkpoint",
+        "mechanism",
+        "milestone",
+        "plan",
+        "section"
+      ],
+      "depth": 2,
+      "carried": [
+        "roadmap-grit-coder"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "name": "children-ended",
+      "version": 1
+    },
+    {
+      "name": "decided-adopt",
+      "version": 1
+    },
+    {
+      "name": "decided-reject",
+      "version": 1
+    },
+    {
+      "name": "sections-present",
+      "version": 1
+    }
+  ],
+  "examples": [
+    {
+      "name": "an amendment lacking a section of its kind is not benched",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "amend-0",
+              "kind": "amendment",
+              "state": "proposed",
+              "title": "an amendment lacking a section of its kind is not benched",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Diff"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Diff says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Moments"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Moments says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Cue"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Cue says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Lessons"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Lesson says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Confidence"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Confidence says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Observable"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Observable says."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/1",
+          "to": "benched",
+          "expect": {
+            "kind": "refused-by",
+            "check": "sections-present"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an undecided amendment is benched, then neither adopted nor rejected",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "amend-1",
+              "kind": "amendment",
+              "state": "proposed",
+              "title": "an undecided amendment is benched, then neither adopted nor rejected",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Diff"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Diff says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Moments"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Moments says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Cue"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Cue says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Lesson"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Lesson says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Confidence"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Confidence says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Observable"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Observable says."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/1",
+          "to": "benched",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/1",
+          "to": "adopted",
+          "expect": {
+            "kind": "refused-by",
+            "check": "decided-adopt"
+          },
+          "by": "person"
+        },
+        {
+          "key": "p/1",
+          "to": "rejected",
+          "expect": {
+            "kind": "refused-by",
+            "check": "decided-reject"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an amendment decided reject is rejected, never adopted",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "amend-2",
+              "kind": "amendment",
+              "state": "proposed",
+              "title": "an amendment decided reject is rejected, never adopted",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Diff"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Diff says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Moments"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Moments says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Cue"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Cue says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Lesson"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Lesson says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Confidence"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Confidence says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Observable"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Observable says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Contrast"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "kept -> amendment -> moment."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Verdict: confounded"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "One run each way."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Decision: reject"
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "By: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Activation: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Checks: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Cost: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Held-out regression: noted."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/1",
+          "to": "benched",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/1",
+          "to": "adopted",
+          "expect": {
+            "kind": "refused-by",
+            "check": "decided-adopt"
+          },
+          "by": "person"
+        },
+        {
+          "key": "p/1",
+          "to": "rejected",
+          "expect": {
+            "kind": "allowed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an amendment decided adopt, each feature named, is adopted",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "amend-3",
+              "kind": "amendment",
+              "state": "proposed",
+              "title": "an amendment decided adopt, each feature named, is adopted",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Diff"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Diff says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Moments"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Moments says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Cue"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Cue says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Lesson"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Lesson says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Confidence"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Confidence says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Observable"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Observable says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Contrast"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "kept -> amendment -> moment."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Verdict: confounded"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "One run each way."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Decision: adopt"
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "By: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Activation: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Checks: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Cost: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Held-out regression: noted."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/1",
+          "to": "benched",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/1",
+          "to": "adopted",
+          "expect": {
+            "kind": "allowed"
+          },
+          "by": "person"
+        }
+      ]
+    },
+    {
+      "name": "an amendment decided adopt without its cost is not adopted",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "amend-4",
+              "kind": "amendment",
+              "state": "proposed",
+              "title": "an amendment decided adopt without its cost is not adopted",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Diff"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Diff says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Moments"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Moments says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Cue"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Cue says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Lesson"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Lesson says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Confidence"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Confidence says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Observable"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Observable says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Contrast"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "kept -> amendment -> moment."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Verdict: confounded"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "One run each way."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Decision: adopt"
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "By: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Activation: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Checks: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Held-out regression: noted."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/1",
+          "to": "benched",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/1",
+          "to": "adopted",
+          "expect": {
+            "kind": "refused-by",
+            "check": "decided-adopt"
+          },
+          "by": "person"
+        }
+      ]
+    },
+    {
+      "name": "an agent's move of an amendment decided adopt is refused: a person adopts it",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "amend-5",
+              "kind": "amendment",
+              "state": "proposed",
+              "title": "an agent's move of an amendment decided adopt is refused: a person adopts it",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Diff"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Diff says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Moments"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Moments says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Cue"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Cue says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Lesson"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Lesson says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Confidence"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Confidence says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Observable"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Observable says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Contrast"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "kept -> amendment -> moment."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Verdict: confounded"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "One run each way."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Decision: adopt"
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "By: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Activation: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Checks: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Cost: noted."
+                    }
+                  ]
+                },
+                {
+                  "type": "item",
+                  "list": "bullet",
+                  "level": 1,
+                  "text": [
+                    {
+                      "t": "Held-out regression: noted."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/1",
+          "to": "benched",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/1",
+          "to": "adopted",
+          "expect": {
+            "kind": "refused-person-only"
+          }
+        },
+        {
+          "key": "p/1",
+          "to": "adopted",
+          "expect": {
+            "kind": "allowed"
+          },
+          "by": "person"
+        }
+      ]
+    },
+    {
+      "name": "a checkpoint lacking a section of its plan is not ready",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "checkpoint-0",
+              "kind": "checkpoint",
+              "state": "planned",
+              "title": "a checkpoint lacking a section of its plan is not ready",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Goal"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Goal says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Signatures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Signatures says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Reads"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Reads says."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/1",
+          "to": "ready",
+          "expect": {
+            "kind": "refused-by",
+            "check": "sections-present"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a checkpoint whose plan is whole is ready, then built, reviewed and merged",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "checkpoint-1",
+              "kind": "checkpoint",
+              "state": "planned",
+              "title": "a checkpoint whose plan is whole is ready, then built, reviewed and merged",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Goal"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Goal says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Signatures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Signatures says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Reads"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Reads says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Commits"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Commits says."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/1",
+          "to": "ready",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/1",
+          "to": "building",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/1",
+          "to": "review",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/1",
+          "to": "merged",
+          "expect": {
+            "kind": "allowed"
+          }
+        }
+      ]
+    }
+  ]
+}
