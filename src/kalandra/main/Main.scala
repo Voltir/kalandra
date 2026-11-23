@@ -160,7 +160,7 @@ object Main {
       val fresh = Fresh.random()
       // grit.app's redaction: every secret the process holds, OpenRouter's key among them, since
       // a command the tools run sees the process's own environment.
-      val tools = new LocalTools(kalandra.offer.tools, Redaction.of(raw), clock, fresh)
+      val tools = new LocalTools(kalandra.offer.tools, Redaction.of(raw), clock, fresh, None)
       try
         LocalEdge.over(
           dir,

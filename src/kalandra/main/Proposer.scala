@@ -90,8 +90,7 @@ object Proposer {
       val under = Work.Under(
         proposer,
         secrets,
-        Origin.Tui(here, "work"),
-        cwd,
+        Work.Where.At(Origin.Tui(here, "work"), cwd),
         env,
         redaction,
         0.millis,
@@ -104,6 +103,8 @@ object Proposer {
           redaction,
           clock,
           fresh,
+          None,
+          None,
           LoggerFactory.getLogger("kalandra.work")
         ) { edge =>
           Work.run(asked, text, Kalandra.ProposerTurns, under, edge, clock, fresh, println)
