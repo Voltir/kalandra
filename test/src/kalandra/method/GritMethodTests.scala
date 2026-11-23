@@ -320,7 +320,7 @@ object GritMethodTests extends TestSuite {
     }
 
     test(
-      "the draft of version 8 is version 7 with coder held by coder agents, manager by a session and a lander role, its examples replayed"
+      "the draft of version 8 is version 7 with coder held by coder agents and claimed in, manager by a session and a lander role, its examples replayed"
     ) {
       val (v7, drafted) = (version(7), MethodFiles.drafted(8))
       def holders(m: Method) = m.views.map(v =>
@@ -401,6 +401,27 @@ object GritMethodTests extends TestSuite {
             grit.projects.method.Cover.Alone,
             Vector(true, false, false)
           )
+        )
+      )
+    }
+
+    test(
+      "the draft's coder is claimed in a checkpoint's ready and building, and no other view is claimed in anything"
+    ) {
+      MethodFiles
+        .drafted(8)
+        .map(
+          _.method.views.map(v =>
+            RoleName.value(v.role) -> v.claimedIn
+              .map((k, ss) => KindName.value(k) -> ss.map(StateName.value))
+          )
+        ) ==> Right(
+        Vector(
+          "coder" -> Map("checkpoint" -> Set("ready", "building")),
+          "manager" -> Map.empty[String, Set[String]],
+          "reviewer" -> Map.empty[String, Set[String]],
+          "grit-coder" -> Map.empty[String, Set[String]],
+          "lander" -> Map.empty[String, Set[String]]
         )
       )
     }

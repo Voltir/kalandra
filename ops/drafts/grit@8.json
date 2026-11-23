@@ -581,6 +581,12 @@
           "coder-haiku",
           "coder-opus"
         ]
+      },
+      "claimed-in": {
+        "checkpoint": [
+          "building",
+          "ready"
+        ]
       }
     },
     {
