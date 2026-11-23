@@ -1092,6 +1092,19 @@ IFS='|' read -r sh sp se sk <<<"$counts"
 holds $? "the session proof-s1 is recorded as $H at machine:local$repo, with its start, read, closing and commits"
 wt_shape="$(sql "SELECT e.shape ->> 'worktree' FROM grit.sessions s JOIN grit.session_events e ON e.session = s.id WHERE s.local = 'proof-s1' AND e.kind = 'commit' LIMIT 1")"
 [[ "$wt_shape" == "machine:local$repo" ]]; holds $? "  and its commit's shape names the worktree machine:local$repo"
+# A holder's free claim is taken only by the batch that opens a session: proof-s2, opened while
+# proof-s1 works edge-proof/n, does not take it when proof-s1's end frees it; proof-s3's start does.
+n_session() { sql "SELECT coalesce(session_local, '-') FROM grit.claims WHERE subject = 'edge-proof/n' AND holder = '$H'"; }
+rc=0; fire event <<<"$start2" || rc=$?; holds "$rc" "the hook posts proof-s2's start, proof-s1 working edge-proof/n: $(n_session)"
+end1="$(payload proof-s1 SessionEnd | jq -c '. + {reason: "other"}')"
+rc=0; fire event <<<"$end1" || rc=$?
+[[ "$rc" == 0 && "$(n_session)" == - ]]; holds $? "the hook posts proof-s1's end, which frees edge-proof/n: $(n_session)"
+read2="$(payload proof-s2 PostToolUse | jq -c --arg f "$repo/README" '. + {tool_name: "Read", tool_input: {file_path: $f}, tool_response: {type: "text", file: {filePath: $f, content: "hello\n", numLines: 1, startLine: 1, totalLines: 1}}}')"
+rc=0; fire event <<<"$read2" || rc=$?
+[[ "$rc" == 0 && "$(n_session)" == - ]]; holds $? "  a later read of proof-s2, open already, leaves it free: $(n_session)"
+start3="$(payload proof-s3 SessionStart | jq -c '. + {source: "startup"}')"
+rc=0; fire event <<<"$start3" || rc=$?
+[[ "$rc" == 0 && "$(n_session)" == proof-s3 ]]; holds $? "  proof-s3's start, opening it, takes it: $(n_session)"
 hdr="$(fire header 2>/dev/null)"
 jq -e 'type == "object" and keys == ["Authorization"] and (.Authorization | test("^Bearer [A-Za-z0-9_-]{43}$"))' <<<"$hdr" >/dev/null
 holds $? "the hook's header prints one Authorization object of a bearer credential (its value not printed)"
