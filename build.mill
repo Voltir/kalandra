@@ -74,7 +74,7 @@ object `package` extends ScalaModule {
   def javaHome = Task {
     sys.env
       .get("GRIT_JDK_HOME")
-      .orElse(Some("/home/nickchilders/.jdks/jdk-26.0.2"))
+      .orElse(Some((os.home / ".jdks" / "jdk-26.0.2").toString))
       .filter(p => os.exists(os.Path(p)))
       .map(p => PathRef(os.Path(p)))
   }
