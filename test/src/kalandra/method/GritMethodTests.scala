@@ -67,9 +67,9 @@ object GritMethodTests extends TestSuite {
 
   val tests = Tests {
     test("each version's file is the method its project pinned, with its worked examples whole") {
-      // Versions 1 to 5 are the pins grit_kalandra's projects held or hold (restore-check
-      // version 1, grit the rest); 6 is the pin it is declared with, and 7 the next. The digest leaves the
-      // examples out, so their count is pinned beside it.
+      // Versions 1 to 7 are the pins grit_kalandra's projects held or hold (restore-check
+      // version 1, grit the rest), and 8 the next. The digest leaves the examples out, so their
+      // count is pinned beside it.
       (
         MethodFiles.Versions.map(v =>
           filed(v).map(d =>
@@ -91,8 +91,9 @@ object GritMethodTests extends TestSuite {
           "a4324899142bd13487e2442f57fea1be8cd5e6972247bbd177aff000a0cff65d",
           "243738553f2f7368af940d5593ee7c2ac49cc9f3b66eeea85588854e3ba7b7cd",
           "c334283c23b92f97a54dfc76648330355fc15b859be5bcc80f2d7507743097dc",
-          "62e5060307938afd04b824a1884b11d3271eed1870a3fe651a91b7cf337881ae"
-        ).zip(MethodFiles.Versions.zip(Vector(0, 0, 0, 5, 5, 8, 8)))
+          "62e5060307938afd04b824a1884b11d3271eed1870a3fe651a91b7cf337881ae",
+          "ed1eb1a7a1ff85aabe16f872c8f180f7d22193c176350bbf4a76d47afce595ab"
+        ).zip(MethodFiles.Versions.zip(Vector(0, 0, 0, 5, 5, 8, 8, 8)))
           .map { case (pin, (v, examples)) => Right((Grit.Name, v, Vector(), examples, pin)) },
         true
       )
@@ -320,9 +321,9 @@ object GritMethodTests extends TestSuite {
     }
 
     test(
-      "the draft of version 8 is version 7 with coder held by coder agents and claimed in, manager by a session and a lander role, its examples replayed"
+      "version 8 is version 7 with coder held by coder agents and claimed in, manager by a session and a lander role, its examples replayed"
     ) {
-      val (v7, drafted) = (version(7), MethodFiles.drafted(8))
+      val (v7, v8) = (version(7), filed(8))
       def holders(m: Method) = m.views.map(v =>
         RoleName.value(v.role) -> (v.holders match {
           case Holders.Anyone => "anyone"
@@ -340,50 +341,39 @@ object GritMethodTests extends TestSuite {
           .map(v => (v.role, v.kinds, v.depth, v.carried, v.covers)),
         m.checks
       )
-      (
-        drafted.map(d =>
-          (
-            d.method.version,
-            holders(d.method),
-            bare(d.method) == bare(v7),
-            MethodBench.failures(d.method, d.examples),
-            d.examples == right(filed(7)).examples,
-            d.method.digest != v7.digest
-          )
-        ),
-        for {
-          d <- drafted
-          file <- MethodFiles.rawDraft(8)
-        } yield ujson.write(MethodJson.written(d.method, d.examples), indent = 2) == file
-          .stripSuffix("\n")
-      ) ==> (
-        Right(
-          (
-            8,
-            Vector(
-              "coder" -> "agents coder-haiku, coder-opus",
-              "manager" -> "a session",
-              "reviewer" -> "anyone",
-              "grit-coder" -> "anyone",
-              "lander" -> "agents lander"
-            ),
-            true,
-            Vector(),
-            true,
-            true
-          )
-        ),
-        Right(true)
+      v8.map(d =>
+        (
+          d.method.version,
+          holders(d.method),
+          bare(d.method) == bare(v7),
+          MethodBench.failures(d.method, d.examples),
+          d.examples == right(filed(7)).examples,
+          d.method.digest != v7.digest
+        )
+      ) ==> Right(
+        (
+          8,
+          Vector(
+            "coder" -> "agents coder-haiku, coder-opus",
+            "manager" -> "a session",
+            "reviewer" -> "anyone",
+            "grit-coder" -> "anyone",
+            "lander" -> "agents lander"
+          ),
+          true,
+          Vector(),
+          true,
+          true
+        )
       )
     }
 
     test(
-      "the draft's lander shows a mechanism alone, covering nothing, and is held only by a lander agent"
+      "version 8's lander shows a mechanism alone, covering nothing, and is held only by a lander agent"
     ) {
       val session = right(ClaimHolder.session("desk", "grit"))
       def agent(kind: String) = right(ClaimHolder.agent(session, kind, "t1"))
-      MethodFiles
-        .drafted(8)
+      filed(8)
         .map(_.method.views.filter(v => RoleName.value(v.role) == "lander").map { v =>
           (
             v.kinds.map(KindName.value),
@@ -406,10 +396,9 @@ object GritMethodTests extends TestSuite {
     }
 
     test(
-      "the draft's coder is claimed in a checkpoint's ready and building, and no other view is claimed in anything"
+      "version 8's coder is claimed in a checkpoint's ready and building, and no other view is claimed in anything"
     ) {
-      MethodFiles
-        .drafted(8)
+      filed(8)
         .map(
           _.method.views.map(v =>
             RoleName.value(v.role) -> v.claimedIn

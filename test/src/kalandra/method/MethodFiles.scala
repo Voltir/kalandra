@@ -9,7 +9,7 @@ import grit.projects.method.{Declared, MethodJson}
 object MethodFiles {
 
   /** The versions there are files of, oldest first. */
-  val Versions: Vector[Int] = Vector(1, 2, 3, 4, 5, 6, 7)
+  val Versions: Vector[Int] = Vector(1, 2, 3, 4, 5, 6, 7, 8)
 
   /** Version `v`'s file as JSON, or why not: no such file, or not JSON. */
   def text(v: Int): Either[String, ujson.Value] = json(raw(v))
@@ -19,14 +19,6 @@ object MethodFiles {
 
   /** Version `v`'s file read as `project_declare` reads it, or every reason not, joined. */
   def filed(v: Int): Either[String, Declared] = declared(text(v))
-
-  /** A drafted version's file, `ops/drafts/grit@<v>.json`, as it is written, or why not: no
-    * such file. A draft is no version a deploy declares.
-    */
-  def rawDraft(v: Int): Either[String, String] = resource(s"drafts/grit@$v.json")
-
-  /** A drafted version's file read as `project_declare` reads it, or every reason not, joined. */
-  def drafted(v: Int): Either[String, Declared] = declared(json(rawDraft(v)))
 
   private def resource(path: String): Either[String, String] =
     Using(Source.fromResource(path))(_.mkString).toEither.left.map(_ => s"no file $path")
