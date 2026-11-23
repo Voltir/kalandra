@@ -85,7 +85,7 @@ echo "harness-check: $(date -u +%Y-%m-%dT%H:%M:%SZ), checkout $wt, claude $insta
 ses="$work/cred/sessions"
 pg psql -U grit -d postgres -q -c "CREATE DATABASE $db" >/dev/null
 made_db=1
-(cd "$work/run" && exec env -i PATH=/usr/bin:/bin HOME="$work/home" KALANDRA_CHECKOUT="$HOME/Projects/grit" \
+(cd "$work/run" && exec env -i PATH=/usr/bin:/bin HOME="$work/home" GRIT_JDK_HOME="${GRIT_JDK_HOME:-$HOME/.jdks/jdk-26.0.2}" KALANDRA_CHECKOUT="$HOME/Projects/grit" \
   GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/$db" KALANDRA_LISTEN="$listen" \
   ANTHROPIC_API_KEY=harness-check-no-key JEV_API_KEY=harness-check-no-key \
   KALANDRA_OWNER_DIGEST="$(d "$work/cred/owner")" KALANDRA_SESSIONS_DIGEST="$(d "$ses")" \

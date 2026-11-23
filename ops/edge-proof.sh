@@ -76,6 +76,9 @@ grit_checkout="${KALANDRA_CHECKOUT:-$HOME/Projects/grit}"
 proof="${KALANDRA_PROOF_DIR:-$HOME/.cache/kalandra-e7}"
 # The live checkout, which is cloned and whose jar is copied, never written.
 live="${KALANDRA_LIVE:-$HOME/Projects/kalandra}"
+# The JDK bin/kalandra falls back to under this HOME, named to every run the proof gives a HOME
+# of its own.
+export GRIT_JDK_HOME="${GRIT_JDK_HOME:-$HOME/.jdks/jdk-26.0.2}"
 restored=grit_kalandra_e7
 joindb=grit_kalandra_e7_join
 listen=127.0.0.1:7318
@@ -323,7 +326,7 @@ mkdir -p "$work/home" "$work/cred"
 d() { tr -d '\n' <"$1" | sha256sum | cut -d' ' -f1; }
 wrong="$work/cred/wrong"
 pg psql -U grit -d postgres -q -c "CREATE DATABASE $joindb" >/dev/null
-serve_env=(env -i PATH=/usr/bin:/bin HOME="$work/home" KALANDRA_CHECKOUT="$grit_checkout"
+serve_env=(env -i PATH=/usr/bin:/bin HOME="$work/home" GRIT_JDK_HOME="$GRIT_JDK_HOME" KALANDRA_CHECKOUT="$grit_checkout"
   GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/$joindb" KALANDRA_LISTEN="$listen"
   ANTHROPIC_API_KEY=edge-proof-no-key JEV_API_KEY=edge-proof-no-key)
 for missing in KALANDRA_OWNER_DIGEST KALANDRA_SESSIONS_DIGEST; do
@@ -444,7 +447,7 @@ chmod +x "$work/shim/claude"
 plant="$work/plant-join"
 docker_dir="$(dirname "$(command -v docker)")"
 # A deploy's environment, and the copy's serve's: nothing but what the proof names.
-denv=(env -i PATH="$work/shim:$docker_dir:/usr/bin:/bin" HOME="$dhome" DOCKER_CONFIG="$HOME/.docker"
+denv=(env -i PATH="$work/shim:$docker_dir:/usr/bin:/bin" HOME="$dhome" GRIT_JDK_HOME="$GRIT_JDK_HOME" DOCKER_CONFIG="$HOME/.docker"
   GRIT_COMPOSE_DIR="$compose" KALANDRA_LISTEN="$listen" GRIT_DATABASE_URL="jdbc:postgresql://localhost:5432/$restored"
   KALANDRA_CHECKOUT="$grit_checkout" EDGE_PROOF_WT="$wt" EDGE_PROOF_PLANT="$plant")
 rc=0; (cd "$work/run" && exec "${denv[@]}" "$clone/bin/kalandra" start) >"$work/old-start.out" 2>&1 || rc=$?
@@ -520,7 +523,7 @@ if [[ "$failed" != 0 ]]; then
   exit 1
 fi
 
-O() { env -i PATH=/usr/bin:/bin HOME="$dhome" KALANDRA_LISTEN="$listen" "$clone/bin/kalandra" "$@"; }
+O() { env -i PATH=/usr/bin:/bin HOME="$dhome" GRIT_JDK_HOME="$GRIT_JDK_HOME" KALANDRA_LISTEN="$listen" "$clone/bin/kalandra" "$@"; }
 # The method versions the proved commit holds, as a deploy declares them, oldest first: each the
 # copy has declared already is kept, and each it has not is declared (new_methods), which only
 # the dump undoes.
