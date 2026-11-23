@@ -1097,8 +1097,9 @@ wt_shape="$(sql "SELECT e.shape ->> 'worktree' FROM grit.sessions s JOIN grit.se
 [[ "$wt_shape" == "machine:local$repo" ]]; holds $? "  and its commit's shape names the worktree machine:local$repo"
 # A holder's free claim is taken only by the batch that opens a session: proof-s2, opened while
 # proof-s1 works edge-proof/n, does not take it when proof-s1's end frees it; proof-s3's start does.
-n_session() { sql "SELECT coalesce(session_local, '-') FROM grit.claims WHERE subject = 'edge-proof/n' AND holder = '$H'"; }
-rc=0; fire event <<<"$start2" || rc=$?; holds "$rc" "the hook posts proof-s2's start, proof-s1 working edge-proof/n: $(n_session)"
+n_session() { sql "SELECT coalesce(session_local, '-') FROM grit.claims WHERE subject LIKE 'edge-proof/%' AND holder = '$H' AND role = 'manager'"; }
+rc=0; fire event <<<"$start2" || rc=$?
+[[ "$rc" == 0 && "$(n_session)" == proof-s1 ]]; holds $? "the hook posts proof-s2's start, and proof-s1 still works edge-proof/n: $(n_session)"
 end1="$(payload proof-s1 SessionEnd | jq -c '. + {reason: "other"}')"
 rc=0; fire event <<<"$end1" || rc=$?
 [[ "$rc" == 0 && "$(n_session)" == - ]]; holds $? "the hook posts proof-s1's end, which frees edge-proof/n: $(n_session)"
