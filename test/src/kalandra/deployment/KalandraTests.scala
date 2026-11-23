@@ -197,12 +197,19 @@ object KalandraTests extends TestSuite {
       OwnCommands.all.map(o => ToolName.value(o.name)).filter(plugins) ==> Vector()
     }
 
-    test("the one phrase ops/deploy.sh greps for an already-declared method is part of Projects.DeclaredAlready") {
+    test(
+      "the one phrase ops/deploy.sh greps for an already-declared method is part of Projects.DeclaredAlready"
+    ) {
       val greps = DeployScript.alreadyDeclaredGreps
-      (greps.size, greps.forall(grit.projects.plugin.Projects.DeclaredAlready.contains)) ==> (1, true)
+      (greps.size, greps.forall(grit.projects.plugin.Projects.DeclaredAlready.contains)) ==> (
+        1,
+        true
+      )
     }
 
-    test("the survey answer ops/deploy.sh reads as nothing left to re-key is Projects.NothingToRekey") {
+    test(
+      "the survey answer ops/deploy.sh reads as nothing left to re-key is Projects.NothingToRekey"
+    ) {
       DeployScript.nothingToRekey ==> Some(grit.projects.plugin.Projects.NothingToRekey)
     }
   }
