@@ -947,6 +947,27 @@ grep -q "reads no slot" <<<"$out"; holds $? "  and names the key"
 H="$(K holder "{\"dir\":\"$repo\"}")" || H=""
 [[ "$H" =~ ^local/repo-[0-9a-f]{8}$ ]]; holds $? "holder for the repository is local/repo-<8 hex>: $H"
 expect 0 "claim edge-proof/n as manager for $H" K claim "{\"key\":\"edge-proof/n\",\"role\":\"manager\",\"holder\":\"$H\"}"
+# The latest version's rules, on edge-proof, which new pinned to it: a role is held only by the
+# holders it names, a lander's claim is one at a time, and a checkpoint enters a state its coder
+# is claimed in only with its brief within the budget.
+expect 1 "a claim of edge-proof/k as coder for the session's holder $H is refused" K claim "{\"key\":\"edge-proof/k\",\"role\":\"coder\",\"holder\":\"$H\"}"
+grep -qF "$H is a session's holder, and the role coder is held only by agents of type" <<<"$out"
+holds $? "  coder being held only by coder agents: $(head -n 1 <<<"$out" | head -c 200)"
+lander1="$(K holder "{\"dir\":\"$repo\",\"type\":\"lander\",\"session\":\"proof-l1\"}")" || lander1=""
+lander2="$(K holder "{\"dir\":\"$repo\",\"type\":\"lander\",\"session\":\"proof-l2\"}")" || lander2=""
+[[ "$lander1" == "$H"/lander/* && "$lander2" == "$H"/lander/* && "$lander1" != "$lander2" ]]
+holds $? "two lander agents' holders, of two sessions: $lander1, $lander2"
+expect 0 "keep mechanism edge-proof/landing under edge-proof/s" K keep '{"project":"edge-proof","handle":"landing","kind":"mechanism","title":"Landing","body":"How main is landed.","parent":"edge-proof/s"}'
+expect 0 "claim edge-proof/landing as lander for $lander1" K claim "{\"key\":\"edge-proof/landing\",\"role\":\"lander\",\"holder\":\"$lander1\"}"
+expect 1 "a second claim of it as lander, for $lander2, is refused" K claim "{\"key\":\"edge-proof/landing\",\"role\":\"lander\",\"holder\":\"$lander2\"}"
+grep -qF "$lander1" <<<"$out"; holds $? "  naming the first's holder: $(head -n 1 <<<"$out" | head -c 200)"
+filler="$(printf 'filler %.0s' $(seq 1 1400))"
+expect 0 "keep checkpoint edge-proof/big, its coder brief over the budget" K keep "{\"project\":\"edge-proof\",\"handle\":\"big\",\"kind\":\"checkpoint\",\"title\":\"Long checkpoint\",\"body\":\"## Goal\n\n$filler\n\n## Signatures\n\ns\n\n## Reads\n\nr\n\n## Commits\n\nc\",\"parent\":\"edge-proof/m\"}"
+grep -q "Its brief as coder would be .* before it moves to ready or building" <<<"$out"
+holds $? "  its answer says so: $(grep -o 'Its brief as coder[^.]*' <<<"$out" | head -c 160)"
+expect 1 "a session's move of it to ready is refused" S move '{"key":"edge-proof/big","state":"ready"}'
+grep -q "the brief of .* as coder would be .* over the 9,500 a brief holds" <<<"$out"
+holds $? "  its brief as coder passing the 9,500 a brief holds: $(head -n 1 <<<"$out" | head -c 200)"
 expect 0 "export edge-proof through CommandClient" K export edge-proof "$work/export"
 n="$(find "$work/export" -type f | wc -l)"
 [[ "$n" -ge 3 ]]; holds $? "  $n export files"
@@ -1027,13 +1048,13 @@ op="$(fire opening <<<"$start" | jq -r '.hookSpecificOutput.additionalContext //
 printed="'$hook' holder TYPE --dir '$repo' --session 'proof-s1'"
 grep -qxF "grit: an agent this session starts has its own claim holder. This prints it, with the agent's type in place of TYPE: $printed" <<<"$op"
 holds $? "the opening prints the agent holder command"
-AH="$(fire holder coder-proof --dir "$repo" --session proof-s1 2>/dev/null)" || AH=""
-KH="$(K holder "{\"dir\":\"$repo\",\"type\":\"coder-proof\",\"session\":\"proof-s1\"}")" || KH=""
-[[ -n "$AH" && "$AH" == "$KH" && "$AH" == "$H"/coder-proof/* ]]
-holds $? "bin/kalandra holder with dir, type and session is the hook's holder coder-proof: $AH"
+AH="$(fire holder coder-opus --dir "$repo" --session proof-s1 2>/dev/null)" || AH=""
+KH="$(K holder "{\"dir\":\"$repo\",\"type\":\"coder-opus\",\"session\":\"proof-s1\"}")" || KH=""
+[[ -n "$AH" && "$AH" == "$KH" && "$AH" == "$H"/coder-opus/* ]]
+holds $? "bin/kalandra holder with dir, type and session is the hook's holder coder-opus: $AH"
 expect 0 "keep checkpoint edge-proof/w" K keep '{"project":"edge-proof","handle":"w","kind":"checkpoint","title":"Agent checkpoint","body":"## Goal\n\nagent-text-1","parent":"edge-proof/m"}'
-expect 0 "claim edge-proof/w as coder for $AH" K claim "{\"key\":\"edge-proof/w\",\"role\":\"coder\",\"holder\":\"$AH\"}"
-sub="$(payload proof-s1 SubagentStart | jq -c '. + {agent_id: "proof-a1", agent_type: "coder-proof"}')"
+expect 0 "a coder-opus agent's holder claims edge-proof/w as coder: $AH" K claim "{\"key\":\"edge-proof/w\",\"role\":\"coder\",\"holder\":\"$AH\"}"
+sub="$(payload proof-s1 SubagentStart | jq -c '. + {agent_id: "proof-a1", agent_type: "coder-opus"}')"
 actx="$(fire brief <<<"$sub" | jq -r '.hookSpecificOutput.additionalContext // empty')" || actx=""
 grep -q "agent-text-1" <<<"$actx" && ! grep -q "note-text-2" <<<"$actx"
 holds $? "the hook's brief at SubagentStart holds the agent's claimed checkpoint, not the session's note"
