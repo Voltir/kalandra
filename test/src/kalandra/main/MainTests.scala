@@ -122,6 +122,35 @@ object MainTests extends TestSuite {
       )
     }
 
+    test("kalandra opens grit_kalandra, and a database whose name starts grit_kalandra_") {
+      def opened(url: String) =
+        Main.environment(keys + ("GRIT_DATABASE_URL" -> url)).map(_.get("GRIT_DATABASE_URL"))
+      (
+        Main.environment(keys).map(_.get("GRIT_DATABASE_URL")),
+        opened("jdbc:postgresql://localhost:5432/grit_kalandra_e7"),
+        opened("jdbc:postgresql://h/grit_kalandra_e7?currentSchema=grit")
+      ) ==> (
+        Right(Some("jdbc:postgresql://localhost:5432/grit_kalandra")),
+        Right(Some("jdbc:postgresql://localhost:5432/grit_kalandra_e7")),
+        Right(Some("jdbc:postgresql://h/grit_kalandra_e7?currentSchema=grit"))
+      )
+    }
+
+    test("any other database is refused by its name alone, the refusal stating the rule") {
+      def refusal(url: String) =
+        Main.environment(keys + ("GRIT_DATABASE_URL" -> url)).left.toOption
+      def rule(name: String) = Some(
+        s"GRIT_DATABASE_URL names $name; kalandra opens grit_kalandra, or a database whose name starts grit_kalandra_"
+      )
+      (
+        refusal("jdbc:postgresql://localhost:5432/grit"),
+        refusal("jdbc:postgresql://localhost:5432/grit_kalandrax"),
+        refusal("jdbc:postgresql://localhost:5432/kalandra"),
+        refusal("jdbc:postgresql://localhost:5432/"),
+        refusal("jdbc:postgresql://localhost:5432/grit?options=grit_kalandra_e7")
+      ) ==> (rule("grit"), rule("grit_kalandrax"), rule("kalandra"), rule(""), rule("grit"))
+    }
+
     test(
       "a command that runs turns refuses an environment without Anthropic's key, rather than answer with the stub"
     ) {
@@ -141,7 +170,9 @@ object MainTests extends TestSuite {
         .deployment(dir, KalandraTests.Listening, KalandraTests.Calling)
         .fold(sys.error, identity)
       val env = Main
-        .environment(keys - "JEV_API_KEY" + ("GRIT_DATABASE_URL" -> "jdbc:postgresql://h/k"))
+        .environment(
+          keys - "JEV_API_KEY" + ("GRIT_DATABASE_URL" -> "jdbc:postgresql://h/grit_kalandra_k")
+        )
         .fold(sys.error, identity)
       Secrets
         .of(env, kalandra)

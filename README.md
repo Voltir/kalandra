@@ -24,8 +24,8 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   and the account alone is cleared for internal. Every other room is unmapped, so a command
   run anywhere else would read public rows alone.
 - **No model.** It passes no model's key to the kit, so nothing it serves can spend.
-- **Its database** is `grit_kalandra` (`GRIT_DATABASE_URL`); it refuses to open `grit` or
-  `grit_bort`. Unlike grit's test databases it is durable: never reset or drop it.
+- **Its database** is `grit_kalandra` (`GRIT_DATABASE_URL`); it opens that, or a database
+  whose name starts `grit_kalandra_` (a proof's copy, a restore), and refuses any other. Unlike grit's test databases it is durable: never reset or drop it.
 - **Its edge, `commands`**: grit's commands edge (ADR 0062), mounted by `kalandra.edge.Mount`
   on `KALANDRA_LISTEN` (`host:port` on loopback, default `127.0.0.1:7317`). Every request bears a
   credential, and is refused (401) without one serve knows. There are two, both the account's on

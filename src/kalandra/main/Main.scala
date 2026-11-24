@@ -25,8 +25,8 @@ import kalandra.edge.Mount
   * [conversation-id]`, what a conversation's model calls read from and wrote to the cache
   * (the chat's, with no id); `kalandra work [--dry] <file>`, a proposal, [[Proposer]]; `kalandra amendments
   * <directory>`, [[Amendments]]; `kalandra export`, [[Export]], through a running serve. It reads the environment alone: `GRIT_DATABASE_URL` (default
-  * [[Main.DefaultDatabase]]; a URL naming another deployment's database, `grit`
-  * or `grit_bort`, is refused) and `KALANDRA_CHECKOUT`, the grit checkout its
+  * [[Main.DefaultDatabase]]; kalandra opens `grit_kalandra`, or a database whose name starts
+  * `grit_kalandra_`, and refuses any other, [[Main.environment]]) and `KALANDRA_CHECKOUT`, the grit checkout its
   * room is (default `$HOME/Projects/grit`); and `KALANDRA_LISTEN`, where serve's edge listens and
   * where the commands that go through a running serve reach it ([[Mount.listening]]). `serve`
   * and `chat` run turns: each needs
@@ -46,13 +46,11 @@ object Main {
       .map(in => scala.util.Using.resource(in)(i => new String(i.readAllBytes(), "UTF-8")).trim)
       .getOrElse("unknown")
 
-  /** `jdbc:postgresql://localhost:5432/grit_kalandra`. */
-  val DefaultDatabase: String = "jdbc:postgresql://localhost:5432/grit_kalandra"
+  /** kalandra's database's name, and, followed by `_`, how each other it opens begins. */
+  private val Own: String = "grit_kalandra"
 
-  /** The databases kalandra never opens: the operator's own and another
-    * deployment's.
-    */
-  val Refused: Set[String] = Set("grit", "grit_bort")
+  /** `jdbc:postgresql://localhost:5432/grit_kalandra`. */
+  val DefaultDatabase: String = s"jdbc:postgresql://localhost:5432/$Own"
 
   /** OpenRouter's key, removed before the kit reads the environment: every pair kalandra calls
     * is at Anthropic's API.
@@ -78,16 +76,20 @@ object Main {
     case _ => failure.message
   }
 
-  /** `env` as the kit is given it, or why not. */
+  /** `env` as the kit is given it, or why not: `GRIT_DATABASE_URL` names a database other than
+    * `grit_kalandra` or one whose name starts `grit_kalandra_`, judged by the name before any
+    * `?` of parameters.
+    */
   def environment(
       env: Map[String, String]
   ): Either[String, Map[String, String]] = {
     val url = env.getOrElse("GRIT_DATABASE_URL", DefaultDatabase)
-    val database = url.takeWhile(_ != '?').split('/').lastOption.getOrElse("")
+    val path = url.takeWhile(_ != '?')
+    val database = path.substring(path.lastIndexOf('/') + 1)
     Either.cond(
-      !Refused.contains(database),
+      database == Own || database.startsWith(s"${Own}_"),
       env.removedAll(Unread) + ("GRIT_DATABASE_URL" -> url),
-      s"GRIT_DATABASE_URL names $database, which kalandra never opens"
+      s"GRIT_DATABASE_URL names $database; kalandra opens $Own, or a database whose name starts ${Own}_"
     )
   }
 
