@@ -66,7 +66,10 @@
           "milestone",
           "plan"
         ]
-      }
+      },
+      "releases": [
+        "review"
+      ]
     },
     {
       "name": "spike",
@@ -393,7 +396,7 @@
       "to": "ready",
       "checks": [
         "sections-present",
-        "predecessor-ended"
+        "predecessor-released"
       ],
       "action": {
         "kind": "nothing"
@@ -485,7 +488,9 @@
       "kind": "spike",
       "from": "running",
       "to": "found",
-      "checks": [],
+      "checks": [
+        "children-ended"
+      ],
       "action": {
         "kind": "nothing"
       }
@@ -735,7 +740,7 @@
       "version": 1
     },
     {
-      "name": "predecessor-ended",
+      "name": "predecessor-released",
       "version": 1
     },
     {
@@ -2254,7 +2259,7 @@
       ]
     },
     {
-      "name": "a checkpoint is refused ready until the checkpoint ranked before it under its parent has ended, review not ending it",
+      "name": "a checkpoint is refused ready while the checkpoint ranked before it under its parent is planned, ready or building",
       "start": {
         "key": "p",
         "pin": {
@@ -2269,7 +2274,7 @@
               "handle": "section-1",
               "kind": "section",
               "state": "current",
-              "title": "a checkpoint is refused ready until the checkpoint ranked before it under its parent has ended, review not ending it",
+              "title": "a checkpoint is refused ready while the checkpoint ranked before it under its parent is planned, ready or building",
               "parent": null,
               "rank": "n",
               "cites": [],
@@ -2296,7 +2301,7 @@
               "handle": "milestone-1",
               "kind": "milestone",
               "state": "now",
-              "title": "a checkpoint is refused ready until the checkpoint ranked before it under its parent has ended, review not ending it",
+              "title": "a checkpoint is refused ready while the checkpoint ranked before it under its parent is planned, ready or building",
               "parent": "p/1",
               "rank": "n",
               "cites": [],
@@ -2323,7 +2328,7 @@
               "handle": "checkpoint-3",
               "kind": "checkpoint",
               "state": "planned",
-              "title": "a checkpoint is refused ready until the checkpoint ranked before it under its parent has ended, review not ending it",
+              "title": "a checkpoint is refused ready while the checkpoint ranked before it under its parent is planned, ready or building",
               "parent": "p/2",
               "rank": "d",
               "cites": [],
@@ -2410,7 +2415,7 @@
               "handle": "checkpoint-4",
               "kind": "checkpoint",
               "state": "planned",
-              "title": "a checkpoint is refused ready until the checkpoint ranked before it under its parent has ended, review not ending it",
+              "title": "a checkpoint is refused ready while the checkpoint ranked before it under its parent is planned, ready or building",
               "parent": "p/2",
               "rank": "m",
               "cites": [],
@@ -2499,7 +2504,7 @@
           "to": "ready",
           "expect": {
             "kind": "refused-by",
-            "check": "predecessor-ended"
+            "check": "predecessor-released"
           }
         },
         {
@@ -2514,7 +2519,7 @@
           "to": "ready",
           "expect": {
             "kind": "refused-by",
-            "check": "predecessor-ended"
+            "check": "predecessor-released"
           }
         },
         {
@@ -2525,27 +2530,506 @@
           }
         },
         {
-          "key": "p/3",
-          "to": "review",
-          "expect": {
-            "kind": "allowed"
-          }
-        },
-        {
           "key": "p/4",
           "to": "ready",
           "expect": {
             "kind": "refused-by",
-            "check": "predecessor-ended"
+            "check": "predecessor-released"
           }
+        }
+      ]
+    },
+    {
+      "name": "a checkpoint ranked after a merged one becomes ready",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
         },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "section-1",
+              "kind": "section",
+              "state": "current",
+              "title": "a checkpoint ranked after a merged one becomes ready",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/2",
+              "handle": "milestone-1",
+              "kind": "milestone",
+              "state": "now",
+              "title": "a checkpoint ranked after a merged one becomes ready",
+              "parent": "p/1",
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/3",
+              "handle": "checkpoint-3",
+              "kind": "checkpoint",
+              "state": "merged",
+              "title": "a checkpoint ranked after a merged one becomes ready",
+              "parent": "p/2",
+              "rank": "d",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Goal"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Goal says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Signatures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Signatures says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Reads"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Reads says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Commits"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Commits says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/4",
+              "handle": "checkpoint-4",
+              "kind": "checkpoint",
+              "state": "planned",
+              "title": "a checkpoint ranked after a merged one becomes ready",
+              "parent": "p/2",
+              "rank": "m",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Goal"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Goal says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Signatures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Signatures says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Reads"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Reads says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Commits"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Commits says."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
         {
-          "key": "p/3",
-          "to": "merged",
+          "key": "p/4",
+          "to": "ready",
           "expect": {
             "kind": "allowed"
           }
+        }
+      ]
+    },
+    {
+      "name": "a checkpoint ranked after one in review becomes ready",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
         },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "section-1",
+              "kind": "section",
+              "state": "current",
+              "title": "a checkpoint ranked after one in review becomes ready",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/2",
+              "handle": "milestone-1",
+              "kind": "milestone",
+              "state": "now",
+              "title": "a checkpoint ranked after one in review becomes ready",
+              "parent": "p/1",
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/3",
+              "handle": "checkpoint-3",
+              "kind": "checkpoint",
+              "state": "review",
+              "title": "a checkpoint ranked after one in review becomes ready",
+              "parent": "p/2",
+              "rank": "d",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Goal"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Goal says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Signatures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Signatures says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Reads"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Reads says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Commits"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Commits says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/4",
+              "handle": "checkpoint-4",
+              "kind": "checkpoint",
+              "state": "planned",
+              "title": "a checkpoint ranked after one in review becomes ready",
+              "parent": "p/2",
+              "rank": "m",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Goal"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Goal says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Signatures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Signatures says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Reads"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Reads says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Commits"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Commits says."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
         {
           "key": "p/4",
           "to": "ready",
@@ -2801,7 +3285,7 @@
           "to": "ready",
           "expect": {
             "kind": "refused-by",
-            "check": "predecessor-ended"
+            "check": "predecessor-released"
           }
         },
         {
@@ -3294,6 +3778,177 @@
         {
           "key": "p/4",
           "to": "found",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/3",
+          "to": "found",
+          "expect": {
+            "kind": "allowed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a spike with an open child is refused found until the child has ended",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "section-1",
+              "kind": "section",
+              "state": "current",
+              "title": "a spike with an open child is refused found until the child has ended",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/2",
+              "handle": "milestone-1",
+              "kind": "milestone",
+              "state": "now",
+              "title": "a spike with an open child is refused found until the child has ended",
+              "parent": "p/1",
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/3",
+              "handle": "spike-3",
+              "kind": "spike",
+              "state": "running",
+              "title": "a spike with an open child is refused found until the child has ended",
+              "parent": "p/2",
+              "rank": "d",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Question"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Question says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Measures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Measures says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/4",
+              "handle": "note-4",
+              "kind": "note",
+              "state": "open",
+              "title": "a spike with an open child is refused found until the child has ended",
+              "parent": "p/3",
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/3",
+          "to": "found",
+          "expect": {
+            "kind": "refused-by",
+            "check": "children-ended"
+          }
+        },
+        {
+          "key": "p/4",
+          "to": "folded",
           "expect": {
             "kind": "allowed"
           }

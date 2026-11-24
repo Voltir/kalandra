@@ -94,8 +94,8 @@ object GritMethodTests extends TestSuite {
           "c334283c23b92f97a54dfc76648330355fc15b859be5bcc80f2d7507743097dc",
           "62e5060307938afd04b824a1884b11d3271eed1870a3fe651a91b7cf337881ae",
           "ed1eb1a7a1ff85aabe16f872c8f180f7d22193c176350bbf4a76d47afce595ab",
-          "028ce856112bd34443614368d962402cebf9cb27e8d0f8ce3cbe283cc7fe5232"
-        ).zip(MethodFiles.Versions.zip(Vector(0, 0, 0, 5, 5, 8, 8, 8, 13)))
+          "3927e97b75e9149d12de9a7df77fbd506a8cb2c9e5cfca388e36f3919e3d9f41"
+        ).zip(MethodFiles.Versions.zip(Vector(0, 0, 0, 5, 5, 8, 8, 8, 16)))
           .map { case (pin, (v, examples)) => Right((Grit.Name, v, Vector(), examples, pin)) },
         true
       )
@@ -418,7 +418,7 @@ object GritMethodTests extends TestSuite {
     }
 
     test(
-      "version 9 is version 8 with a checkpoint ready only once those ranked before it have ended, and a kind spike that waits on nothing"
+      "version 9 is version 8 with a checkpoint ready only once those ranked before it are in review or ended, and a kind spike that waits on nothing"
     ) {
       val (v8, v9) = (filed(8), filed(9))
       val checkpoint = right(KindName.of("checkpoint"))
@@ -426,11 +426,11 @@ object GritMethodTests extends TestSuite {
       def moves(m: Method, kind: KindName) = m.transitions
         .filter(_.kind == kind)
         .map(t => s"${t.from}->${t.to} [${t.checks.mkString(",")}] ${t.movers}")
-      // What version 9 leaves as version 8 had it: every other kind and move, and each view but
-      // for spike among its kinds.
+      // What version 9 leaves as version 8 had it: every other kind (checkpoint but for what it
+      // releases) and move, and each view but for spike among its kinds.
       def bare(m: Method) = (
         m.name,
-        m.kinds.filterNot(_.name == spike),
+        m.kinds.filterNot(_.name == spike).map(_.copy(releases = Set.empty)),
         m.transitions.filterNot(t => t.kind == spike || t.kind == checkpoint),
         m.views.map(v =>
           (v.role, v.kinds - spike, v.depth, v.carried, v.covers, v.holders, v.claimedIn)
@@ -441,6 +441,9 @@ object GritMethodTests extends TestSuite {
         (
           m.version,
           m.kinds.find(_.name == spike).map(k => (k.all.map(StateName.value), k.sections)),
+          m.kinds
+            .map(k => KindName.value(k.name) -> k.releases.map(StateName.value))
+            .filter(_._2.nonEmpty),
           moves(m, checkpoint),
           moves(m, spike),
           m.views.filter(_.kinds.contains(spike)).map(v => RoleName.value(v.role)),
@@ -459,8 +462,9 @@ object GritMethodTests extends TestSuite {
               Vector("Question", "Measures")
             )
           ),
+          Vector("checkpoint" -> Set("review")),
           Vector(
-            "planned->ready [sections-present,predecessor-ended] Anyone",
+            "planned->ready [sections-present,predecessor-released] Anyone",
             "ready->building [] Anyone",
             "building->review [] Anyone",
             "review->building [] Anyone",
@@ -471,7 +475,7 @@ object GritMethodTests extends TestSuite {
           ),
           Vector(
             "planned->running [sections-present] Anyone",
-            "running->found [] Anyone",
+            "running->found [children-ended] Anyone",
             "planned->dropped [children-ended] Anyone",
             "running->dropped [children-ended] Anyone"
           ),
@@ -480,17 +484,20 @@ object GritMethodTests extends TestSuite {
             "children-ended",
             "decided-adopt",
             "decided-reject",
-            "predecessor-ended",
+            "predecessor-released",
             "sections-present"
           ),
           true,
           Vector(),
           true,
           Vector(
-            "a checkpoint is refused ready until the checkpoint ranked before it under its parent has ended, review not ending it",
+            "a checkpoint is refused ready while the checkpoint ranked before it under its parent is planned, ready or building",
+            "a checkpoint ranked after a merged one becomes ready",
+            "a checkpoint ranked after one in review becomes ready",
             "a checkpoint ranked after a dropped one becomes ready",
             "a checkpoint is not held by one under another parent, though ranked before it",
             "two spikes under one milestone run at once, and each ends in its finding",
+            "a spike with an open child is refused found until the child has ended",
             "a checkpoint is not held by a spike ranked before it, nor a spike by a checkpoint"
           )
         )
@@ -498,7 +505,7 @@ object GritMethodTests extends TestSuite {
     }
 
     test(
-      "version 9 refuses a checkpoint ready while the one ranked before it is planned or in review, naming it and its state"
+      "version 9 refuses a checkpoint ready while the one ranked before it is planned or building, naming it and its state"
     ) {
       val checkpoint = right(KindName.of("checkpoint"))
       val (third, fourth) = (right(ArtifactKey.read("p/3")), right(ArtifactKey.read("p/4")))
@@ -516,19 +523,19 @@ object GritMethodTests extends TestSuite {
         val start = d.examples.lift(8).fold(Vector.empty[Artifact])(_.start.artifacts)
         (
           words(d.method, start),
-          words(d.method, at(start, "review")),
+          words(d.method, at(start, "building")),
           start.filter(_.head.kind == checkpoint).map(_.head.key.value)
         )
       } ==> Right(
         (
           Right(
             Vector(
-              "predecessor-ended" -> "listed before it and not ended yet: p/3 checkpoint-3 (planned)"
+              "predecessor-released" -> "listed before it and still holding it: p/3 checkpoint-3 (planned)"
             )
           ),
           Right(
             Vector(
-              "predecessor-ended" -> "listed before it and not ended yet: p/3 checkpoint-3 (review)"
+              "predecessor-released" -> "listed before it and still holding it: p/3 checkpoint-3 (building)"
             )
           ),
           Vector("p/3", "p/4")
