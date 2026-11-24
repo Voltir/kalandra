@@ -95,7 +95,7 @@ object GritMethodTests extends TestSuite {
           "62e5060307938afd04b824a1884b11d3271eed1870a3fe651a91b7cf337881ae",
           "ed1eb1a7a1ff85aabe16f872c8f180f7d22193c176350bbf4a76d47afce595ab",
           "3927e97b75e9149d12de9a7df77fbd506a8cb2c9e5cfca388e36f3919e3d9f41"
-        ).zip(MethodFiles.Versions.zip(Vector(0, 0, 0, 5, 5, 8, 8, 8, 16)))
+        ).zip(MethodFiles.Versions.zip(Vector(0, 0, 0, 5, 5, 8, 8, 8, 20)))
           .map { case (pin, (v, examples)) => Right((Grit.Name, v, Vector(), examples, pin)) },
         true
       )
@@ -494,9 +494,13 @@ object GritMethodTests extends TestSuite {
             "a checkpoint is refused ready while the checkpoint ranked before it under its parent is planned, ready or building",
             "a checkpoint ranked after a merged one becomes ready",
             "a checkpoint ranked after one in review becomes ready",
+            "a checkpoint that became ready while the one before it was in review is not held back when that one returns to building",
+            "a checkpoint is held by the first of three, though the one between them has merged",
             "a checkpoint ranked after a dropped one becomes ready",
             "a checkpoint is not held by one under another parent, though ranked before it",
             "two spikes under one milestone run at once, and each ends in its finding",
+            "a spike lacking its Measures is refused running",
+            "a spike under a plan runs, and is dropped from running",
             "a spike with an open child is refused found until the child has ended",
             "a checkpoint is not held by a spike ranked before it, nor a spike by a checkpoint"
           )
@@ -520,7 +524,11 @@ object GritMethodTests extends TestSuite {
         else a
       )
       filed(9).map { d =>
-        val start = d.examples.lift(8).fold(Vector.empty[Artifact])(_.start.artifacts)
+        val start = d.examples
+          .find(
+            _.name == "a checkpoint is refused ready while the checkpoint ranked before it under its parent is planned, ready or building"
+          )
+          .fold(Vector.empty[Artifact])(_.start.artifacts)
         (
           words(d.method, start),
           words(d.method, at(start, "building")),

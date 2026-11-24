@@ -3040,6 +3040,622 @@
       ]
     },
     {
+      "name": "a checkpoint that became ready while the one before it was in review is not held back when that one returns to building",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "section-1",
+              "kind": "section",
+              "state": "current",
+              "title": "a checkpoint that became ready while the one before it was in review is not held back when that one returns to building",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/2",
+              "handle": "milestone-1",
+              "kind": "milestone",
+              "state": "now",
+              "title": "a checkpoint that became ready while the one before it was in review is not held back when that one returns to building",
+              "parent": "p/1",
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/3",
+              "handle": "checkpoint-3",
+              "kind": "checkpoint",
+              "state": "review",
+              "title": "a checkpoint that became ready while the one before it was in review is not held back when that one returns to building",
+              "parent": "p/2",
+              "rank": "d",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Goal"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Goal says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Signatures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Signatures says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Reads"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Reads says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Commits"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Commits says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/4",
+              "handle": "checkpoint-4",
+              "kind": "checkpoint",
+              "state": "planned",
+              "title": "a checkpoint that became ready while the one before it was in review is not held back when that one returns to building",
+              "parent": "p/2",
+              "rank": "m",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Goal"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Goal says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Signatures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Signatures says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Reads"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Reads says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Commits"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Commits says."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/4",
+          "to": "ready",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/3",
+          "to": "building",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/4",
+          "to": "building",
+          "expect": {
+            "kind": "allowed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a checkpoint is held by the first of three, though the one between them has merged",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "section-1",
+              "kind": "section",
+              "state": "current",
+              "title": "a checkpoint is held by the first of three, though the one between them has merged",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/2",
+              "handle": "milestone-1",
+              "kind": "milestone",
+              "state": "now",
+              "title": "a checkpoint is held by the first of three, though the one between them has merged",
+              "parent": "p/1",
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/3",
+              "handle": "checkpoint-3",
+              "kind": "checkpoint",
+              "state": "planned",
+              "title": "a checkpoint is held by the first of three, though the one between them has merged",
+              "parent": "p/2",
+              "rank": "d",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Goal"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Goal says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Signatures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Signatures says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Reads"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Reads says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Commits"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Commits says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/4",
+              "handle": "checkpoint-4",
+              "kind": "checkpoint",
+              "state": "merged",
+              "title": "a checkpoint is held by the first of three, though the one between them has merged",
+              "parent": "p/2",
+              "rank": "h",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Goal"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Goal says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Signatures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Signatures says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Reads"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Reads says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Commits"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Commits says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/5",
+              "handle": "checkpoint-5",
+              "kind": "checkpoint",
+              "state": "planned",
+              "title": "a checkpoint is held by the first of three, though the one between them has merged",
+              "parent": "p/2",
+              "rank": "m",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Goal"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Goal says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Signatures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Signatures says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Reads"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Reads says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Commits"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Commits says."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/5",
+          "to": "ready",
+          "expect": {
+            "kind": "refused-by",
+            "check": "predecessor-released"
+          }
+        },
+        {
+          "key": "p/3",
+          "to": "dropped",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/5",
+          "to": "ready",
+          "expect": {
+            "kind": "allowed"
+          }
+        }
+      ]
+    },
+    {
       "name": "a checkpoint ranked after a dropped one becomes ready",
       "start": {
         "key": "p",
@@ -3785,6 +4401,282 @@
         {
           "key": "p/3",
           "to": "found",
+          "expect": {
+            "kind": "allowed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a spike lacking its Measures is refused running",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "section-1",
+              "kind": "section",
+              "state": "current",
+              "title": "a spike lacking its Measures is refused running",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/2",
+              "handle": "milestone-1",
+              "kind": "milestone",
+              "state": "now",
+              "title": "a spike lacking its Measures is refused running",
+              "parent": "p/1",
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/3",
+              "handle": "spike-3",
+              "kind": "spike",
+              "state": "planned",
+              "title": "a spike lacking its Measures is refused running",
+              "parent": "p/2",
+              "rank": "d",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Question"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Question says."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/3",
+          "to": "running",
+          "expect": {
+            "kind": "refused-by",
+            "check": "sections-present"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a spike under a plan runs, and is dropped from running",
+      "start": {
+        "key": "p",
+        "pin": {
+          "method": "grit",
+          "version": 4,
+          "digest": "c590b3c924c35c2f241746522284e4709df490d73a38aaa7d6de4ed1eac2f546"
+        },
+        "artifacts": [
+          {
+            "head": {
+              "id": "p/1",
+              "handle": "section-1",
+              "kind": "section",
+              "state": "current",
+              "title": "a spike under a plan runs, and is dropped from running",
+              "parent": null,
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/2",
+              "handle": "milestone-1",
+              "kind": "milestone",
+              "state": "now",
+              "title": "a spike under a plan runs, and is dropped from running",
+              "parent": "p/1",
+              "rank": "n",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/3",
+              "handle": "plan-3",
+              "kind": "plan",
+              "state": "open",
+              "title": "a spike under a plan runs, and is dropped from running",
+              "parent": "p/2",
+              "rank": "b",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What it says."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "head": {
+              "id": "p/4",
+              "handle": "spike-4",
+              "kind": "spike",
+              "state": "planned",
+              "title": "a spike under a plan runs, and is dropped from running",
+              "parent": "p/3",
+              "rank": "m",
+              "cites": [],
+              "by": null
+            },
+            "body": {
+              "v": 1,
+              "notes": [],
+              "blocks": [
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Question"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Question says."
+                    }
+                  ]
+                },
+                {
+                  "type": "heading",
+                  "level": 2,
+                  "text": [
+                    {
+                      "t": "Measures"
+                    }
+                  ]
+                },
+                {
+                  "type": "para",
+                  "text": [
+                    {
+                      "t": "What its Measures says."
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "moves": [
+        {
+          "key": "p/4",
+          "to": "running",
+          "expect": {
+            "kind": "allowed"
+          }
+        },
+        {
+          "key": "p/4",
+          "to": "dropped",
           "expect": {
             "kind": "allowed"
           }
