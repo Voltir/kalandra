@@ -20,3 +20,4 @@ developer-driven harnesses. kalandra is the first one run that way.
 
 It calls no model, so it spends nothing. Building, running and backing it up:
 [docs/operating.md](docs/operating.md).
+<!-- W7 probe: this pull request is closed unmerged. -->
