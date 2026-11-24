@@ -73,8 +73,9 @@ of grit's commands edge, kalandra's own commands, and the client) →
 ## Build and run
 
 ```bash
-# grit is published once per version, from its tag (grit's scripts/publish-local refuses a
-# version already published); build.mill pins the version. Here:
+# A release is published once, from its tag; a snapshot is published again from grit's main by
+# scripts/publish-local, and must be published on this machine before the first build. build.mill
+# pins the version. Here:
 ./mill compile
 ./mill test
 KALANDRA_LINT=1 MILL_OUTPUT_DIR=out/lint ./mill __.compile   # the unused-warnings pass
