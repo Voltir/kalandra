@@ -11,6 +11,7 @@ import grit.projects.method.{
   MethodBench,
   MethodJson,
   Migrated,
+  MoveRefusal,
   Mover,
   Nesting,
   Remap
@@ -67,8 +68,8 @@ object GritMethodTests extends TestSuite {
 
   val tests = Tests {
     test("each version's file is the method its project pinned, with its worked examples whole") {
-      // Versions 1 to 7 are the pins grit_kalandra's projects held or hold (restore-check
-      // version 1, grit the rest), and 8 the next. The digest leaves the examples out, so their
+      // Versions 1 to 8 are the pins grit_kalandra's projects held or hold (restore-check
+      // version 1, grit the rest), and 9 the next. The digest leaves the examples out, so their
       // count is pinned beside it.
       (
         MethodFiles.Versions.map(v =>
@@ -92,8 +93,9 @@ object GritMethodTests extends TestSuite {
           "243738553f2f7368af940d5593ee7c2ac49cc9f3b66eeea85588854e3ba7b7cd",
           "c334283c23b92f97a54dfc76648330355fc15b859be5bcc80f2d7507743097dc",
           "62e5060307938afd04b824a1884b11d3271eed1870a3fe651a91b7cf337881ae",
-          "ed1eb1a7a1ff85aabe16f872c8f180f7d22193c176350bbf4a76d47afce595ab"
-        ).zip(MethodFiles.Versions.zip(Vector(0, 0, 0, 5, 5, 8, 8, 8)))
+          "ed1eb1a7a1ff85aabe16f872c8f180f7d22193c176350bbf4a76d47afce595ab",
+          "028ce856112bd34443614368d962402cebf9cb27e8d0f8ce3cbe283cc7fe5232"
+        ).zip(MethodFiles.Versions.zip(Vector(0, 0, 0, 5, 5, 8, 8, 8, 13)))
           .map { case (pin, (v, examples)) => Right((Grit.Name, v, Vector(), examples, pin)) },
         true
       )
@@ -411,6 +413,125 @@ object GritMethodTests extends TestSuite {
           "reviewer" -> Map.empty[String, Set[String]],
           "grit-coder" -> Map.empty[String, Set[String]],
           "lander" -> Map.empty[String, Set[String]]
+        )
+      )
+    }
+
+    test(
+      "version 9 is version 8 with a checkpoint ready only once those ranked before it have ended, and a kind spike that waits on nothing"
+    ) {
+      val (v8, v9) = (filed(8), filed(9))
+      val checkpoint = right(KindName.of("checkpoint"))
+      val spike = right(KindName.of("spike"))
+      def moves(m: Method, kind: KindName) = m.transitions
+        .filter(_.kind == kind)
+        .map(t => s"${t.from}->${t.to} [${t.checks.mkString(",")}] ${t.movers}")
+      // What version 9 leaves as version 8 had it: every other kind and move, and each view but
+      // for spike among its kinds.
+      def bare(m: Method) = (
+        m.name,
+        m.kinds.filterNot(_.name == spike),
+        m.transitions.filterNot(t => t.kind == spike || t.kind == checkpoint),
+        m.views.map(v =>
+          (v.role, v.kinds - spike, v.depth, v.carried, v.covers, v.holders, v.claimedIn)
+        )
+      )
+      (for { d8 <- v8; d9 <- v9 } yield {
+        val m = d9.method
+        (
+          m.version,
+          m.kinds.find(_.name == spike).map(k => (k.all.map(StateName.value), k.sections)),
+          moves(m, checkpoint),
+          moves(m, spike),
+          m.views.filter(_.kinds.contains(spike)).map(v => RoleName.value(v.role)),
+          m.checks.map(c => CheckName.value(c.name)),
+          bare(m) == bare(d8.method),
+          MethodBench.failures(m, d9.examples),
+          d9.examples.take(d8.examples.size) == d8.examples,
+          d9.examples.drop(d8.examples.size).map(_.name)
+        )
+      }) ==> Right(
+        (
+          9,
+          Some(
+            (
+              Vector("planned", "running", "found", "dropped"),
+              Vector("Question", "Measures")
+            )
+          ),
+          Vector(
+            "planned->ready [sections-present,predecessor-ended] Anyone",
+            "ready->building [] Anyone",
+            "building->review [] Anyone",
+            "review->building [] Anyone",
+            "review->merged [children-ended] Anyone",
+            "planned->dropped [children-ended] Anyone",
+            "ready->dropped [children-ended] Anyone",
+            "building->dropped [children-ended] Anyone"
+          ),
+          Vector(
+            "planned->running [sections-present] Anyone",
+            "running->found [] Anyone",
+            "planned->dropped [children-ended] Anyone",
+            "running->dropped [children-ended] Anyone"
+          ),
+          Vector("coder", "manager", "reviewer", "grit-coder"),
+          Vector(
+            "children-ended",
+            "decided-adopt",
+            "decided-reject",
+            "predecessor-ended",
+            "sections-present"
+          ),
+          true,
+          Vector(),
+          true,
+          Vector(
+            "a checkpoint is refused ready until the checkpoint ranked before it under its parent has ended, review not ending it",
+            "a checkpoint ranked after a dropped one becomes ready",
+            "a checkpoint is not held by one under another parent, though ranked before it",
+            "two spikes under one milestone run at once, and each ends in its finding",
+            "a checkpoint is not held by a spike ranked before it, nor a spike by a checkpoint"
+          )
+        )
+      )
+    }
+
+    test(
+      "version 9 refuses a checkpoint ready while the one ranked before it is planned or in review, naming it and its state"
+    ) {
+      val checkpoint = right(KindName.of("checkpoint"))
+      val (third, fourth) = (right(ArtifactKey.read("p/3")), right(ArtifactKey.read("p/4")))
+      val ready = right(StateName.of("ready"))
+      def words(m: Method, as: Vector[Artifact]) = m.move(as, fourth, ready, Mover.Other) match {
+        case Left(MoveRefusal.Unheld(_, _, failed)) =>
+          Right(failed.map((c, why) => CheckName.value(c) -> why))
+        case other => Left(other.toString)
+      }
+      def at(as: Vector[Artifact], state: String) = as.map(a =>
+        if (a.head.key == third) Artifact(a.head.copy(state = right(StateName.of(state))), a.body)
+        else a
+      )
+      filed(9).map { d =>
+        val start = d.examples.lift(8).fold(Vector.empty[Artifact])(_.start.artifacts)
+        (
+          words(d.method, start),
+          words(d.method, at(start, "review")),
+          start.filter(_.head.kind == checkpoint).map(_.head.key.value)
+        )
+      } ==> Right(
+        (
+          Right(
+            Vector(
+              "predecessor-ended" -> "listed before it and not ended yet: p/3 checkpoint-3 (planned)"
+            )
+          ),
+          Right(
+            Vector(
+              "predecessor-ended" -> "listed before it and not ended yet: p/3 checkpoint-3 (review)"
+            )
+          ),
+          Vector("p/3", "p/4")
         )
       )
     }
