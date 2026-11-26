@@ -98,7 +98,8 @@ object Main {
     )
 
   /** kalandra's own checkout, the clone its coders work in, as `env` names it
-    * (`KALANDRA_REPOSITORY`, else `Projects/kalandra` in `HOME`), or why it is no directory.
+    * (`KALANDRA_REPOSITORY`, which `bin/kalandra` sets to the checkout it runs from; else
+    * `Projects/kalandra` in `HOME`), or why it is no directory.
     */
   def own(env: Map[String, String]): Either[String, Directory] =
     Directory.of(

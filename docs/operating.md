@@ -25,8 +25,8 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   run anywhere else would read public rows alone.
 - **Its models.** Its own turns run on Claude through Anthropic's API (`ANTHROPIC_API_KEY`), a day's
   spend capped. A turn may start a subagent (`kalandra.deployment.Kalandra.AgentTypes`): a coder in
-  `grit` (the checkout) or `kalandra` (its own checkout, `KALANDRA_REPOSITORY`, default
-  `$HOME/Projects/kalandra`), on GLM through OpenRouter (`OPENROUTER_API_KEY`), which works in a
+  `grit` (the checkout) or `kalandra` (its own checkout, `KALANDRA_REPOSITORY`, which `bin/kalandra`
+  sets to the checkout it runs from), on GLM through OpenRouter (`OPENROUTER_API_KEY`), which works in a
   worktree under `.claude/worktrees` in that clone and commits on its own `grit/*` branch, never
   pushing; or a specialist on Claude Haiku, offered no tool. Both repositories are labelled
   internal, and their files believed at most at member.

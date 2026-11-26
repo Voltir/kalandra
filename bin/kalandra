@@ -48,6 +48,8 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# kalandra's own clone, the repository its coders work in: this checkout, unless named.
+export KALANDRA_REPOSITORY="${KALANDRA_REPOSITORY:-$root}"
 jar="$root/out/assembly.dest/out.jar"
 java="${GRIT_JDK_HOME:-$HOME/.jdks/jdk-26.0.2}/bin/java"
 listen="${KALANDRA_LISTEN:-127.0.0.1:7317}"
