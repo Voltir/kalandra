@@ -23,7 +23,13 @@ as unseen deployment code: what grit keeps `private[grit]` is not visible here.
   checkout's directory (`KALANDRA_CHECKOUT`, default `$HOME/Projects/grit`), declared internal,
   and the account alone is cleared for internal. Every other room is unmapped, so a command
   run anywhere else would read public rows alone.
-- **No model.** It passes no model's key to the kit, so nothing it serves can spend.
+- **Its models.** Its own turns run on Claude through Anthropic's API (`ANTHROPIC_API_KEY`), a day's
+  spend capped. A turn may start a subagent (`kalandra.deployment.Kalandra.AgentTypes`): a coder in
+  `grit` (the checkout) or `kalandra` (its own checkout, `KALANDRA_REPOSITORY`, default
+  `$HOME/Projects/kalandra`), on GLM through OpenRouter (`OPENROUTER_API_KEY`), which works in a
+  worktree under `.claude/worktrees` in that clone and commits on its own `grit/*` branch, never
+  pushing; or a specialist on Claude Haiku, offered no tool. Both repositories are labelled
+  internal, and their files believed at most at member.
 - **Its database** is `grit_kalandra` (`GRIT_DATABASE_URL`); it opens that, or a database
   whose name starts `grit_kalandra_` (a proof's copy, a restore), and refuses any other. Unlike grit's test databases it is durable: never reset or drop it.
 - **Its edge, `commands`**: grit's commands edge (ADR 0062), mounted by `kalandra.edge.Mount`

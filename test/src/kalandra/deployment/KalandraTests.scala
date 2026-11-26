@@ -1,14 +1,15 @@
 package kalandra.deployment
 
 import grit.commands.caller.Callers
-import grit.core.id.{EdgeName, Sha256}
+import grit.core.host.Argv
+import grit.core.id.{AgentType, EdgeName, Sha256}
 import grit.core.identity.Account
 import grit.core.message.Tokens
-import grit.core.model.{ModelId, ModelRef, Upstream}
+import grit.core.model.{Effort, ModelId, ModelRef, Upstream}
 import grit.core.place.{Directory, Place}
 import grit.core.spend.DailyCap
 import grit.core.tool.ToolName
-import grit.core.visibility.{Label, Labelled, Party, Room}
+import grit.core.visibility.{Integrity, Label, Labelled, Party, Room}
 import grit.edge.http.Listen
 import grit.kit.deployment.{Assembly, DeploymentVersion, Offered, Placer}
 
@@ -34,8 +35,11 @@ object KalandraTests extends TestSuite {
   private val checkout: Directory =
     Directory.of("/home/someone/grit").fold(sys.error, identity)
 
+  /** kalandra's own checkout in a test. */
+  val Own: Directory = Directory.of("/home/someone/kalandra").fold(sys.error, identity)
+
   private lazy val kalandra =
-    Kalandra.deployment(checkout, Listening, Calling).fold(sys.error, identity)
+    Kalandra.deployment(checkout, Own, Listening, Calling).fold(sys.error, identity)
 
   private def direct(model: String): ModelRef =
     ModelRef(ModelId.of(model).getOrElse(sys.error(model)), Some(Upstream.AnthropicApi))
@@ -97,6 +101,74 @@ object KalandraTests extends TestSuite {
 
     test("serve's one edge is grit's commands edge, needing no variable") {
       kalandra.edges.map(e => (EdgeName.value(e.name), e.needs)) ==> Vector(("commands", Vector()))
+    }
+
+    test(
+      "serve hosts grit's checkout and kalandra's own as the repositories grit and kalandra, their worktrees under .claude/worktrees in each"
+    ) {
+      kalandra.repositories.map(r => (r.repository.name, r.at.toString, r.copies.toString)) ==>
+        Vector(
+          ("grit", "/home/someone/grit", "/home/someone/grit/.claude/worktrees"),
+          ("kalandra", "/home/someone/kalandra", "/home/someone/kalandra/.claude/worktrees")
+        )
+    }
+
+    test(
+      "a turn may start a coder in either repository on GLM 5.3 flash at z-ai/fp8 at medium effort, and a specialist on Claude Haiku 5.5"
+    ) {
+      kalandra.subagents.byType.values.toVector
+        .sortBy(s => AgentType.value(s.agent))
+        .map(s =>
+          (
+            AgentType.value(s.agent),
+            s.ladder.rungs.map(r => (r.assignment.ref.toString, r.assignment.effort)),
+            s.requires
+          )
+        ) ==> Vector(
+        (
+          "grit-coder",
+          Vector(("z-ai/glm-5.3-flash @ z-ai/fp8", Some(Effort.Medium))),
+          Integrity.WritesOut
+        ),
+        (
+          "kalandra-coder",
+          Vector(("z-ai/glm-5.3-flash @ z-ai/fp8", Some(Effort.Medium))),
+          Integrity.WritesOut
+        ),
+        (
+          "specialist",
+          Vector(("anthropic/claude-haiku-5-5 @ api.anthropic.com", None)),
+          Integrity.Member
+        )
+      )
+    }
+
+    test(
+      "a repository's files are labelled internal, as the checkout's room is, and believed at most at member's integrity"
+    ) {
+      Kalandra.Repositories.map(r =>
+        (
+          kalandra.visibility.rooms.label(Room(r.place, None)),
+          kalandra.visibility.capOf(r.place)
+        )
+      ) ==> Vector.fill(2)((Labelled.Mapped(Kalandra.Kept), Some(Integrity.Member)))
+    }
+
+    test("a coder runs git add, git commit and a build, never git config or a push") {
+      def argv(words: String*) = Argv.of(words.head, words.tail*).fold(sys.error, identity)
+      val grit = Kalandra.allowlist(Kalandra.GritRepository)
+      val own = Kalandra.allowlist(Kalandra.KalandraRepository)
+      (
+        Vector(
+          argv("git", "add", "src"),
+          argv("git", "commit", "-m", "x"),
+          argv("./mill", "kalandra.compile"),
+          argv("scripts/check", "grit.core.agenda.AgendaTests")
+        ).map(grit.permits),
+        Vector(argv("git", "config", "user.name", "x"), argv("git", "push"), argv("scripts/check"))
+          .map(grit.permits),
+        own.permits(argv("scripts/check", "x"))
+      ) ==> (Vector(true, true, true, true), Vector(false, false, false), false)
     }
 
     test("a proposer declares no schedules, no jobs and no edge") {

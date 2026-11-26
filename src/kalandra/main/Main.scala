@@ -52,11 +52,6 @@ object Main {
   /** `jdbc:postgresql://localhost:5432/grit_kalandra`. */
   val DefaultDatabase: String = s"jdbc:postgresql://localhost:5432/$Own"
 
-  /** OpenRouter's key, removed before the kit reads the environment: every pair kalandra calls
-    * is at Anthropic's API.
-    */
-  val Unread: Set[String] = Set("OPENROUTER_API_KEY")
-
   /** What a refusal over a missing or malformed key ends with: where the key goes. */
   val KeysHint: String = "kalandra reads its keys from .env in its checkout"
 
@@ -88,7 +83,7 @@ object Main {
     val database = path.substring(path.lastIndexOf('/') + 1)
     Either.cond(
       database == Own || database.startsWith(s"${Own}_"),
-      env.removedAll(Unread) + ("GRIT_DATABASE_URL" -> url),
+      env + ("GRIT_DATABASE_URL" -> url),
       s"GRIT_DATABASE_URL names $database; kalandra opens $Own, or a database whose name starts ${Own}_"
     )
   }
@@ -99,6 +94,17 @@ object Main {
       env.getOrElse(
         "KALANDRA_CHECKOUT",
         s"${env.getOrElse("HOME", "")}/Projects/grit"
+      )
+    )
+
+  /** kalandra's own checkout, the clone its coders work in, as `env` names it
+    * (`KALANDRA_REPOSITORY`, else `Projects/kalandra` in `HOME`), or why it is no directory.
+    */
+  def own(env: Map[String, String]): Either[String, Directory] =
+    Directory.of(
+      env.getOrElse(
+        "KALANDRA_REPOSITORY",
+        s"${env.getOrElse("HOME", "")}/Projects/kalandra"
       )
     )
 
@@ -135,7 +141,8 @@ object Main {
       dir <- checkout(env)
       at <- Mount.listening(env)
       callers <- Mount.callers(Kalandra.Owner, env)
-      kalandra <- Kalandra.deployment(dir, at, callers)
+      own <- own(env)
+      kalandra <- Kalandra.deployment(dir, own, at, callers)
       _ = System.err.println(s"[kalandra] grit $GritBuilt")
       _ <- Kit.serve(kalandra, env).left.map(said)
     } yield ()
@@ -153,7 +160,8 @@ object Main {
       dir <- checkout(env)
       at <- Mount.listening(env)
       callers <- Mount.callers(Kalandra.Owner, env)
-      kalandra <- Kalandra.deployment(dir, at, callers)
+      own <- own(env)
+      kalandra <- Kalandra.deployment(dir, own, at, callers)
       secrets <- Secrets.of(env, kalandra).left.map(r => said(KitFailure.Unconfigured(r)))
     } yield (dir, kalandra, secrets)
     // The capabilities are opened in matches, not a for: a for's closures would capture them.
@@ -210,7 +218,8 @@ object Main {
       dir <- checkout(env)
       at <- Mount.listening(env)
       callers <- Mount.callers(Kalandra.Owner, env)
-      kalandra <- Kalandra.deployment(dir, at, callers)
+      own <- own(env)
+      kalandra <- Kalandra.deployment(dir, own, at, callers)
       secrets <- Secrets.of(env, kalandra).left.map(r => said(KitFailure.Unconfigured(r)))
     } yield (dir, kalandra, secrets)
     read.flatMap { (dir, kalandra, secrets) =>

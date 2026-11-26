@@ -116,9 +116,9 @@ object MainTests extends TestSuite {
         .map(d => Proposer.within(root, dir(d)).isRight) ==> Vector(true, false, false)
     }
 
-    test("the kit is given Anthropic's and Jev's keys, never OpenRouter's") {
+    test("the kit is given Anthropic's, Jev's and OpenRouter's keys") {
       Main.environment(keys).map(_.keySet & keys.keySet) ==> Right(
-        Set("ANTHROPIC_API_KEY", "JEV_API_KEY")
+        Set("ANTHROPIC_API_KEY", "JEV_API_KEY", "OPENROUTER_API_KEY")
       )
     }
 
@@ -167,7 +167,7 @@ object MainTests extends TestSuite {
     test("a missing Jev key is refused, and the refusal says where kalandra reads its keys") {
       val dir = Directory.of("/home/someone/grit").fold(sys.error, identity)
       val kalandra = Kalandra
-        .deployment(dir, KalandraTests.Listening, KalandraTests.Calling)
+        .deployment(dir, KalandraTests.Own, KalandraTests.Listening, KalandraTests.Calling)
         .fold(sys.error, identity)
       val env = Main
         .environment(
